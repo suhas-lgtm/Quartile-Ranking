@@ -203,8 +203,13 @@ export interface RiskData {
 
 export type ScreenerParam =
   | 'beta' | 'relative_risk' | 'down_capture' | 'std_dev'
-  | 'returns' | 'relative_return' | 'alpha' | 'up_capture'
+  | 'returns' | 'relative_return' | 'alpha' | 'up_capture' | 'sharpe'
   | 'max_drawdown' | 'recovery_time' | 'active_share'
+
+/** Parameters measured once per ratio horizon (1Y / 3Y / 5Y). */
+export type ScreenerRatio =
+  | 'beta' | 'std_dev' | 'alpha' | 'sharpe' | 'up_capture' | 'down_capture'
+  | 'relative_risk' | 'relative_return'
 
 export interface BearStat {
   /** Point-to-point return over the bear period (decimal). */
@@ -217,19 +222,14 @@ export interface BearStat {
 export interface ScreenerFund {
   scheme_code: string
   scheme_name: string
-  /** Enough history to be ranked (min_history return and 3Y ratios). */
+  /** Has min_history of NAVs; younger funds are "newly launched" and unranked. */
   eligible: boolean
-  beta: number | null
-  std_dev: number | null
-  relative_risk: number | null
-  down_capture: number | null
-  alpha: number | null
-  up_capture: number | null
   returns: Record<string, number | null>
-  relative_returns: Record<string, number | null>
+  /** {ratio: {horizon: value}}; alpha and relative_return are decimals. */
+  ratios: Record<ScreenerRatio, Record<string, number | null>>
   /** One entry per bear period, null where the fund had not launched. */
   bear: (BearStat | null)[]
-  active_share: number | null
+  active_share: { uncommon_count: number; uncommon_weight: number; month: string } | null
   /** 0–100 per parameter within the category; null when not ranked. */
   scores: Record<ScreenerParam, number | null> | null
 }
@@ -241,12 +241,15 @@ export interface ScreenerData {
   benchmark: {
     name: string | null
     stale: boolean
-    std_dev: number | null
+    last_date: string | null
+    std_dev: Record<string, number | null>
     returns: Record<string, number | null>
   } | null
+  horizons: string[]
   periods: string[]
   bear_periods: { label: string; start: string; end: string }[]
   min_history: string
+  scoring: 'minmax' | 'percentile'
   default_weights: Record<ScreenerParam, number>
   funds: ScreenerFund[]
 }

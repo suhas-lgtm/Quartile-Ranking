@@ -291,21 +291,22 @@ def index_std_annual(
     conn: sqlite3.Connection,
     index_id: int,
     as_of: Optional[date] = None,
+    years: int = 3,
 ) -> Optional[float]:
     """
-    Annualised Std Dev of an index's month-end returns over the last 3 years —
+    Annualised Std Dev of an index's month-end returns over the last `years` —
     the same construction risk_metrics uses for a fund, so fund Std Dev divided
     by this is a like-for-like Relative Risk.
     """
     today = as_of or date.today()
-    start = _subtract_period(today, years=3)
+    start = _subtract_period(today, years=years)
     by_month: dict[str, tuple[str, float]] = {}
     for d, c in conn.execute(
             "SELECT date, close FROM index_history WHERE index_id=? AND date>=? "
             "AND date<=? ORDER BY date", (index_id, start.isoformat(), today.isoformat())):
         by_month[d[:7]] = (d, c)
     monthly = _monthly_returns_from_navs([by_month[k] for k in sorted(by_month)])
-    if len(monthly) < 30:
+    if len(monthly) < RISK_WINDOW_MIN_OBS.get(years, int(years * 12 * 0.83)):
         return None
     return statistics.stdev(monthly) * math.sqrt(12)
 
@@ -381,6 +382,7 @@ def detect_bear_periods(
 SCREENER_DIRECTION = {
     "beta": False, "relative_risk": False, "down_capture": False, "std_dev": False,
     "returns": True, "relative_return": True, "alpha": True, "up_capture": True,
+    "sharpe": True,
     "max_drawdown": True,      # a bear-period fall closer to 0 is better
     "recovery_time": False,
     "active_share": True,
@@ -404,43 +406,60 @@ def percentile_scores(values: list[Optional[float]], higher_better: bool) -> lis
     return [None if v is None else (1 - first_pos[v] / n) * 100 for v in values]
 
 
+def minmax_scores(values: list[Optional[float]], higher_better: bool) -> list[Optional[float]]:
+    """
+    0-100 by min-max normalisation within the list, the house method: the best
+    value scores 100, the worst 0, the rest in proportion to where they sit
+    between them. All-equal values score 100. None stays None.
+    """
+    elig = [v for v in values if v is not None]
+    if not elig:
+        return [None] * len(values)
+    lo, hi = min(elig), max(elig)
+    if hi == lo:
+        return [None if v is None else 100.0 for v in values]
+    out = []
+    for v in values:
+        if v is None:
+            out.append(None)
+        else:
+            x = (v - lo) / (hi - lo)
+            out.append((x if higher_better else 1 - x) * 100)
+    return out
+
+
 def _mean(xs: list[Optional[float]]) -> Optional[float]:
     xs = [x for x in xs if x is not None]
     return sum(xs) / len(xs) if xs else None
 
 
-def screener_parameter_scores(funds: list[dict], periods: list[str], n_bear: int) -> list[dict]:
+def screener_parameter_scores(parts_by_fund: list[dict[str, list[Optional[float]]]],
+                              method: str = "minmax") -> list[dict]:
     """
-    Score every parameter of the Whitelist Screener, 0-100 within the category.
+    Score every Whitelist Screener parameter 0-100 within the category.
 
-    Each fund dict carries raw values: beta, relative_risk, down_capture,
-    std_dev, alpha, up_capture, active_share (any may be None), returns and
-    relative_returns ({period: value}), and bear ([{fall, recovery_days} | None]
-    per bear period). Multi-part parameters are scored part by part and the
-    parts averaged, so a 3Y CAGR is only ever compared with other 3Y CAGRs and a
-    COVID-crash fall only with other COVID-crash falls — a fund launched after a
-    bear period is simply not scored on it.
+    Each fund supplies {parameter: [part, part, ...]}, the parts lined up the
+    same way for every fund — e.g. Beta as [1Y, 3Y, 5Y], Returns as one value per
+    return period, Max Drawdown as one fall per bear period. Each part is
+    normalised across the funds on its own (a 1Y Beta only against other 1Y
+    Betas, a COVID-crash fall only against other COVID-crash falls), then the
+    fund's available parts are averaged. A fund missing a part (not launched for
+    a bear period, too young for 5Y) is scored on the parts it has.
 
+    method: "minmax" (house method, best=100 worst=0) or "percentile".
     Returns one {parameter: score | None} per fund, in order.
     """
-    out = [dict() for _ in funds]
-
-    for key in ("beta", "relative_risk", "down_capture", "std_dev",
-                "alpha", "up_capture", "active_share"):
-        sc = percentile_scores([f.get(key) for f in funds], SCREENER_DIRECTION[key])
-        for o, v in zip(out, sc):
-            o[key] = v
-
-    def multi(key, series_of):
-        parts = [percentile_scores([series_of(f, i) for f in funds], SCREENER_DIRECTION[key])
-                 for i in range(len(periods) if key in ("returns", "relative_return") else n_bear)]
+    norm = minmax_scores if method == "minmax" else percentile_scores
+    out: list[dict] = [dict() for _ in parts_by_fund]
+    params = {k for f in parts_by_fund for k in f}
+    for key in params:
+        higher = SCREENER_DIRECTION[key]
+        n_parts = max(len(f.get(key) or []) for f in parts_by_fund)
+        columns = [norm([(f.get(key) or [None] * n_parts)[i] if i < len(f.get(key) or []) else None
+                         for f in parts_by_fund], higher)
+                   for i in range(n_parts)]
         for j, o in enumerate(out):
-            o[key] = _mean([p[j] for p in parts])
-
-    multi("returns",         lambda f, i: (f.get("returns") or {}).get(periods[i]))
-    multi("relative_return", lambda f, i: (f.get("relative_returns") or {}).get(periods[i]))
-    multi("max_drawdown",    lambda f, i: (f["bear"][i] or {}).get("fall") if f.get("bear") else None)
-    multi("recovery_time",   lambda f, i: (f["bear"][i] or {}).get("recovery_days") if f.get("bear") else None)
+            o[key] = _mean([c[j] for c in columns])
     return out
 
 
@@ -1005,20 +1024,31 @@ def _monthly_returns_from_navs(nav_series: list[tuple[str, float]]) -> list[floa
     return monthly
 
 
+# Minimum monthly observations and matching trailing-return period per window.
+RISK_WINDOW_MIN_OBS = {1: 10, 3: 30, 5: 50}
+RISK_WINDOW_PERIOD = {1: "12M", 3: "3Y", 5: "5Y"}
+
+
 def risk_metrics(
     conn: sqlite3.Connection,
     scheme_code: str,
     benchmark_index_id: int,
     risk_free_rate: float = 0.065,   # annual, e.g. 0.065 = 6.5%
     as_of: Optional[date] = None,
+    years: int = 3,
+    with_drawdown: bool = True,
 ) -> dict:
     """
     E12: Full risk metric set for a fund vs its category benchmark.
     Returns dict with all metrics (None = not enough data / display '—').
-    Computation window: trailing 3 years of MONTHLY returns (36 obs, min 30).
+    Computation window: trailing `years` of MONTHLY returns (default 3 years:
+    36 obs, min 30). 1Y needs 10 of 12 months, 5Y 50 of 60; Sharpe, Sortino and
+    Alpha use the matching trailing return (1Y absolute, 3Y/5Y CAGR).
     """
     today = as_of or date.today()
-    three_yr_start = _subtract_period(today, years=3)
+    three_yr_start = _subtract_period(today, years=years)
+    min_obs = RISK_WINDOW_MIN_OBS.get(years, int(years * 12 * 0.83))
+    window_period = RISK_WINDOW_PERIOD.get(years, f"{years}Y")
 
     # ── Load 3Y monthly fund NAVs (Optimised daily query + Python grouping) ──
     raw_fund = conn.execute(
@@ -1067,8 +1097,8 @@ def risk_metrics(
     # own months and survive a benchmark that has gone stale. Only the
     # benchmark-relative ratios (Beta, Alpha, Captures) need the aligned pairs.
     own_monthly = _monthly_returns_from_navs(own_rows)
-    bench_ok = n_common >= 30
-    if len(own_monthly) < 30:
+    bench_ok = n_common >= min_obs
+    if len(own_monthly) < min_obs:
         return {k: None for k in [
             "std_annual", "sharpe", "sortino", "beta", "alpha",
             "max_drawdown", "recovery_days", "upside_capture", "downside_capture",
@@ -1086,8 +1116,9 @@ def risk_metrics(
     std_annual = statistics.stdev(own) * math.sqrt(12)
 
     # Fund & benchmark 3Y CAGR (E2 logic)
-    fund_3y_cagr  = trailing_return(conn, scheme_code, "3Y", today)
-    bench_3y_cagr = trailing_return_index(conn, benchmark_index_id, "3Y", today)
+    fund_3y_cagr  = trailing_return(conn, scheme_code, window_period, today)
+    bench_3y_cagr = (trailing_return_index(conn, benchmark_index_id, window_period, today)
+                     if benchmark_index_id is not None else None)
 
     # R2 — Sharpe
     sharpe = (
@@ -1120,11 +1151,12 @@ def risk_metrics(
         else None
     )
 
-    # R5 — Maximum Drawdown + Recovery (full NAV history, daily)
+    # R5 — Maximum Drawdown + Recovery (full NAV history, daily). The costliest
+    # part by far; with_drawdown=False skips it for callers that do not use it.
     all_nav_rows = conn.execute(
         "SELECT nav_date, nav FROM nav_history WHERE scheme_code=? ORDER BY nav_date",
         (scheme_code,),
-    ).fetchall()
+    ).fetchall() if with_drawdown else []
     max_drawdown   = None
     recovery_days  = None
     trough_date    = None

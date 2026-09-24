@@ -14,7 +14,7 @@ import { currentDesk } from '../config/products'
 import { categoryColor } from '../config/categoryColors'
 import { fmtDate, fmtPct } from '../utils/format'
 import type { SheetSpec } from '../utils/xlsx'
-import type { ScreenerData, ScreenerFund, ScreenerParam } from '../types'
+import type { ScreenerData, ScreenerFund, ScreenerParam, ScreenerRatio } from '../types'
 
 const EQUITY_HYBRID_CLASSES = ['Equity', 'Hybrid']
 const MAIN_TAB_NAMES = [
@@ -49,31 +49,44 @@ const avg = (xs: (number | null | undefined)[]) => {
   return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null
 }
 
+/** A ratio measured per horizon: the cell shows 3Y, hover lists every horizon. */
+function ratioParam(key: ScreenerRatio, label: string, group: Group,
+                    show: (v: number | null | undefined) => string, help: string): Param {
+  const headline = (d: ScreenerData) => (d.horizons.includes('3Y') ? '3Y' : d.horizons[0])
+  return {
+    key, label, group,
+    raw: (f, d) => show(f.ratios[key]?.[headline(d)]),
+    detail: (f, d) => d.horizons.map(h => `${h}: ${show(f.ratios[key]?.[h])}`).join('\n'),
+    help,
+  }
+}
+const alphaShow = (v: number | null | undefined) => (v == null ? '—' : (v * 100).toFixed(2))
+
 const PARAMS: Param[] = [
-  { key: 'beta', label: 'Beta', group: 'risk', raw: f => n2(f.beta),
-    help: 'Sensitivity to the category benchmark over 3 years. Lower = less market risk, scores higher.' },
-  { key: 'relative_risk', label: 'Relative Risk', group: 'risk', raw: f => n2(f.relative_risk),
-    help: 'Fund Std Dev ÷ benchmark Std Dev (both 3Y monthly). 0.90 = 10% less volatile than the benchmark. Lower scores higher.' },
-  { key: 'down_capture', label: 'Down Capture', group: 'risk', raw: f => n2(f.down_capture, 1),
-    help: 'Share of the benchmark’s falls the fund took in down months (3Y). Lower scores higher.' },
-  { key: 'std_dev', label: 'Std Dev', group: 'risk', raw: f => pctU(f.std_dev),
-    help: 'Annualised volatility of 3Y monthly returns. Lower scores higher.' },
+  ratioParam('beta', 'Beta', 'risk', v => n2(v),
+    'Sensitivity to the category benchmark over 1Y, 3Y and 5Y. Lower = less market risk, scores higher.'),
+  ratioParam('relative_risk', 'Relative Risk', 'risk', v => n2(v),
+    'Fund Std Dev ÷ benchmark Std Dev over 1Y, 3Y and 5Y. 0.90 = 10% less volatile than the benchmark. Lower scores higher.'),
+  ratioParam('down_capture', 'Down Capture', 'risk', v => n2(v, 1),
+    'Share of the benchmark’s falls the fund took in down months, over 1Y, 3Y and 5Y. Lower scores higher.'),
+  ratioParam('std_dev', 'Std Dev', 'risk', pctU,
+    'Annualised volatility of monthly returns over 1Y, 3Y and 5Y. Lower scores higher.'),
   { key: 'returns', label: 'Returns', group: 'performance',
-    raw: f => fmtPct(f.returns['3Y'] ?? null),
+    raw: (f, d) => fmtPct(f.returns[d.periods.includes('3Y') ? '3Y' : d.periods[d.periods.length - 1]] ?? null),
     detail: (f, d) => d.periods.map(p => `${periodName(p)}: ${fmtPct(f.returns[p] ?? null)}`).join('\n'),
-    help: 'Trailing returns over 1M, 3M, 6M, 1Y, 2Y and 3Y. Each period is ranked in the category and the ranks averaged. Table shows 3Y; hover for all.' },
-  { key: 'relative_return', label: 'Relative Return', group: 'performance',
-    raw: f => fmtPct(f.relative_returns['3Y'] ?? null),
-    detail: (f, d) => d.periods.map(p => `${periodName(p)}: ${fmtPct(f.relative_returns[p] ?? null)}`).join('\n'),
-    help: 'Fund return minus benchmark return for each of the same periods, ranked and averaged. Table shows 3Y; hover for all.' },
-  { key: 'alpha', label: 'Alpha', group: 'performance', raw: f => (f.alpha == null ? '—' : (f.alpha * 100).toFixed(2)),
-    help: 'Yearly return above what Beta predicts (3Y), in percentage points. Higher scores higher.' },
-  { key: 'up_capture', label: 'Up Capture', group: 'performance', raw: f => n2(f.up_capture, 1),
-    help: 'Share of the benchmark’s gains the fund captured in up months (3Y). Higher scores higher.' },
+    help: 'Trailing returns over each configured period (1M, 3M, 6M, 1Y, 2Y, 3Y). Table shows 3Y; hover for all. Higher scores higher.' },
+  ratioParam('relative_return', 'Relative Return', 'performance', v => fmtPct(v ?? null),
+    'Fund return minus benchmark return over 1Y, 3Y and 5Y (1Y absolute, 3Y/5Y CAGR). Higher scores higher.'),
+  ratioParam('alpha', 'Alpha', 'performance', alphaShow,
+    'Yearly return above what Beta predicts, in percentage points, over 1Y, 3Y and 5Y. Higher scores higher.'),
+  ratioParam('up_capture', 'Up Capture', 'performance', v => n2(v, 1),
+    'Share of the benchmark’s gains the fund captured in up months, over 1Y, 3Y and 5Y. Higher scores higher.'),
+  ratioParam('sharpe', 'Sharpe', 'performance', v => n2(v),
+    'Return above the risk-free rate per unit of volatility, over 1Y, 3Y and 5Y. Weighted 0% by default, as in the team sheet.'),
   { key: 'max_drawdown', label: 'Max Drawdown', group: 'drawdown',
     raw: f => fmtPct(avg(f.bear.map(b => b?.fall))),
     detail: (f, d) => d.bear_periods.map((b, i) => `${b.label}: ${f.bear[i] ? fmtPct(f.bear[i]!.fall) : 'not launched'}`).join('\n'),
-    help: 'The fund’s point-to-point return through each bear period (market peak to market low). Each period is ranked separately and the ranks averaged. Table shows the average fall; hover for each period.' },
+    help: 'The fund’s point-to-point return through each bear period (market peak to market low). Each period is scored separately and averaged. Table shows the average fall; hover for each period.' },
   { key: 'recovery_time', label: 'Recovery Time', group: 'drawdown',
     raw: f => { const a = avg(f.bear.map(b => b?.recovery_days)); return a == null ? '—' : `${Math.round(a)}d` },
     detail: (f, d) => d.bear_periods.map((b, i) => {
@@ -81,8 +94,12 @@ const PARAMS: Param[] = [
       return `${b.label}: ${s ? `${s.recovery_days} days${s.recovered ? '' : ' (not yet recovered)'}` : 'not launched'}`
     }).join('\n'),
     help: 'Days after each bear period’s low until the fund got back to its value at the start. Fewer days scores higher; a fund still below scores as the days elapsed so far.' },
-  { key: 'active_share', label: '% Active Share', group: 'drawdown', raw: () => 'pending',
-    help: 'Share of the portfolio in stocks outside the NIFTY 50. Needs AMC portfolio holdings, which are not loaded yet, so its weight is spread over the other parameters for now.' },
+  { key: 'active_share', label: 'Active Share', group: 'drawdown',
+    raw: f => (f.active_share ? String(f.active_share.uncommon_count) : 'pending'),
+    detail: f => (f.active_share
+      ? `${f.active_share.uncommon_count} stocks outside the NIFTY 50, ${(f.active_share.uncommon_weight * 100).toFixed(1)}% of the portfolio (${f.active_share.month})`
+      : 'Portfolio holdings not loaded yet'),
+    help: 'Number of stocks held that are not in the NIFTY 50 (the team sheet’s “uncommon stocks”), from the AMC’s monthly portfolio. More scores higher. Until holdings are loaded its weight is shared across the rest.' },
 ]
 
 /** Weighted average of the parameter scores that exist. */
@@ -159,6 +176,7 @@ export default function WhitelistScreener() {
   }, [data, w])
 
   const unranked = (data?.funds ?? []).filter(f => !f.eligible)
+  const asCount = ranked.filter(r => r.fund.active_share).length
 
   const buildExport = (): SheetSpec | null => {
     if (!data || !ranked.length) return null
@@ -278,7 +296,9 @@ export default function WhitelistScreener() {
           <p className="text-[10px] mt-2 leading-relaxed" style={{ color: 'var(--text-low)' }}>
             Changes re-rank every category instantly and are remembered in this browser.
             {grandTotal !== 100 && ' Weights need not add to 100 — they are used in proportion.'}
-            {' '}% Active Share has no data yet, so its weight is shared across the rest.
+            {' '}{asCount === 0
+              ? 'Active Share has no holdings data for this category yet, so its weight is shared across the rest.'
+              : `Active Share is available for ${asCount} of ${ranked.length} ranked funds so far; the others are scored without it.`}
           </p>
         </aside>
 
@@ -339,7 +359,7 @@ export default function WhitelistScreener() {
                 </table>
                 {ranked.length === 0 && (
                   <div className="p-6 text-center text-sm" style={{ color: 'var(--text-mid)' }}>
-                    No fund in this category has the {data.min_history} history needed to be ranked yet.
+                    No fund in this category has the {data.min_history} of history needed to be ranked yet.
                   </div>
                 )}
               </div>
@@ -358,7 +378,7 @@ export default function WhitelistScreener() {
                 <button onClick={() => setShowUnranked(v => !v)}
                         style={{ color: 'var(--accent-a)', background: 'none', border: 'none', cursor: 'pointer' }}>
                   {showUnranked ? 'Hide' : 'Show'} {unranked.length} fund{unranked.length === 1 ? '' : 's'} not ranked
-                  (under {data.min_history} of history)
+                  (newly launched, under {data.min_history})
                 </button>
               )}
             </div>
@@ -393,12 +413,13 @@ export default function WhitelistScreener() {
         <div className="card p-4 text-xs leading-relaxed" style={{ color: 'var(--text-mid)' }}>
           <div className="font-display font-bold text-sm mb-2" style={{ color: 'var(--text-hi)' }}>How the score works</div>
           <p className="mb-2">
-            Each parameter is scored 0–100 <b style={{ color: 'var(--text-hi)' }}>within the category</b>: the best fund on it
-            scores 100, the worst close to 0, allowing for direction (low Beta is good, high Alpha is good). Returns,
-            Relative Return, Max Drawdown and Recovery Time have several parts (periods), each scored separately and averaged.
+            Each parameter is normalised 0–100 <b style={{ color: 'var(--text-hi)' }}>within the category</b> the way the team
+            sheet does it (min–max): the best fund scores 100, the worst 0 and the rest in proportion between them, allowing
+            for direction (low Beta is good, high Alpha is good). Ratios are measured over {data?.horizons.join(', ') ?? '1Y, 3Y, 5Y'};
+            each horizon, return period and bear period is normalised on its own and a parameter’s parts are averaged.
             The <b style={{ color: 'var(--text-hi)' }}>Score</b> is the weighted average using the weights on the left;
-            Risk / Performance / Drawdown are the same average within each group. A fund needs {data?.min_history ?? '3Y'} of
-            history to be ranked.
+            Risk / Performance / Drawdown are the same average within each group. Funds with under {data?.min_history ?? '5Y'} of
+            history are newly launched and not ranked.
           </p>
           <div className="space-y-1">
             {PARAMS.map(p => (

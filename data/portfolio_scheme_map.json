@@ -1,0 +1,4 @@
+{
+  "_about": "Manual matches for AMC portfolio sheets the name matcher cannot place. Key: \"<AMC as in the catalogue>|<fund name at the top of the sheet>\". Value: the scheme_code, or null to skip that sheet on purpose. scripts/portfolios.py logs every unmatched sheet with the exact key to use.",
+  "map": {}
+}

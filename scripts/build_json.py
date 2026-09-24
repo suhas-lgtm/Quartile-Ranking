@@ -46,6 +46,7 @@ from engine.calculation_engine import (
     rolling_statistics,
 )
 from scripts.sectors import SECTORAL_THEMATIC_SLUG, sector_of, SECTOR_ORDER
+from scripts.portfolios import latest_holdings, nifty50_isins, active_share_stats
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("build_json")
@@ -736,80 +737,164 @@ def load_screener_config() -> dict:
         return json.load(fh)
 
 
+_REFERENCE_CACHE: dict[str, set[str]] = {}
+
+
+def _active_share_reference(cfg: dict) -> set[str]:
+    """ISINs of the index whose stocks count as "common" (NIFTY 50)."""
+    name = cfg.get("active_share_index") or "NIFTY 50"
+    if name not in _REFERENCE_CACHE:
+        if name != "NIFTY 50":
+            log.warning("active_share_index %r not supported yet; using NIFTY 50", name)
+        try:
+            _REFERENCE_CACHE[name] = nifty50_isins(refresh=True)
+        except OSError as exc:
+            log.warning("NIFTY 50 constituents unavailable (%s); Active Share left blank", exc)
+            _REFERENCE_CACHE[name] = set()
+    return _REFERENCE_CACHE[name]
+
+
+def _screener_holdings(codes: list[str]) -> dict:
+    """Latest stored portfolio per fund; {} when Neon is unreachable."""
+    try:
+        return latest_holdings([str(c) for c in codes])
+    except Exception as exc:     # holdings are optional — never fail the build
+        log.warning("portfolio holdings unavailable (%s); Active Share left blank", exc)
+        return {}
+
+
+HORIZON_YEARS = {"1Y": 1, "3Y": 3, "5Y": 5}
+HORIZON_PERIOD = {"1Y": "12M", "3Y": "3Y", "5Y": "5Y"}
+# Ratio parameters measured at every horizon, and the risk_metrics key for each.
+SCREENER_RATIOS = {
+    "beta": "beta", "std_dev": "std_annual", "alpha": "alpha", "sharpe": "sharpe",
+    "up_capture": "upside_capture", "down_capture": "downside_capture",
+}
+BENCH_RELATIVE = ("beta", "alpha", "up_capture", "down_capture",
+                  "relative_risk", "relative_return")
+
+
 def build_screener(conn, cat_slug: str, cfg: dict):
     """
-    Raw parameters and 0-100 parameter scores for every fund in a category.
+    The house scorecard for one category, as the team's Excel builds it.
 
-    Beta, Std Dev, Alpha, the captures and the returns are read from
-    risk_{slug}.json written earlier in this build, so the screener can never
-    disagree with Risk & Returns. What is new here — Relative Risk, Relative
-    Return and the bear-period Drawdown/Recovery — is computed by the engine.
-    The page applies the (editable) weights to the scores; it does no maths
-    beyond that weighted average.
+    Every ratio is measured over each horizon in cfg["ratio_horizons"] (1Y, 3Y,
+    5Y), returns over cfg["return_periods"], and drawdown/recovery over each of
+    cfg["bear_periods"]. The engine normalises each of those parts min-max within
+    the category (screener_parameter_scores) and averages a parameter's parts.
+    Funds without cfg["min_history"] of NAVs are listed as newly launched and not
+    ranked. The page applies the editable weights; nothing else is computed there.
     """
-    risk = _read_out(f"risk_{cat_slug}.json")
-    if not risk or not risk.get("funds"):
+    row = conn.execute(
+        "SELECT category_id, category_name, asset_class, benchmark_id "
+        "FROM categories WHERE slug=?", (cat_slug,)).fetchone()
+    if not row:
         return
-    row = conn.execute("SELECT benchmark_id FROM categories WHERE slug=?", (cat_slug,)).fetchone()
-    bench_id = row[0] if row else None
-    as_of_d = date.fromisoformat(risk["as_of"])
+    cat_id, cat_name, asset_class, bench_id = row
+    if asset_class not in ("Equity", "Hybrid"):
+        return
+    schemes = conn.execute(
+        "SELECT scheme_code, scheme_name FROM schemes "
+        "WHERE category_id=? AND is_active=1 ORDER BY scheme_name", (cat_id,)).fetchall()
+    if not schemes:
+        return
 
+    as_of = get_as_of(conn)
+    as_of_d = date.fromisoformat(as_of)
+    rf = float(conn.execute("SELECT value FROM config WHERE key='risk_free_rate'").fetchone()[0])
+    horizons = [h for h in cfg.get("ratio_horizons", ["1Y", "3Y", "5Y"]) if h in HORIZON_YEARS]
     periods = [p for p in cfg.get("return_periods", []) if p in RISK_RETURN_PERIODS]
     bears = cfg.get("bear_periods") or []
-    min_hist = cfg.get("min_history") or "3Y"
+    min_hist = cfg.get("min_history") or "5Y"
+    method = cfg.get("scoring") or "minmax"
 
-    bench = risk.get("benchmark") or {}
-    bench_ok = bool(bench) and not bench.get("stale")
-    bench_ret = bench.get("returns") or {}
-    bench_std = index_std_annual(conn, bench_id, as_of_d) if bench_ok else None
+    bench_name, bench_last = None, None
+    if bench_id is not None:
+        r = conn.execute("SELECT index_name FROM benchmarks WHERE index_id=?", (bench_id,)).fetchone()
+        bench_name = r[0] if r else None
+        bench_last = conn.execute("SELECT MAX(date) FROM index_history WHERE index_id=?",
+                                  (bench_id,)).fetchone()[0]
+    bench_ok = bool(bench_last) and (
+        as_of_d - date.fromisoformat(bench_last)).days <= BENCHMARK_MAX_LAG_DAYS
+    bench_std = {h: index_std_annual(conn, bench_id, as_of_d, HORIZON_YEARS[h]) if bench_ok else None
+                 for h in horizons}
+    bench_ret = {h: trailing_return_index(conn, bench_id, HORIZON_PERIOD[h], as_of_d) if bench_ok else None
+                 for h in horizons}
+
+    holdings = _screener_holdings([sc for sc, _ in schemes])
+    reference = _active_share_reference(cfg)
 
     funds = []
-    for f in risk["funds"]:
-        rets = {p: f["returns"].get(p) for p in periods}
-        std = f.get("std_annual")
+    for sc, name in schemes:
+        rets = {p: _risk_period_return(conn, sc, p, as_of_d) for p in periods}
+        hist_ret = trailing_return(conn, sc, HORIZON_PERIOD.get(min_hist, min_hist), as_of_d)
+        if all(v is None for v in rets.values()) and hist_ret is None:
+            continue   # no usable NAV at all
+
+        ratios: dict[str, dict[str, float | None]] = {k: {} for k in
+                                                      list(SCREENER_RATIOS) + ["relative_risk", "relative_return"]}
+        for h in horizons:
+            m = risk_metrics(conn, sc, bench_id if bench_ok else None, rf, as_of_d,
+                             years=HORIZON_YEARS[h], with_drawdown=False)
+            for key, src in SCREENER_RATIOS.items():
+                ratios[key][h] = m.get(src)
+            std = m.get("std_annual")
+            ratios["relative_risk"][h] = fmt(std / bench_std[h]) if std and bench_std[h] else None
+            f_ret = m.get("fund_3y_cagr")   # the window's own return (1Y/3Y/5Y)
+            ratios["relative_return"][h] = (fmt(f_ret - bench_ret[h])
+                                            if f_ret is not None and bench_ret[h] is not None else None)
+        if not bench_ok:
+            for key in BENCH_RELATIVE:
+                ratios[key] = {h: None for h in horizons}
+
+        bear = []
+        for b in bears:
+            st = bear_period_stats(conn, sc, date.fromisoformat(b["start"]),
+                                   date.fromisoformat(b["end"]), as_of_d)
+            bear.append({**st, "fall": fmt(st["fall"])} if st else None)
+
         funds.append({
-            "scheme_code":  f["scheme_code"],
-            "scheme_name":  f["scheme_name"],
-            # Ranked only with enough history for the 3Y ratios; younger funds
-            # are listed underneath, unranked.
-            "eligible":     f["returns"].get(min_hist) is not None and std is not None,
-            "beta":         f.get("beta"),
-            "std_dev":      std,
-            "relative_risk": fmt(std / bench_std) if std is not None and bench_std else None,
-            "down_capture": f.get("downside_capture"),
-            "alpha":        f.get("alpha"),
-            "up_capture":   f.get("upside_capture"),
-            "returns":      rets,
-            "relative_returns": {
-                p: fmt(rets[p] - bench_ret[p])
-                if bench_ok and rets[p] is not None and bench_ret.get(p) is not None else None
-                for p in periods},
-            "bear": [
-                (lambda st: {k: (fmt(v) if k == "fall" else v) for k, v in st.items()} if st else None)(
-                    bear_period_stats(conn, f["scheme_code"], date.fromisoformat(b["start"]),
-                                      date.fromisoformat(b["end"]), as_of_d))
-                for b in bears],
-            "active_share": None,   # needs portfolio holdings; not sourced yet
+            "scheme_code": sc,
+            "scheme_name": name,
+            "eligible":    hist_ret is not None,
+            "returns":     {p: fmt(v) for p, v in rets.items()},
+            "ratios":      ratios,
+            "bear":        bear,
+            "active_share": (
+                {**active_share_stats(holdings[str(sc)]["holdings"], reference),
+                 "month": holdings[str(sc)]["month"]}
+                if str(sc) in holdings and reference else None),
         })
 
     eligible = [f for f in funds if f["eligible"]]
-    for f, sc in zip(eligible, screener_parameter_scores(eligible, periods, len(bears))):
+    parts = [{
+        **{k: [f["ratios"][k].get(h) for h in horizons] for k in f["ratios"]},
+        "returns":       [f["returns"].get(p) for p in periods],
+        "max_drawdown":  [b["fall"] if b else None for b in f["bear"]],
+        "recovery_time": [b["recovery_days"] if b else None for b in f["bear"]],
+        "active_share":  [(f["active_share"] or {}).get("uncommon_count")],
+
+    } for f in eligible]
+    for f, sc in zip(eligible, screener_parameter_scores(parts, method) if parts else []):
         f["scores"] = {k: (round(v, 2) if v is not None else None) for k, v in sc.items()}
     for f in funds:
         f.setdefault("scores", None)
 
     write_json(out(f"screener_{cat_slug}.json"), {
-        "as_of":           risk["as_of"],
-        "category_name":   risk["category_name"],
+        "as_of":         as_of,
+        "category_name": cat_name,
         "benchmark": {
-            "name":    bench.get("name"),
-            "stale":   bool(bench.get("stale")),
-            "std_dev": fmt(bench_std),
-            "returns": {p: bench_ret.get(p) for p in periods},
-        } if bench else None,
+            "name":    bench_name,
+            "stale":   not bench_ok,
+            "last_date": bench_last,
+            "std_dev": {h: fmt(v) for h, v in bench_std.items()},
+            "returns": {h: fmt(v) for h, v in bench_ret.items()},
+        } if bench_id is not None else None,
+        "horizons":        horizons,
         "periods":         periods,
         "bear_periods":    bears,
         "min_history":     min_hist,
+        "scoring":         method,
         "default_weights": cfg.get("weights") or {},
         "funds":           funds,
     })
