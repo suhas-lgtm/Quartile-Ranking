@@ -7,6 +7,7 @@ Every file carries 'as_of'. This runs AFTER run_engine.py has updated the DB.
 Output files (in site/public/data/):
   meta.json, indices.json,
   quartiles_{slug}_{mode}.json, risk_{slug}.json, watchlist_{mode}.json,
+  whitelist.json,
   index/{index_id}.json
 
 This build serves four screens — Market Pulse, Quartile Ranking, Risk & Returns
@@ -714,6 +715,107 @@ def build_risk(conn, cat_slug: str):
     log.info("✓ risk_%s.json (%d funds, %d with ratios)", cat_slug, len(fund_rows), rated)
 
 
+# ── Whitelist (whitelist.json) ──────────────────────────────────────────────
+
+WHITELIST_PATH = os.path.join(ROOT_DIR, "data", "whitelist.json")
+WHITELIST_QUARTILE_PERIODS = 4   # latest N periods shown per mode
+
+
+def _read_out(filename: str):
+    """A file this build already wrote, or None."""
+    try:
+        with open(out(filename), encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
+def build_whitelist(conn):
+    """
+    One row per fund on data/whitelist.json, for the Whitelist tab and the
+    email alerts.
+
+    Nothing is recalculated: quartiles come from quartiles_{slug}_{mode}.json and
+    returns/ratios from risk_{slug}.json, both written earlier in this build, so
+    the Whitelist can never disagree with the other tabs.
+    """
+    try:
+        with open(WHITELIST_PATH, encoding="utf-8") as fh:
+            entries = json.load(fh).get("funds") or []
+    except (OSError, ValueError) as exc:
+        log.warning("whitelist: cannot read %s (%s) — writing an empty list",
+                    WHITELIST_PATH, exc)
+        entries = []
+
+    as_of = get_as_of(conn)
+    cache: dict[str, dict | None] = {}
+
+    def cached(name: str):
+        if name not in cache:
+            cache[name] = _read_out(name)
+        return cache[name]
+
+    funds, missing = [], []
+    for e in entries:
+        code = str(e.get("scheme_code") or "").strip()
+        if not code:
+            continue
+        row = conn.execute("""
+            SELECT s.scheme_name, c.category_name, c.slug, c.asset_class
+            FROM schemes s LEFT JOIN categories c ON c.category_id = s.category_id
+            WHERE s.scheme_code = ?""", (code,)).fetchone()
+        if not row:
+            missing.append(code)
+            continue
+        name, cat_name, slug, asset_class = row
+
+        navs = conn.execute(
+            "SELECT nav_date, nav FROM nav_history WHERE scheme_code=? "
+            "ORDER BY nav_date DESC LIMIT 2", (code,)).fetchall()
+
+        quartiles = {}
+        for mode in ("monthly", "quarterly", "annual"):
+            q = cached(f"quartiles_{slug}_{mode}.json") if slug else None
+            f = next((x for x in (q or {}).get("funds", []) if str(x["scheme_code"]) == code), None)
+            if not f:
+                continue
+            n = WHITELIST_QUARTILE_PERIODS
+            quartiles[mode] = {
+                "labels":    q["period_labels"][-n:],
+                "quartiles": f["quartiles"][-n:],
+                "returns":   (f.get("returns") or [None] * len(f["quartiles"]))[-n:],
+            }
+
+        risk = cached(f"risk_{slug}.json") if slug else None
+        rf = next((x for x in (risk or {}).get("funds", []) if str(x["scheme_code"]) == code), None)
+
+        funds.append({
+            "scheme_code":   code,
+            "scheme_name":   name,
+            "note":          e.get("note") or "",
+            "category_name": cat_name,
+            "category_slug": slug,
+            "asset_class":   asset_class,
+            "nav":           navs[0][1] if navs else None,
+            "nav_date":      navs[0][0] if navs else None,
+            "change_1d":     fmt(navs[0][1] / navs[1][1] - 1) if len(navs) == 2 and navs[1][1] else None,
+            "quartiles":     quartiles,
+            "returns":       rf["returns"] if rf else None,
+            "ratios":        {k: rf.get(k) for k in RISK_RATIO_KEYS} if rf else None,
+        })
+
+    if missing:
+        log.warning("whitelist: %d code(s) not in the catalogue: %s",
+                    len(missing), ", ".join(missing))
+    write_json(out("whitelist.json"), {
+        "as_of":   as_of,
+        "funds":   funds,
+        "missing": missing,
+    })
+    log.info("✓ whitelist.json (%d funds%s)", len(funds),
+             f", {len(missing)} not found" if missing else "")
+
+
 # ── Index series (index/{index_id}.json) ─────────────────────────────────────
 
 def build_index_series(conn):
@@ -758,6 +860,9 @@ def main():
     # Cross-category streak signals — one file per mode.
     for mode in ["monthly", "quarterly", "annual"]:
         build_watchlist(conn, mode)
+
+    # Reads the quartile and risk files written above, so it must come after.
+    build_whitelist(conn)
 
     build_index_series(conn)
 

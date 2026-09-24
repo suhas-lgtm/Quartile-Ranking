@@ -201,6 +201,36 @@ export interface RiskData {
   funds: RiskFundRow[]
 }
 
+/** One mode's recent quartile history for a whitelisted fund, oldest first. */
+export interface WhitelistQuartiles {
+  labels: string[]
+  quartiles: (number | null)[]
+  returns: (number | null)[]
+}
+
+export interface WhitelistFund {
+  scheme_code: string
+  scheme_name: string
+  note: string
+  category_name: string | null
+  category_slug: string | null
+  asset_class: string | null
+  nav: number | null
+  nav_date: string | null
+  change_1d: number | null
+  quartiles: Partial<Record<'monthly' | 'quarterly' | 'annual', WhitelistQuartiles>>
+  returns: Record<RiskPeriod, number | null> | null
+  ratios: RiskRatios | null
+}
+
+/** whitelist.json — Whitelist tab and email alerts. */
+export interface WhitelistData {
+  as_of: string
+  funds: WhitelistFund[]
+  /** Codes on the list that are not in the catalogue. */
+  missing: string[]
+}
+
 export interface DrawdownPoint {
   date: string
   drawdown_pct: number

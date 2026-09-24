@@ -57,34 +57,39 @@ const RETURN_COLS: Col[] = ([
     : `${label} annualised return (CAGR).`,
 }))
 
+// Order follows how a factsheet reads: benchmark-relative first (Alpha, Beta),
+// then risk-adjusted return, then raw risk, then the composite.
 const RATIO_COLS: Col[] = [
-  { key: 'std_annual', label: 'Std Dev', group: 'ratios', get: r => r.std_annual,
-    show: pctU, better: 'low', exportType: 'percent',
-    help: 'Annualised standard deviation of monthly returns over 3 years. Lower = steadier.' },
-  { key: 'sharpe', label: 'Sharpe', group: 'ratios', get: r => r.sharpe,
+  { key: 'alpha', label: 'Alpha (3Y)', group: 'ratios',
+    // Shown as a plain number, as factsheets do: 5.04 means 5.04 percentage
+    // points a year above what Beta predicts. Stored as a decimal.
+    get: r => (r.alpha == null ? r.alpha : r.alpha * 100),
     show: num(2), better: 'high', exportType: 'number',
-    help: 'Return above the risk-free rate per unit of total volatility. Higher = better reward for the risk taken.' },
-  { key: 'sortino', label: 'Sortino', group: 'ratios', get: r => r.sortino,
-    show: num(2), better: 'high', exportType: 'number',
-    help: 'Like Sharpe, but only penalises downside volatility. Higher = better.' },
-  { key: 'alpha', label: 'Alpha', group: 'ratios', get: r => r.alpha,
-    show: pct, better: 'high', exportType: 'percent',
-    help: 'Annual return above what the fund’s Beta predicts from the benchmark (Jensen’s alpha, 3Y). Positive = manager added value.' },
-  { key: 'beta', label: 'Beta', group: 'ratios', get: r => r.beta,
+    help: 'Extra return per year the fund earned over what its Beta says it should have earned from the benchmark (Jensen’s alpha, last 3 years). 5.0 means 5 percentage points a year better than expected; negative means it lagged. Higher is better.' },
+  { key: 'beta', label: 'Beta (3Y)', group: 'ratios', get: r => r.beta,
     show: num(2), better: null, exportType: 'number',
-    help: 'Sensitivity to the benchmark. 1 = moves with it, below 1 = less volatile than it, above 1 = more. Neither end is "good", so it is not coloured.' },
-  { key: 'max_drawdown', label: 'Max DD', group: 'ratios', get: r => r.max_drawdown,
-    show: pct, better: 'high', exportType: 'percent',
-    help: 'Largest peak-to-trough fall over the fund’s whole history. Closer to 0 = shallower falls.' },
-  { key: 'upside_capture', label: 'Up Capture', group: 'ratios', get: r => r.upside_capture,
+    help: 'How strongly the fund moves with its benchmark, from the last 3 years of monthly returns. 1.00 = moves in line; 0.90 = moves about 10% less (a 10% market fall ≈ 9% fund fall); 1.10 = about 10% more. Neither end is "good", so it is not coloured.' },
+  { key: 'sharpe', label: 'Sharpe (3Y)', group: 'ratios', get: r => r.sharpe,
+    show: num(2), better: 'high', exportType: 'number',
+    help: 'Return earned above the risk-free rate for each unit of total volatility (3Y CAGR minus risk-free, divided by 3Y Std Dev). Higher = better reward for the ups and downs taken.' },
+  { key: 'sortino', label: 'Sortino (3Y)', group: 'ratios', get: r => r.sortino,
+    show: num(2), better: 'high', exportType: 'number',
+    help: 'Like Sharpe, but only counts downside volatility (months below the risk-free rate), so upside swings are not penalised. Higher = better.' },
+  { key: 'std_annual', label: 'Std Dev (3Y)', group: 'ratios', get: r => r.std_annual,
+    show: pctU, better: 'low', exportType: 'percent',
+    help: 'Annualised standard deviation of the last 3 years of monthly returns: how widely returns swing around their average. Lower = steadier.' },
+  { key: 'upside_capture', label: 'Up Capture (3Y)', group: 'ratios', get: r => r.upside_capture,
     show: num(1), better: 'high', exportType: 'number',
-    help: 'How much of the benchmark’s gains the fund captured in up months (100 = all of it). Higher = better.' },
-  { key: 'downside_capture', label: 'Down Capture', group: 'ratios', get: r => r.downside_capture,
+    help: 'In the months the benchmark rose (last 3 years), how much of that rise the fund captured. 110 = 10% more than the benchmark; 90 = 10% less. Higher is better.' },
+  { key: 'downside_capture', label: 'Down Capture (3Y)', group: 'ratios', get: r => r.downside_capture,
     show: num(1), better: 'low', exportType: 'number',
-    help: 'How much of the benchmark’s losses the fund took in down months (100 = all of it). Lower = better protection.' },
+    help: 'In the months the benchmark fell (last 3 years), how much of that fall the fund suffered. 80 = fell only 80% as much; above 100 = fell more. Lower is better.' },
+  { key: 'max_drawdown', label: 'Max DD (since 2010)', group: 'ratios', get: r => r.max_drawdown,
+    show: pct, better: 'high', exportType: 'percent',
+    help: 'The largest fall from a previous peak to a later low, over all history held (from 2010, or launch if later). -35% means an investor at the worst peak was down 35% at the bottom. Closer to 0 is better.' },
   { key: 'composite_score', label: 'Score', group: 'ratios', get: r => r.composite_score,
     show: num(1), better: 'high', exportType: 'number',
-    help: 'Composite 0–100 within the category: Sharpe 30%, Sortino 20%, Alpha 20%, Max Drawdown 15%, capture spread 15%.' },
+    help: 'One 0–100 number ranking the fund against its own category: Sharpe 30%, Sortino 20%, Alpha 20%, Max Drawdown 15% and capture spread (Up minus Down Capture) 15%. Each ratio is turned into a percentile within the category first, so 90 means better than roughly 90% of peers on this blend. Ratios a fund lacks are left out and the rest re-weighted.' },
 ]
 
 const ALL_COLS = [...RETURN_COLS, ...RATIO_COLS]
@@ -114,7 +119,6 @@ export default function RiskReturns() {
   const [view, setView] = useState<View>('all')
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'r_3Y', dir: 'desc' })
-  const [showGlossary, setShowGlossary] = useState(false)
 
   const eligibleCats = (meta?.categories ?? []).filter(c => EQUITY_HYBRID_CLASSES.includes(c.asset_class))
   const activeSlug = slug || (eligibleCats[0]?.slug ?? '')
@@ -205,38 +209,7 @@ export default function RiskReturns() {
     <section id="risk-returns" className="px-4 sm:px-6 py-6 max-w-screen-2xl mx-auto">
       <div className="section-header">
         <span>Risk &amp; Returns</span>
-        <button
-          onClick={() => setShowGlossary(v => !v)}
-          className="tab-btn font-semibold ml-auto"
-          style={{
-            borderColor: 'var(--accent-a)', background: 'rgba(34,211,238,0.08)',
-            color: 'var(--accent-a)', fontSize: '11px', padding: '4px 10px', borderRadius: '6px',
-          }}
-        >
-          📖 {showGlossary ? 'Hide' : 'What the ratios mean'}
-        </button>
       </div>
-
-      {showGlossary && (
-        <div className="card p-4 mb-4 text-xs leading-relaxed" style={{ color: 'var(--text-mid)' }}>
-          <div className="mb-2" style={{ color: 'var(--text-hi)' }}>
-            Ratios use the last 3 years of monthly returns against the category benchmark
-            {data ? ` (${data.benchmark?.name ?? 'none'})` : ''}, with a risk-free rate of{' '}
-            {data ? `${(data.risk_free_rate * 100).toFixed(1)}%` : '6.5%'} p.a. A fund with under
-            ~30 months of history shows returns but no ratios.
-          </div>
-          <div className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
-            {RATIO_COLS.map(c => (
-              <div key={c.key}><b style={{ color: 'var(--text-hi)' }}>{c.label}:</b> {c.help}</div>
-            ))}
-          </div>
-          <div className="mt-2">
-            Cells shaded <span style={{ background: GOOD_BG, padding: '0 4px' }}>green</span> are in the
-            best quarter of the category for that column, <span style={{ background: BAD_BG, padding: '0 4px' }}>red</span> the
-            worst quarter, allowing for which direction is good (e.g. low Std Dev is green).
-          </div>
-        </div>
-      )}
 
       {/* ── Controls ─────────────────────────────────────────────── */}
       <div className="flex items-start justify-between mb-3 gap-3 flex-wrap">
@@ -317,7 +290,7 @@ export default function RiskReturns() {
                       <th key={c.key} title={c.help} onClick={() => onSort(c.key)}
                           style={{ textAlign: 'right', cursor: 'pointer', userSelect: 'none',
                                    color: on ? 'var(--accent-a)' : undefined,
-                                   borderLeft: c.key === 'std_annual' && view === 'all' ? '1px solid var(--line)' : undefined }}>
+                                   borderLeft: c.key === 'alpha' && view === 'all' ? '1px solid var(--line)' : undefined }}>
                         {c.label}{on ? (sort.dir === 'desc' ? ' ▼' : ' ▲') : ''}
                       </th>
                     )
@@ -363,6 +336,37 @@ export default function RiskReturns() {
               : 'No data for this category yet.'}
           </div>
         )}
+      </div>
+      {/* ── What each ratio means ─────────────────────────────── */}
+      <div className="card p-4 sm:p-5 text-xs leading-relaxed" style={{ color: 'var(--text-mid)' }}>
+        <div className="font-display font-bold text-sm mb-2" style={{ color: 'var(--text-hi)' }}>
+          What the ratios mean
+        </div>
+        <p className="mb-3">
+          All ratios except Max DD use the <b style={{ color: 'var(--text-hi)' }}>last 3 years of monthly returns</b>
+          {data?.benchmark ? <> compared with the category benchmark, <b style={{ color: 'var(--text-hi)' }}>{data.benchmark.name}</b></> : null},
+          with a risk-free rate of {data ? `${(data.risk_free_rate * 100).toFixed(1)}%` : '6.5%'} a year.
+          A fund needs about 30 months of history for ratios; younger funds show returns only.
+          Returns up to 1Y are plain % changes; 3Y, 5Y and 10Y are yearly averages (CAGR).
+        </p>
+        <div className="grid gap-x-8 gap-y-2.5 md:grid-cols-2">
+          {RATIO_COLS.map(c => (
+            <div key={c.key}>
+              <b style={{ color: 'var(--text-hi)' }}>{c.label}</b>
+              {c.better && (
+                <span className="ml-1.5 text-[10px]" style={{ color: 'var(--text-low)' }}>
+                  ({c.better === 'high' ? 'higher is better' : 'lower is better'})
+                </span>
+              )}
+              <div>{c.help}</div>
+            </div>
+          ))}
+        </div>
+        <p className="mt-3">
+          Shading: <span style={{ background: GOOD_BG, padding: '0 4px' }}>green</span> = best quarter of the
+          category for that column, <span style={{ background: BAD_BG, padding: '0 4px' }}>red</span> = worst
+          quarter, allowing for direction (a low Std Dev is green). Beta is not shaded.
+        </p>
       </div>
     </section>
   )

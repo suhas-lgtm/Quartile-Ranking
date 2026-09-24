@@ -1,0 +1,4 @@
+{
+  "_about": "Funds tracked on the Whitelist tab and for email alerts. Add one entry per fund: scheme_code is the AMFI / api.mfapi.in code (e.g. 103174). note is optional free text shown on the tab.",
+  "funds": []
+}

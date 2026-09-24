@@ -1,7 +1,7 @@
 // src/App.tsx — tab router and light/dark theme.
 //
-// Four sections, all open: Market Pulse, Quartile Ranking, Risk & Returns and
-// Fund Signals.
+// Five sections, all open: Market Pulse, Quartile Ranking, Risk & Returns,
+// Fund Signals and Whitelist.
 // There is no password gate in this build because there is nothing gated —
 // the restricted sections are not present rather than hidden.
 
@@ -12,6 +12,7 @@ import MarketPulse     from './sections/MarketPulse'
 import QuartileRanking from './sections/QuartileRanking'
 import Watchlist       from './sections/Watchlist'
 import RiskReturns     from './sections/RiskReturns'
+import Whitelist       from './sections/Whitelist'
 import { useMeta }     from './hooks/useData'
 import { defaultTab, tabAllowed } from './config/profile'
 import { currentDesk } from './config/products'
@@ -133,6 +134,13 @@ export default function App() {
           <>
             <MarketPulseBar />
             <Watchlist />
+          </>
+        )}
+
+        {activeTab === 'whitelist' && (
+          <>
+            <MarketPulseBar />
+            <Whitelist />
           </>
         )}
       </main>
