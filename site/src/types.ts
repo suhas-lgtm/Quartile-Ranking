@@ -157,35 +157,47 @@ export interface QuartilesData {
   worst_performers?: JourneyEntry[]
 }
 
-export interface RiskFundRow {
-  scheme_code: string
-  scheme_name: string
+/** Trailing-return periods carried by risk_{slug}.json, oldest window last. */
+export type RiskPeriod = '1M' | '3M' | '6M' | '12M' | '3Y' | '5Y' | '10Y'
+
+/** The ratio fields, shared by a fund row and the category average. */
+export interface RiskRatios {
   std_annual: number | null
   sharpe: number | null
   sortino: number | null
-  beta: number | null
   alpha: number | null
+  beta: number | null
   max_drawdown: number | null
-  recovery_days: number | null
-  // OPTIONAL, not just nullable. build_json omits these three entirely when a
-  // fund has no drawdown to describe -- which is every fund on a desk too young
-  // for the 3-year window risk_metrics needs. A reader already treats them as
-  // falsy; the type now says so too.
-  trough_date?: string | null
-  peak_date?: string | null
-  recovery_date?: string | null
   upside_capture: number | null
   downside_capture: number | null
   composite_score: number | null
-  fund_3y_cagr: number | null
-  bench_3y_cagr: number | null
 }
 
+export interface RiskFundRow extends RiskRatios {
+  scheme_code: string
+  scheme_name: string
+  /** Decimal; up to 12M absolute, beyond that CAGR. null = not enough history. */
+  returns: Record<RiskPeriod, number | null>
+  recovery_days: number | null
+}
+
+/** risk_{slug}.json — Risk & Returns tab. */
 export interface RiskData {
   as_of: string
-  category: string
-  benchmark_id: number
+  category_name: string
   risk_free_rate: number
+  window: string
+  periods: RiskPeriod[]
+  benchmark: {
+    index_id: number
+    name: string | null
+    returns: Record<RiskPeriod, number | null>
+    /** Newest close held for the benchmark. */
+    last_date?: string | null
+    /** True when that close is too old to compare against; Alpha/Beta/Captures are then blank. */
+    stale?: boolean
+  } | null
+  category_average: RiskRatios & { returns: Record<RiskPeriod, number | null> }
   funds: RiskFundRow[]
 }
 

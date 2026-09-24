@@ -7,12 +7,13 @@
 // The tab list below is the single source of truth. Adding a section means
 // adding it to SectionId and ALL_TABS, and rendering it in App.tsx.
 
-export type SectionId = 'market-pulse' | 'quartile' | 'watchlist'
+export type SectionId = 'market-pulse' | 'quartile' | 'risk' | 'watchlist'
 
 /** In the order they appear in the header. */
 const ALL_TABS: ReadonlyArray<{ id: SectionId; label: string }> = [
   { id: 'market-pulse', label: 'Market Pulse' },
   { id: 'quartile',     label: 'Quartile Ranking' },
+  { id: 'risk',         label: 'Risk & Returns' },
   { id: 'watchlist',    label: 'Fund Signals' },
 ]
 

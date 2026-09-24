@@ -820,7 +820,7 @@ def risk_metrics(
     for r in raw_fund:
         ym = r[0][:7]  # 'YYYY-MM'
         fund_ym[ym] = r
-    fund_rows = [fund_ym[ym] for ym in sorted(fund_ym.keys())]
+    own_rows = [fund_ym[ym] for ym in sorted(fund_ym.keys())]
 
     # ── Load 3Y monthly Index Closes (Optimised daily query + Python grouping) ──
     raw_bench = conn.execute(
@@ -832,14 +832,33 @@ def risk_metrics(
     for r in raw_bench:
         ym = r[0][:7]  # 'YYYY-MM'
         bench_ym[ym] = r
-    bench_rows = [bench_ym[ym] for ym in sorted(bench_ym.keys())]
+
+    # Align on CALENDAR MONTH, not position. Zipping by position assumed both
+    # series had every month; when the benchmark stopped updating (a Yahoo
+    # ticker going dead) each fund month was paired with a different benchmark
+    # month and Beta/Capture came out as noise — a large-cap fund showed Beta
+    # 0.11 against NIFTY 100. A month counts only when both month-end points
+    # are within a week of each other, so a stale final month cannot pair a
+    # fund's month-end with an index close from weeks earlier.
+    common = []
+    for ym in sorted(set(fund_ym) & set(bench_ym)):
+        fd = datetime.fromisoformat(fund_ym[ym][0]).date()
+        bd = datetime.fromisoformat(bench_ym[ym][0]).date()
+        if abs((fd - bd).days) <= 7:
+            common.append(ym)
+    fund_rows  = [fund_ym[ym] for ym in common]
+    bench_rows = [bench_ym[ym] for ym in common]
 
     fund_monthly  = _monthly_returns_from_navs(fund_rows)
     bench_monthly = _monthly_returns_from_navs(bench_rows)
-
-    # Align to common dates (zip by position — both are monthly, same window)
     n_common = min(len(fund_monthly), len(bench_monthly))
-    if n_common < 30:
+
+    # Std Dev, Sharpe and Sortino describe the fund alone, so they come from its
+    # own months and survive a benchmark that has gone stale. Only the
+    # benchmark-relative ratios (Beta, Alpha, Captures) need the aligned pairs.
+    own_monthly = _monthly_returns_from_navs(own_rows)
+    bench_ok = n_common >= 30
+    if len(own_monthly) < 30:
         return {k: None for k in [
             "std_annual", "sharpe", "sortino", "beta", "alpha",
             "max_drawdown", "recovery_days", "upside_capture", "downside_capture",
@@ -848,12 +867,13 @@ def risk_metrics(
 
     f_monthly = fund_monthly[-n_common:]
     b_monthly = bench_monthly[-n_common:]
+    own = own_monthly
 
     Rf_annual  = risk_free_rate
     Rf_monthly = (1 + Rf_annual) ** (1 / 12) - 1
 
     # R1 — Standard Deviation (annualised, sample)
-    std_annual = statistics.stdev(f_monthly) * math.sqrt(12)
+    std_annual = statistics.stdev(own) * math.sqrt(12)
 
     # Fund & benchmark 3Y CAGR (E2 logic)
     fund_3y_cagr  = trailing_return(conn, scheme_code, "3Y", today)
@@ -867,7 +887,7 @@ def risk_metrics(
     )
 
     # R3 — Sortino
-    excess_m = [r - Rf_monthly for r in f_monthly]
+    excess_m = [r - Rf_monthly for r in own]
     downside  = [min(e, 0) for e in excess_m]
     sigma_d   = math.sqrt(sum(d ** 2 for d in downside) / len(downside)) * math.sqrt(12)
     sortino   = (
@@ -876,12 +896,14 @@ def risk_metrics(
         else None
     )
 
-    # R4 — Beta & Alpha
-    f_mean = sum(f_monthly) / len(f_monthly)
-    b_mean = sum(b_monthly) / len(b_monthly)
-    covar  = sum((f - f_mean) * (b - b_mean) for f, b in zip(f_monthly, b_monthly)) / len(f_monthly)
-    b_var  = sum((b - b_mean) ** 2 for b in b_monthly) / len(b_monthly)
-    beta   = covar / b_var if b_var else None
+    # R4 — Beta & Alpha (need >= 30 aligned months; None otherwise)
+    beta = None
+    if bench_ok:
+        f_mean = sum(f_monthly) / len(f_monthly)
+        b_mean = sum(b_monthly) / len(b_monthly)
+        covar  = sum((f - f_mean) * (b - b_mean) for f, b in zip(f_monthly, b_monthly)) / len(f_monthly)
+        b_var  = sum((b - b_mean) ** 2 for b in b_monthly) / len(b_monthly)
+        beta   = covar / b_var if b_var else None
     alpha  = (
         (fund_3y_cagr - (Rf_annual + beta * (bench_3y_cagr - Rf_annual)))
         if beta is not None and fund_3y_cagr is not None and bench_3y_cagr is not None
@@ -936,8 +958,9 @@ def risk_metrics(
                     break
 
     # R6 — Upside / Downside Capture (36 monthly returns)
-    up_months   = [(f, b) for f, b in zip(f_monthly, b_monthly) if b > 0]
-    down_months = [(f, b) for f, b in zip(f_monthly, b_monthly) if b < 0]
+    pairs = list(zip(f_monthly, b_monthly)) if bench_ok else []
+    up_months   = [(f, b) for f, b in pairs if b > 0]
+    down_months = [(f, b) for f, b in pairs if b < 0]
 
     def geo_annualised(returns, n):
         if not returns or n == 0:

@@ -6,14 +6,11 @@ Every file carries 'as_of'. This runs AFTER run_engine.py has updated the DB.
 
 Output files (in site/public/data/):
   meta.json, indices.json,
-  quartiles_{slug}_{mode}.json, watchlist_{mode}.json,
+  quartiles_{slug}_{mode}.json, risk_{slug}.json, watchlist_{mode}.json,
   index/{index_id}.json
 
-This build serves three screens — Market Pulse, Quartile Ranking and Fund
-Signals — so it computes only what they read. The full project additionally
-writes category tables, glance, rolling, risk, nav series and category history
-for the screens behind its admin login; none of those exist here, and computing
-them would add minutes to every run for files nothing fetches.
+This build serves four screens — Market Pulse, Quartile Ranking, Risk & Returns
+and Fund Signals — so it computes only what they read.
 """
 
 from __future__ import annotations
@@ -599,6 +596,124 @@ def build_quartiles(conn, cat_slug: str, mode: str = "quarterly"):
              f", {len(payload['sectors'])} sectors ranked separately" if sectors else "")
 
 
+# ── Risk & Returns (risk_{slug}.json) ────────────────────────────────────────
+
+RISK_RETURN_PERIODS = ["1M", "3M", "6M", "12M", "3Y", "5Y", "10Y"]
+# Ratios that compare the fund with its benchmark, blanked when that is stale.
+BENCHMARK_RELATIVE_KEYS = ["alpha", "beta", "upside_capture", "downside_capture"]
+BENCHMARK_MAX_LAG_DAYS = 10
+RISK_RATIO_KEYS = [
+    "std_annual", "sharpe", "sortino", "alpha", "beta",
+    "max_drawdown", "upside_capture", "downside_capture", "composite_score",
+]
+
+
+def build_risk(conn, cat_slug: str):
+    """
+    Trailing returns and the full ratio set for every fund in one category.
+
+    Everything is computed by the engine (trailing_return, risk_metrics,
+    composite_risk_score); this only gathers it. Ratios use 3 years of monthly
+    returns against the category benchmark, so a fund with under ~30 months of
+    history shows returns but blank ratios.
+    """
+    row = conn.execute(
+        "SELECT category_id, category_name, asset_class, benchmark_id "
+        "FROM categories WHERE slug=?", (cat_slug,)
+    ).fetchone()
+    if not row:
+        return
+    cat_id, cat_name, asset_class, bench_id = row
+    if asset_class not in ("Equity", "Hybrid"):
+        return
+
+    funds = conn.execute(
+        "SELECT scheme_code, scheme_name FROM schemes "
+        "WHERE category_id=? AND is_active=1 ORDER BY scheme_name", (cat_id,)
+    ).fetchall()
+    if not funds:
+        return
+
+    as_of = get_as_of(conn)
+    as_of_d = date.fromisoformat(as_of)
+    rf = float(conn.execute(
+        "SELECT value FROM config WHERE key='risk_free_rate'").fetchone()[0])
+    bench_name = None
+    bench_last = None
+    if bench_id is not None:
+        r = conn.execute("SELECT index_name FROM benchmarks WHERE index_id=?",
+                         (bench_id,)).fetchone()
+        bench_name = r[0] if r else None
+        bench_last = conn.execute("SELECT MAX(date) FROM index_history WHERE index_id=?",
+                                  (bench_id,)).fetchone()[0]
+    # A benchmark whose data stopped updating (a Yahoo ticker that went dead)
+    # would measure funds up to today against an index frozen weeks ago. Keep the
+    # fund-only ratios, blank the benchmark-relative ones, and say so on screen.
+    bench_stale = bool(bench_last) and (
+        as_of_d - date.fromisoformat(bench_last)).days > BENCHMARK_MAX_LAG_DAYS
+    if bench_stale:
+        log.warning("  %s: benchmark %s last updated %s — Alpha/Beta/Capture left blank",
+                    cat_slug, bench_name, bench_last)
+
+    rows = []
+    for sc, name in funds:
+        rets = {p: trailing_return(conn, sc, p, as_of_d) for p in RISK_RETURN_PERIODS}
+        if all(v is None for v in rets.values()):
+            continue   # no NAV at all -- nothing to show
+        # With no benchmark the index query simply finds nothing, so the
+        # fund-only ratios still come back and the relative ones are None.
+        m = risk_metrics(conn, sc, bench_id, rf, as_of_d)
+        if bench_stale:
+            for k in BENCHMARK_RELATIVE_KEYS:
+                m[k] = None
+        m["scheme_code"] = sc
+        m["scheme_name"] = name
+        m["returns"] = rets
+        rows.append(m)
+
+    composite_risk_score(rows)
+
+    def avg(values):
+        vals = [v for v in values if v is not None]
+        return fmt(sum(vals) / len(vals)) if vals else None
+
+    fund_rows = [{
+        "scheme_code": r["scheme_code"],
+        "scheme_name": r["scheme_name"],
+        "returns":     {p: fmt(r["returns"][p]) for p in RISK_RETURN_PERIODS},
+        **{k: r.get(k) for k in RISK_RATIO_KEYS},
+        "recovery_days": r.get("recovery_days"),
+    } for r in rows]
+
+    benchmark = None
+    if bench_id is not None:
+        benchmark = {
+            "index_id": bench_id,
+            "name":     bench_name,
+            "returns":  {p: fmt(trailing_return_index(conn, bench_id, p, as_of_d))
+                         for p in RISK_RETURN_PERIODS},
+            "last_date": bench_last,
+            "stale":    bench_stale,
+        }
+
+    write_json(out(f"risk_{cat_slug}.json"), {
+        "as_of":          as_of,
+        "category_name":  cat_name,
+        "risk_free_rate": rf,
+        "window":         "3Y monthly returns vs category benchmark",
+        "periods":        RISK_RETURN_PERIODS,
+        "benchmark":      benchmark,
+        "category_average": {
+            "returns": {p: avg([f["returns"][p] for f in fund_rows])
+                        for p in RISK_RETURN_PERIODS},
+            **{k: avg([f[k] for f in fund_rows]) for k in RISK_RATIO_KEYS},
+        },
+        "funds": fund_rows,
+    })
+    rated = sum(1 for f in fund_rows if f["sharpe"] is not None)
+    log.info("✓ risk_%s.json (%d funds, %d with ratios)", cat_slug, len(fund_rows), rated)
+
+
 # ── Index series (index/{index_id}.json) ─────────────────────────────────────
 
 def build_index_series(conn):
@@ -618,10 +733,10 @@ def main():
     as_of = get_as_of(conn)
     log.info("Building JSON outputs. Data as of: %s", as_of)
 
-    # Only what the three tabs read. Market Pulse takes meta.json, indices.json
+    # Only what the tabs read. Market Pulse takes meta.json, indices.json
     # and index/{id}.json; Quartile Ranking takes quartiles_{slug}_{mode}.json;
-    # Fund Signals takes watchlist_{mode}.json. Nothing else is computed, so a
-    # run does not spend time on figures no screen displays.
+    # Risk & Returns takes risk_{slug}.json; Fund Signals takes
+    # watchlist_{mode}.json. Nothing else is computed.
     build_meta(conn)
     build_indices(conn)
 
@@ -638,6 +753,7 @@ def main():
         log.info("Processing category: %s", slug)
         for mode in ["monthly", "quarterly", "annual"]:
             build_quartiles(conn, slug, mode)
+        build_risk(conn, slug)
 
     # Cross-category streak signals — one file per mode.
     for mode in ["monthly", "quarterly", "annual"]:

@@ -167,3 +167,9 @@ export function useQuartiles(slug: string, mode: 'monthly' | 'quarterly' | 'annu
   return useJson<import('../types').QuartilesData>(
     () => categoryPath(slug, `quartiles_${mode}.json`), `q:${slug}:${mode}`)
 }
+
+/** Trailing returns and risk ratios for one category (Risk & Returns tab). */
+export function useRisk(slug: string) {
+  return useJson<import('../types').RiskData>(
+    () => categoryPath(slug, 'risk.json'), slug ? `risk:${slug}` : '')
+}
