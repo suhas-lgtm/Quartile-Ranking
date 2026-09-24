@@ -174,7 +174,8 @@ export function useRisk(slug: string) {
     () => categoryPath(slug, 'risk.json'), slug ? `risk:${slug}` : '')
 }
 
-/** The funds on data/whitelist.json with their latest quartiles and ratios. */
-export function useWhitelist() {
-  return useJson<import('../types').WhitelistData>('whitelist.json')
+/** Whitelist Screener parameters and scores for one category. */
+export function useScreener(slug: string) {
+  return useJson<import('../types').ScreenerData>(
+    () => categoryPath(slug, 'screener.json'), slug ? `screener:${slug}` : '')
 }

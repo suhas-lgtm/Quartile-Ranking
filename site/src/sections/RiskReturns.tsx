@@ -42,8 +42,8 @@ const pctU = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100)
 const num  = (d: number) => (v: number | null | undefined) => (v == null ? '—' : v.toFixed(d))
 
 const RETURN_COLS: Col[] = ([
-  ['1M', '1M'], ['3M', '3M'], ['6M', '6M'], ['12M', '1Y'],
-  ['3Y', '3Y'], ['5Y', '5Y'], ['10Y', '10Y'],
+  ['1D', '1D'], ['1W', '1W'], ['1M', '1M'], ['3M', '3M'], ['6M', '6M'], ['12M', '1Y'],
+  ['2Y', '2Y'], ['3Y', '3Y'], ['5Y', '5Y'], ['10Y', '10Y'],
 ] as [RiskPeriod, string][]).map(([p, label]) => ({
   key: `r_${p}`,
   label,
@@ -52,7 +52,9 @@ const RETURN_COLS: Col[] = ([
   show: pct,
   better: 'high' as const,
   exportType: 'percent' as const,
-  help: ['1M', '3M', '6M', '12M'].includes(p)
+  help: p === '1D'
+    ? 'Change from the previous NAV (last trading day).'
+    : ['1W', '1M', '3M', '6M', '12M'].includes(p)
     ? `${label} absolute return, point to point.`
     : `${label} annualised return (CAGR).`,
 }))
@@ -172,9 +174,9 @@ export default function RiskReturns() {
       return out
     }
     const rows: SheetSpec['rows'] = []
-    if (data.benchmark) rows.push(row(`Benchmark: ${data.benchmark.name ?? ''}`, { returns: data.benchmark.returns }))
     rows.push(row('Category average', data.category_average))
     for (const f of funds) rows.push(row(f.scheme_name, f))
+    if (data.benchmark) rows.push(row(`Benchmark: ${data.benchmark.name ?? ''}`, { returns: data.benchmark.returns }))
     return {
       sheet: 'Risk & Returns',
       title: `Risk & Returns - ${data.category_name}`,
@@ -184,7 +186,7 @@ export default function RiskReturns() {
         ['Data as of', data.as_of],
         ['Funds', String(funds.length)],
         ['Ratios', `${data.window}; risk-free rate ${(data.risk_free_rate * 100).toFixed(1)}% p.a.`],
-        ['Returns', 'Up to 1Y absolute, 3Y and longer annualised (CAGR)'],
+        ['Returns', '1D to 1Y absolute, 2Y and longer annualised (CAGR)'],
       ],
       columns,
       rows,
@@ -298,15 +300,6 @@ export default function RiskReturns() {
                 </tr>
               </thead>
               <tbody key={`${activeSlug}-${view}`} className="rows-enter">
-                {data.benchmark && (
-                  <tr className="benchmark-row">
-                    <td className="sticky-col text-xs font-semibold truncate" style={{ maxWidth: 240, color: 'var(--accent-a)' }}
-                        title={data.benchmark.name ?? ''}>
-                      Benchmark · {data.benchmark.name}
-                    </td>
-                    {cols.map(c => cell(c, { returns: data.benchmark!.returns }, false))}
-                  </tr>
-                )}
                 <tr className="benchmark-row">
                   <td className="sticky-col text-xs font-semibold" style={{ color: 'var(--text-mid)' }}>
                     Category average
@@ -321,6 +314,15 @@ export default function RiskReturns() {
                     {cols.map(c => cell(c, f, true))}
                   </tr>
                 ))}
+                {data.benchmark && (
+                  <tr className="benchmark-row">
+                    <td className="sticky-col text-xs font-semibold truncate" style={{ maxWidth: 240, color: 'var(--accent-a)' }}
+                        title={data.benchmark.name ?? ''}>
+                      Benchmark · {data.benchmark.name}
+                    </td>
+                    {cols.map(c => cell(c, { returns: data.benchmark!.returns }, false))}
+                  </tr>
+                )}
               </tbody>
             </table>
             {funds.length === 0 && (
@@ -347,7 +349,7 @@ export default function RiskReturns() {
           {data?.benchmark ? <> compared with the category benchmark, <b style={{ color: 'var(--text-hi)' }}>{data.benchmark.name}</b></> : null},
           with a risk-free rate of {data ? `${(data.risk_free_rate * 100).toFixed(1)}%` : '6.5%'} a year.
           A fund needs about 30 months of history for ratios; younger funds show returns only.
-          Returns up to 1Y are plain % changes; 3Y, 5Y and 10Y are yearly averages (CAGR).
+          1D to 1Y returns are plain % changes; 2Y and longer are yearly averages (CAGR).
         </p>
         <div className="grid gap-x-8 gap-y-2.5 md:grid-cols-2">
           {RATIO_COLS.map(c => (

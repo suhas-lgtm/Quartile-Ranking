@@ -128,7 +128,8 @@ def remote_path(rel: str, slug_ac: dict[str, str],
             if slug in slug_ac:
                 return scoped(slug, tail.format(view))
 
-    for prefix, tail in (("rolling_", "rolling.json"), ("risk_", "risk.json")):
+    for prefix, tail in (("rolling_", "rolling.json"), ("risk_", "risk.json"),
+                         ("screener_", "screener.json")):
         if name.startswith(prefix):
             slug = stem[len(prefix):]
             if slug in slug_ac:

@@ -158,7 +158,7 @@ export interface QuartilesData {
 }
 
 /** Trailing-return periods carried by risk_{slug}.json, oldest window last. */
-export type RiskPeriod = '1M' | '3M' | '6M' | '12M' | '3Y' | '5Y' | '10Y'
+export type RiskPeriod = '1D' | '1W' | '1M' | '3M' | '6M' | '12M' | '2Y' | '3Y' | '5Y' | '10Y'
 
 /** The ratio fields, shared by a fund row and the category average. */
 export interface RiskRatios {
@@ -201,34 +201,54 @@ export interface RiskData {
   funds: RiskFundRow[]
 }
 
-/** One mode's recent quartile history for a whitelisted fund, oldest first. */
-export interface WhitelistQuartiles {
-  labels: string[]
-  quartiles: (number | null)[]
-  returns: (number | null)[]
+export type ScreenerParam =
+  | 'beta' | 'relative_risk' | 'down_capture' | 'std_dev'
+  | 'returns' | 'relative_return' | 'alpha' | 'up_capture'
+  | 'max_drawdown' | 'recovery_time' | 'active_share'
+
+export interface BearStat {
+  /** Point-to-point return over the bear period (decimal). */
+  fall: number
+  /** Days after the period's end to regain the start level (so far, if not yet). */
+  recovery_days: number
+  recovered: boolean
 }
 
-export interface WhitelistFund {
+export interface ScreenerFund {
   scheme_code: string
   scheme_name: string
-  note: string
-  category_name: string | null
-  category_slug: string | null
-  asset_class: string | null
-  nav: number | null
-  nav_date: string | null
-  change_1d: number | null
-  quartiles: Partial<Record<'monthly' | 'quarterly' | 'annual', WhitelistQuartiles>>
-  returns: Record<RiskPeriod, number | null> | null
-  ratios: RiskRatios | null
+  /** Enough history to be ranked (min_history return and 3Y ratios). */
+  eligible: boolean
+  beta: number | null
+  std_dev: number | null
+  relative_risk: number | null
+  down_capture: number | null
+  alpha: number | null
+  up_capture: number | null
+  returns: Record<string, number | null>
+  relative_returns: Record<string, number | null>
+  /** One entry per bear period, null where the fund had not launched. */
+  bear: (BearStat | null)[]
+  active_share: number | null
+  /** 0–100 per parameter within the category; null when not ranked. */
+  scores: Record<ScreenerParam, number | null> | null
 }
 
-/** whitelist.json — Whitelist tab and email alerts. */
-export interface WhitelistData {
+/** screener_{slug}.json — Whitelist Screener tab. */
+export interface ScreenerData {
   as_of: string
-  funds: WhitelistFund[]
-  /** Codes on the list that are not in the catalogue. */
-  missing: string[]
+  category_name: string
+  benchmark: {
+    name: string | null
+    stale: boolean
+    std_dev: number | null
+    returns: Record<string, number | null>
+  } | null
+  periods: string[]
+  bear_periods: { label: string; start: string; end: string }[]
+  min_history: string
+  default_weights: Record<ScreenerParam, number>
+  funds: ScreenerFund[]
 }
 
 export interface DrawdownPoint {

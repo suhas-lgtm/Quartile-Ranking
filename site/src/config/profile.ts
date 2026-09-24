@@ -15,7 +15,7 @@ const ALL_TABS: ReadonlyArray<{ id: SectionId; label: string }> = [
   { id: 'quartile',     label: 'Quartile Ranking' },
   { id: 'risk',         label: 'Risk & Returns' },
   { id: 'watchlist',    label: 'Fund Signals' },
-  { id: 'whitelist',    label: 'Whitelist' },
+  { id: 'whitelist',    label: 'Whitelist Screener' },
 ]
 
 /** Landing tab, and the fallback when a saved tab is no longer valid. */

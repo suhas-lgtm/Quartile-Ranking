@@ -7,7 +7,7 @@ Every file carries 'as_of'. This runs AFTER run_engine.py has updated the DB.
 Output files (in site/public/data/):
   meta.json, indices.json,
   quartiles_{slug}_{mode}.json, risk_{slug}.json, watchlist_{mode}.json,
-  whitelist.json,
+  screener_{slug}.json, whitelist.json,
   index/{index_id}.json
 
 This build serves four screens — Market Pulse, Quartile Ranking, Risk & Returns
@@ -41,6 +41,8 @@ from engine.calculation_engine import (
     category_average, rank_and_quartile,
     quartile_journeys,
     risk_metrics, composite_risk_score,
+    short_return, SHORT_PERIODS,
+    index_std_annual, bear_period_stats, screener_parameter_scores,
     rolling_statistics,
 )
 from scripts.sectors import SECTORAL_THEMATIC_SLUG, sector_of, SECTOR_ORDER
@@ -599,7 +601,16 @@ def build_quartiles(conn, cat_slug: str, mode: str = "quarterly"):
 
 # ── Risk & Returns (risk_{slug}.json) ────────────────────────────────────────
 
-RISK_RETURN_PERIODS = ["1M", "3M", "6M", "12M", "3Y", "5Y", "10Y"]
+RISK_RETURN_PERIODS = ["1D", "1W", "1M", "3M", "6M", "12M", "2Y", "3Y", "5Y", "10Y"]
+
+
+def _risk_period_return(conn, code, period, as_of_d, is_index=False):
+    """Any RISK_RETURN_PERIODS entry, for a fund or an index."""
+    if period in SHORT_PERIODS:
+        return short_return(conn, code, period, as_of_d, is_index=is_index)
+    if is_index:
+        return trailing_return_index(conn, code, period, as_of_d)
+    return trailing_return(conn, code, period, as_of_d)
 # Ratios that compare the fund with its benchmark, blanked when that is stale.
 BENCHMARK_RELATIVE_KEYS = ["alpha", "beta", "upside_capture", "downside_capture"]
 BENCHMARK_MAX_LAG_DAYS = 10
@@ -658,7 +669,7 @@ def build_risk(conn, cat_slug: str):
 
     rows = []
     for sc, name in funds:
-        rets = {p: trailing_return(conn, sc, p, as_of_d) for p in RISK_RETURN_PERIODS}
+        rets = {p: _risk_period_return(conn, sc, p, as_of_d) for p in RISK_RETURN_PERIODS}
         if all(v is None for v in rets.values()):
             continue   # no NAV at all -- nothing to show
         # With no benchmark the index query simply finds nothing, so the
@@ -691,7 +702,7 @@ def build_risk(conn, cat_slug: str):
         benchmark = {
             "index_id": bench_id,
             "name":     bench_name,
-            "returns":  {p: fmt(trailing_return_index(conn, bench_id, p, as_of_d))
+            "returns":  {p: fmt(_risk_period_return(conn, bench_id, p, as_of_d, is_index=True))
                          for p in RISK_RETURN_PERIODS},
             "last_date": bench_last,
             "stale":    bench_stale,
@@ -713,6 +724,96 @@ def build_risk(conn, cat_slug: str):
     })
     rated = sum(1 for f in fund_rows if f["sharpe"] is not None)
     log.info("✓ risk_%s.json (%d funds, %d with ratios)", cat_slug, len(fund_rows), rated)
+
+
+# ── Whitelist Screener (screener_{slug}.json) ───────────────────────────────
+
+SCREENER_CONFIG_PATH = os.path.join(ROOT_DIR, "data", "screener_config.json")
+
+
+def load_screener_config() -> dict:
+    with open(SCREENER_CONFIG_PATH, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def build_screener(conn, cat_slug: str, cfg: dict):
+    """
+    Raw parameters and 0-100 parameter scores for every fund in a category.
+
+    Beta, Std Dev, Alpha, the captures and the returns are read from
+    risk_{slug}.json written earlier in this build, so the screener can never
+    disagree with Risk & Returns. What is new here — Relative Risk, Relative
+    Return and the bear-period Drawdown/Recovery — is computed by the engine.
+    The page applies the (editable) weights to the scores; it does no maths
+    beyond that weighted average.
+    """
+    risk = _read_out(f"risk_{cat_slug}.json")
+    if not risk or not risk.get("funds"):
+        return
+    row = conn.execute("SELECT benchmark_id FROM categories WHERE slug=?", (cat_slug,)).fetchone()
+    bench_id = row[0] if row else None
+    as_of_d = date.fromisoformat(risk["as_of"])
+
+    periods = [p for p in cfg.get("return_periods", []) if p in RISK_RETURN_PERIODS]
+    bears = cfg.get("bear_periods") or []
+    min_hist = cfg.get("min_history") or "3Y"
+
+    bench = risk.get("benchmark") or {}
+    bench_ok = bool(bench) and not bench.get("stale")
+    bench_ret = bench.get("returns") or {}
+    bench_std = index_std_annual(conn, bench_id, as_of_d) if bench_ok else None
+
+    funds = []
+    for f in risk["funds"]:
+        rets = {p: f["returns"].get(p) for p in periods}
+        std = f.get("std_annual")
+        funds.append({
+            "scheme_code":  f["scheme_code"],
+            "scheme_name":  f["scheme_name"],
+            # Ranked only with enough history for the 3Y ratios; younger funds
+            # are listed underneath, unranked.
+            "eligible":     f["returns"].get(min_hist) is not None and std is not None,
+            "beta":         f.get("beta"),
+            "std_dev":      std,
+            "relative_risk": fmt(std / bench_std) if std is not None and bench_std else None,
+            "down_capture": f.get("downside_capture"),
+            "alpha":        f.get("alpha"),
+            "up_capture":   f.get("upside_capture"),
+            "returns":      rets,
+            "relative_returns": {
+                p: fmt(rets[p] - bench_ret[p])
+                if bench_ok and rets[p] is not None and bench_ret.get(p) is not None else None
+                for p in periods},
+            "bear": [
+                (lambda st: {k: (fmt(v) if k == "fall" else v) for k, v in st.items()} if st else None)(
+                    bear_period_stats(conn, f["scheme_code"], date.fromisoformat(b["start"]),
+                                      date.fromisoformat(b["end"]), as_of_d))
+                for b in bears],
+            "active_share": None,   # needs portfolio holdings; not sourced yet
+        })
+
+    eligible = [f for f in funds if f["eligible"]]
+    for f, sc in zip(eligible, screener_parameter_scores(eligible, periods, len(bears))):
+        f["scores"] = {k: (round(v, 2) if v is not None else None) for k, v in sc.items()}
+    for f in funds:
+        f.setdefault("scores", None)
+
+    write_json(out(f"screener_{cat_slug}.json"), {
+        "as_of":           risk["as_of"],
+        "category_name":   risk["category_name"],
+        "benchmark": {
+            "name":    bench.get("name"),
+            "stale":   bool(bench.get("stale")),
+            "std_dev": fmt(bench_std),
+            "returns": {p: bench_ret.get(p) for p in periods},
+        } if bench else None,
+        "periods":         periods,
+        "bear_periods":    bears,
+        "min_history":     min_hist,
+        "default_weights": cfg.get("weights") or {},
+        "funds":           funds,
+    })
+    log.info("✓ screener_%s.json (%d funds, %d ranked)", cat_slug, len(funds), len(eligible))
 
 
 # ── Whitelist (whitelist.json) ──────────────────────────────────────────────
@@ -861,7 +962,11 @@ def main():
     for mode in ["monthly", "quarterly", "annual"]:
         build_watchlist(conn, mode)
 
-    # Reads the quartile and risk files written above, so it must come after.
+    # Both read the quartile and risk files written above, so they come after.
+    screener_cfg = load_screener_config()
+    for _, slug, asset_class in categories:
+        if asset_class in ("Equity", "Hybrid"):
+            build_screener(conn, slug, screener_cfg)
     build_whitelist(conn)
 
     build_index_series(conn)

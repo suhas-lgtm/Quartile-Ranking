@@ -123,6 +123,7 @@ TRAILING_PERIODS = {
     "3M":  dict(months=3),
     "6M":  dict(months=6),
     "12M": dict(months=12),
+    "2Y":  dict(years=2),
     "3Y":  dict(years=3),
     "5Y":  dict(years=5),
     "10Y": dict(years=10),
@@ -232,6 +233,215 @@ def trailing_return_index(
         return (close_T / close_start) - 1
     else:
         return (close_T / close_start) ** (365 / actual_days) - 1
+
+
+# ── E2b. Short trailing returns: 1D and 1W ──────────────────────────────────
+
+SHORT_PERIODS = ("1D", "1W")
+
+
+def short_return(
+    conn: sqlite3.Connection,
+    code: str | int,
+    period: str,                 # '1D' | '1W'
+    as_of: Optional[date] = None,
+    is_index: bool = False,
+) -> Optional[float]:
+    """
+    Absolute return over the last trading day or week, for a fund or an index.
+
+    1D: latest value vs the previous one held (the prior trading day, whatever
+        its calendar gap). 1W: latest vs NEAREST-PREVIOUS to T-7 days, the same
+        rule the longer periods use for their start.
+    """
+    if period not in SHORT_PERIODS:
+        raise ValueError(f"Unknown period: {period}")
+    table, code_col, date_col, val_col = (
+        ("index_history", "index_id", "date", "close") if is_index
+        else ("nav_history", "scheme_code", "nav_date", "nav"))
+
+    T = (index_anchor_date(conn, int(code), as_of) if is_index
+         else anchor_date(conn, str(code), as_of))
+    if T is None:
+        return None
+    row = conn.execute(
+        f"SELECT {val_col} FROM {table} WHERE {code_col}=? AND {date_col}=?",
+        (code, T.isoformat())).fetchone()
+    if row is None or not row[0]:
+        return None
+    end = row[0]
+
+    if period == "1D":
+        prev = conn.execute(
+            f"SELECT {val_col} FROM {table} WHERE {code_col}=? AND {date_col}<? "
+            f"ORDER BY {date_col} DESC LIMIT 1", (code, T.isoformat())).fetchone()
+        start = prev[0] if prev else None
+    else:
+        _d, start = resolve_nearest_previous(
+            conn, str(code), T - timedelta(days=7),
+            table=table, code_col=code_col, date_col=date_col, val_col=val_col)
+    if not start:
+        return None
+    return end / start - 1
+
+
+# ── E2c. Benchmark volatility and bear-period behaviour (Whitelist Screener) ─
+
+def index_std_annual(
+    conn: sqlite3.Connection,
+    index_id: int,
+    as_of: Optional[date] = None,
+) -> Optional[float]:
+    """
+    Annualised Std Dev of an index's month-end returns over the last 3 years —
+    the same construction risk_metrics uses for a fund, so fund Std Dev divided
+    by this is a like-for-like Relative Risk.
+    """
+    today = as_of or date.today()
+    start = _subtract_period(today, years=3)
+    by_month: dict[str, tuple[str, float]] = {}
+    for d, c in conn.execute(
+            "SELECT date, close FROM index_history WHERE index_id=? AND date>=? "
+            "AND date<=? ORDER BY date", (index_id, start.isoformat(), today.isoformat())):
+        by_month[d[:7]] = (d, c)
+    monthly = _monthly_returns_from_navs([by_month[k] for k in sorted(by_month)])
+    if len(monthly) < 30:
+        return None
+    return statistics.stdev(monthly) * math.sqrt(12)
+
+
+def bear_period_stats(
+    conn: sqlite3.Connection,
+    scheme_code: str,
+    start: date,
+    end: date,
+    as_of: Optional[date] = None,
+) -> Optional[dict]:
+    """
+    How a fund behaved through one bear period [start, end].
+
+      fall            point-to-point return from start to end (NEAREST-PREVIOUS
+                      NAV at each end), e.g. -0.28 for a 28% fall.
+      recovery_days   calendar days after `end` until the NAV first got back to
+                      its level at `start`.
+      recovered       False when it has not got back yet; recovery_days is then
+                      the days elapsed so far, which is a lower bound and always
+                      at least as long as any fund that did recover.
+
+    None when the fund had not launched by `start`.
+    """
+    first = _first_nav_date(conn, scheme_code)
+    if first is None or first > start:
+        return None
+    d0, nav0 = resolve_nearest_previous(conn, scheme_code, start)
+    d1, nav1 = resolve_nearest_previous(conn, scheme_code, end)
+    if not nav0 or not nav1:
+        return None
+    row = conn.execute(
+        "SELECT MIN(nav_date) FROM nav_history WHERE scheme_code=? AND nav_date>? AND nav>=?",
+        (scheme_code, end.isoformat(), nav0)).fetchone()
+    if row and row[0]:
+        rec = datetime.fromisoformat(row[0]).date()
+        return {"fall": nav1 / nav0 - 1, "recovery_days": (rec - end).days, "recovered": True}
+    last = anchor_date(conn, scheme_code, as_of) or end
+    return {"fall": nav1 / nav0 - 1, "recovery_days": max((last - end).days, 0),
+            "recovered": False}
+
+
+def detect_bear_periods(
+    closes: list[tuple[str, float]],
+    threshold: float = 0.10,
+) -> list[tuple[str, str, float]]:
+    """
+    Peak-to-trough declines of at least `threshold` in a daily close series.
+
+    Returns [(peak_date, trough_date, fall)], oldest first. A bear period runs
+    from a peak to the lowest close before the series makes a new high. Used to
+    SEED the screener's manual bear-period list, not at run time.
+    """
+    out = []
+    peak_d, peak = None, None
+    trough_d, trough = None, None
+    for d, c in closes:
+        if peak is None or c >= peak:
+            if peak is not None and trough is not None and trough / peak - 1 <= -threshold:
+                out.append((peak_d, trough_d, trough / peak - 1))
+            peak_d, peak = d, c
+            trough_d, trough = None, None
+        elif trough is None or c < trough:
+            trough_d, trough = d, c
+    if peak is not None and trough is not None and trough / peak - 1 <= -threshold:
+        out.append((peak_d, trough_d, trough / peak - 1))
+    return out
+
+
+# ── E2d. Whitelist Screener parameter scores ────────────────────────────────
+
+# Parameter -> True when a HIGHER raw value is better.
+SCREENER_DIRECTION = {
+    "beta": False, "relative_risk": False, "down_capture": False, "std_dev": False,
+    "returns": True, "relative_return": True, "alpha": True, "up_capture": True,
+    "max_drawdown": True,      # a bear-period fall closer to 0 is better
+    "recovery_time": False,
+    "active_share": True,
+}
+
+
+def percentile_scores(values: list[Optional[float]], higher_better: bool) -> list[Optional[float]]:
+    """
+    0-100 within the list: the best value scores 100, the worst 100/n. Ties share
+    the better score. None stays None and is left out of n. Same scale as
+    composite_risk_score's percentile ranks.
+    """
+    elig = [v for v in values if v is not None]
+    if not elig:
+        return [None] * len(values)
+    ordered = sorted(elig, reverse=higher_better)
+    first_pos: dict[float, int] = {}
+    for i, v in enumerate(ordered):
+        first_pos.setdefault(v, i)
+    n = len(ordered)
+    return [None if v is None else (1 - first_pos[v] / n) * 100 for v in values]
+
+
+def _mean(xs: list[Optional[float]]) -> Optional[float]:
+    xs = [x for x in xs if x is not None]
+    return sum(xs) / len(xs) if xs else None
+
+
+def screener_parameter_scores(funds: list[dict], periods: list[str], n_bear: int) -> list[dict]:
+    """
+    Score every parameter of the Whitelist Screener, 0-100 within the category.
+
+    Each fund dict carries raw values: beta, relative_risk, down_capture,
+    std_dev, alpha, up_capture, active_share (any may be None), returns and
+    relative_returns ({period: value}), and bear ([{fall, recovery_days} | None]
+    per bear period). Multi-part parameters are scored part by part and the
+    parts averaged, so a 3Y CAGR is only ever compared with other 3Y CAGRs and a
+    COVID-crash fall only with other COVID-crash falls — a fund launched after a
+    bear period is simply not scored on it.
+
+    Returns one {parameter: score | None} per fund, in order.
+    """
+    out = [dict() for _ in funds]
+
+    for key in ("beta", "relative_risk", "down_capture", "std_dev",
+                "alpha", "up_capture", "active_share"):
+        sc = percentile_scores([f.get(key) for f in funds], SCREENER_DIRECTION[key])
+        for o, v in zip(out, sc):
+            o[key] = v
+
+    def multi(key, series_of):
+        parts = [percentile_scores([series_of(f, i) for f in funds], SCREENER_DIRECTION[key])
+                 for i in range(len(periods) if key in ("returns", "relative_return") else n_bear)]
+        for j, o in enumerate(out):
+            o[key] = _mean([p[j] for p in parts])
+
+    multi("returns",         lambda f, i: (f.get("returns") or {}).get(periods[i]))
+    multi("relative_return", lambda f, i: (f.get("relative_returns") or {}).get(periods[i]))
+    multi("max_drawdown",    lambda f, i: (f["bear"][i] or {}).get("fall") if f.get("bear") else None)
+    multi("recovery_time",   lambda f, i: (f["bear"][i] or {}).get("recovery_days") if f.get("bear") else None)
+    return out
 
 
 # ── E3. Annual Returns (Calendar Year) ───────────────────────────────────────

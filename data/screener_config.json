@@ -1,0 +1,28 @@
+{
+  "_about": "Whitelist Screener settings. weights are the default % per parameter (the screen lets each viewer adjust them live). bear_periods are the market falls used for Max Drawdown and Recovery Time: edit, add or remove entries freely (dates are YYYY-MM-DD, start = market peak, end = market low). Seeded from NIFTY 50 falls of 10% or more since 2015.",
+  "weights": {
+    "beta": 10,
+    "relative_risk": 10,
+    "down_capture": 10,
+    "std_dev": 10,
+    "returns": 10,
+    "relative_return": 10,
+    "alpha": 10,
+    "up_capture": 10,
+    "max_drawdown": 6,
+    "recovery_time": 6,
+    "active_share": 8
+  },
+  "return_periods": ["1M", "3M", "6M", "12M", "2Y", "3Y"],
+  "min_history": "3Y",
+  "bear_periods": [
+    { "label": "2015-16 slowdown",       "start": "2015-03-03", "end": "2016-02-25" },
+    { "label": "Early 2018 correction",  "start": "2018-01-29", "end": "2018-03-23" },
+    { "label": "IL&FS 2018",             "start": "2018-08-28", "end": "2018-10-26" },
+    { "label": "Mid 2019 correction",    "start": "2019-06-03", "end": "2019-09-19" },
+    { "label": "COVID crash 2020",       "start": "2020-01-14", "end": "2020-03-23" },
+    { "label": "2021-22 rate hikes",     "start": "2021-10-18", "end": "2022-06-17" },
+    { "label": "Sep 2024 - Mar 2025",    "start": "2024-09-26", "end": "2025-03-04" },
+    { "label": "Jan - Mar 2026",         "start": "2026-01-02", "end": "2026-03-30" }
+  ]
+}
