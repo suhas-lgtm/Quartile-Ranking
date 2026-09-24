@@ -40,7 +40,7 @@ export interface IndexCard {
   change_1d_abs: number | null
   sparkline: [string, number][]
   /**
-   * Full daily history, present when the card came from the live Supabase files
+   * Full daily history, present when the card came from the live Neon files
    * (which carry it) and absent when it came from the committed indices.json
    * fallback. IndexChartModal uses it to skip a second fetch.
    */

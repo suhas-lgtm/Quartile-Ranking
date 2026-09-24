@@ -267,40 +267,41 @@ def carry_over_indices(conn: sqlite3.Connection, source_db: str):
         conn.execute("DETACH DATABASE src")
 
 
-def load_history_from_supabase(conn, schemes: list[dict], from_date: str | None,
-                               workers: int) -> list[tuple[str, str]]:
+def load_history_from_neon(conn, schemes: list[dict], from_date: str | None,
+                           workers: int) -> list[tuple[str, str]]:
     """
-    Fill nav_history from the published files, extended by AMFI's latest day.
+    Fill nav_history from Neon, extended by AMFI's latest day, and write every
+    newly accepted day back to Neon.
 
     Returns the same (code, error) failure list shape as api.fetch_many, so the
     caller's tolerance check is unchanged.
 
-    A fund with no published file is bootstrapped from api.mfapi.in -- that is the
-    only thing still reading it, and only for funds the bucket has never seen
-    (newly launched schemes, or a first run against an empty bucket).
+    A fund Neon holds no rows for is bootstrapped from api.mfapi.in -- that is
+    the only thing still reading it, and only once per fund: the rows it returns
+    are stored, so the next run finds them in Neon.
     """
     from scripts import nav_store
+    from scripts import neon_store as db
 
-    folders, unmapped = nav_store.folders_for(schemes)
-    if unmapped:
-        log.warning("%d scheme(s) have no category and so no published folder: %s",
-                    len(unmapped), ", ".join(unmapped[:8]))
+    if not db.enabled():
+        raise SystemExit(f"ABORT: --history-source neon but Neon is not "
+                         f"configured ({db.why_disabled()}). Set DATABASE_URL in "
+                         f".env, or pass --history-source mfapi.")
 
-    log.info("Reading published NAV history for %s fund(s) from Supabase ...",
-             f"{len(folders):,}")
+    db.upsert_schemes(schemes)
+    codes = [str(s["scheme_code"]) for s in schemes]
+    log.info("Reading stored NAV history for %s fund(s) from Neon ...",
+             f"{len(codes):,}")
+    series = nav_store.pull_stored(codes, from_date)
+    stored = {c: dict(s) for c, s in series.items()}
 
-    def progress(done, total, found):
-        log.info("   %5d/%d read, %d with history", done, total, found)
+    cap = previous_business_close()
 
-    series = nav_store.pull_many(folders, workers=workers, on_progress=progress)
-    published = {c: dict(s) for c, s in series.items()}
-
-    # Bootstrap anything the bucket has never held.
-    missing = [str(s["scheme_code"]) for s in schemes
-               if str(s["scheme_code"]) not in series]
+    # Bootstrap anything Neon has never held.
+    missing = [c for c in codes if c not in series]
     failures: list[tuple[str, str]] = []
     if missing:
-        log.info("Bootstrapping %d fund(s) with no published history from "
+        log.info("Bootstrapping %d fund(s) with no stored history from "
                  "api.mfapi.in ...", len(missing))
         rows_by_code: dict[str, list[tuple[str, float]]] = {}
 
@@ -313,16 +314,17 @@ def load_history_from_supabase(conn, schemes: list[dict], from_date: str | None,
         failures.extend(boot_failures)
         for code, rows in rows_by_code.items():
             # fetch_many hands over (scheme_code, nav_date, nav) triples, ready
-            # for a bulk INSERT — not (date, nav) pairs.
+            # for a bulk INSERT — not (date, nav) pairs. Anything past the
+            # previous-day cap is dropped here, before it can be stored.
             series.setdefault(code, {}).update(
-                {d: v for _sc, d, v in rows if v and v > 0})
+                {d: v for _sc, d, v in rows if v and v > 0 and d <= cap})
 
     # AMFI extends every series by its own day, and only forward.
     from scripts.amfi_topup import fetch_navall, parse_navall
     text = fetch_navall()
     if text:
         amfi = parse_navall(text)
-        stats = nav_store.merge_amfi(series, amfi, cap=previous_business_close())
+        stats = nav_store.merge_amfi(series, amfi, cap=cap)
         log.info("AMFI extended %s series (%s already current, %s not in the "
                  "file, %s beyond the previous-day cap)",
                  f"{stats['extended']:,}", f"{stats['already_current']:,}",
@@ -333,15 +335,20 @@ def load_history_from_supabase(conn, schemes: list[dict], from_date: str | None,
     # Gate each fund before it reaches the database.
     rejected = 0
     for code, new in list(series.items()):
-        problems = nav_store.validate(new, published.get(code, {}))
+        problems = nav_store.validate(new, stored.get(code, {}))
         if problems:
             rejected += 1
             if rejected <= 10:
-                log.warning("   %s rejected (%s) — keeping the published series",
+                log.warning("   %s rejected (%s) — keeping the stored series",
                             code, "; ".join(problems))
-            series[code] = published.get(code, {}) or new
+            series[code] = stored.get(code, {}) or new
     if rejected:
         log.warning("%d fund(s) failed the history gate", rejected)
+
+    # Persist what is new before building anything from it. Append-only: a day
+    # Neon already holds is never rewritten.
+    added = db.write_nav_rows(nav_store.new_rows(series, stored))
+    log.info("Neon: stored %s new NAV row(s)", f"{added:,}")
 
     floor = from_date or "0000-01-01"
     conn.executemany(
@@ -362,7 +369,7 @@ def load_history_from_supabase(conn, schemes: list[dict], from_date: str | None,
 
 def build(db_path: str, limit: int | None, workers: int, mode: str,
           index_source: str | None, from_date: str | None = HISTORY_START,
-          skip_amfi_topup: bool = False, history_source: str = "supabase"):
+          skip_amfi_topup: bool = False, history_source: str = "neon"):
     catalogue = load_catalogue()
     schemes = catalogue["schemes"]
     if limit:
@@ -392,8 +399,8 @@ def build(db_path: str, limit: int | None, workers: int, mode: str,
         # (YFRateLimitError), leaving every index series empty. With it, the
         # caller's Yahoo step only has to top up the last few days.
         #
-        # This stays on the committed 2010-onward file rather than the Supabase
-        # bucket on purpose. The bucket holds only the 8 Market Pulse indices
+        # This stays on the committed 2010-onward file rather than the Market
+        # Pulse files in Neon on purpose. Those hold only the 8 Market Pulse indices
         # over a 6-year window; the engine needs all 36 benchmarks, and a 10Y
         # benchmark return needs a close from 10 years back.
         from scripts.export_index_history import restore_into
@@ -404,14 +411,14 @@ def build(db_path: str, limit: int | None, workers: int, mode: str,
 
         codes = [s["scheme_code"] for s in schemes]
 
-        # Only the mfapi path uses a NavWriter; the Supabase path assembles each
+        # Only the mfapi path uses a NavWriter; the Neon path assembles each
         # whole series first, gates it, and writes its own rows.
         writer = None
-        if history_source == "supabase":
-            # Read the history back from what we published, and let AMFI add only
-            # the day it actually knows about. api.mfapi.in is touched only to
-            # bootstrap a fund with no published file — see scripts/nav_store.
-            failures = load_history_from_supabase(
+        if history_source == "neon":
+            # Read the history back from Neon, and let AMFI add only the day it
+            # actually knows about. api.mfapi.in is touched only to bootstrap a
+            # fund Neon has no rows for — see scripts/nav_store.
+            failures = load_history_from_neon(
                 conn, schemes, from_date=from_date, workers=workers)
         else:
             log.info("Fetching %s from api.mfapi.in with %d workers (history from %s) ...",
@@ -449,8 +456,8 @@ def build(db_path: str, limit: int | None, workers: int, mode: str,
         # adds a newer day, and before the cap below so the same previous-day rule
         # applies to it -- AMFI publishes today's NAVs during the evening, and
         # they must not reach the dashboard before every fund has reported.
-        if history_source == "supabase":
-            # load_history_from_supabase already merged AMFI into every series
+        if history_source == "neon":
+            # load_history_from_neon already merged AMFI into every series
             # before writing them, so running it again would only re-check rows
             # that are already there.
             log.info("AMFI already merged while reading the published history")
@@ -542,12 +549,12 @@ def main():
     ap.add_argument("--from-date", default=HISTORY_START,
                     help=f"clip history at this ISO date (default {HISTORY_START}; "
                          f"use 2006-01-01 to take everything the API has)")
-    ap.add_argument("--history-source", choices=["supabase", "mfapi"],
-                    default="supabase",
-                    help="where NAV history comes from. 'supabase' (default) "
-                         "reads back what was published and lets AMFI add only "
+    ap.add_argument("--history-source", choices=["neon", "mfapi"],
+                    default="neon",
+                    help="where NAV history comes from. 'neon' (default) "
+                         "reads the stored history and lets AMFI add only "
                          "the newest day, touching api.mfapi.in solely to "
-                         "bootstrap funds the bucket has never held. 'mfapi' is "
+                         "bootstrap funds Neon has never held. 'mfapi' is "
                          "the old behaviour: re-download every fund's whole "
                          "history on every run.")
     ap.add_argument("--no-amfi-topup", action="store_true",

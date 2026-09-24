@@ -1,11 +1,11 @@
-// src/config/indices.ts — the 8 Market Pulse indices, served live from Supabase.
+// src/config/indices.ts — the 8 Market Pulse indices, served live from Neon.
 //
-// Each index is one file in the Supabase bucket, holding its identity, latest
+// Each index is one row in Neon's `files` table, holding its identity, latest
 // close, 1-day move, a 30-point sparkline and its full 6-year daily history.
 // scripts/update_indices.py refreshes them every weekday evening, so Market
 // Pulse shows the day's closes without a rebuild or a deploy.
 //
-// The path below is proxied by netlify.toml to the public bucket. It is
+// The path below is served from Neon (netlify.toml -> netlify/functions/data). It is
 // deliberately NOT under /data/index/, which holds the committed series of all
 // 36 benchmarks — proxying that path would break them.
 //

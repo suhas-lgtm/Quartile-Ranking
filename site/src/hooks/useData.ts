@@ -6,7 +6,7 @@ import type { LiveIndexFile } from '../config/indices'
 import { dataBase, MARKET_BASE, categoryPath, navPath } from '../config/dataPaths'
 
 /**
- * Fetch one JSON file from the data bucket.
+ * Fetch one JSON file from the published data (Neon, via /data/*).
  *
  * `path` is either a bucket-relative path, or a function returning a promise of
  * one. The function form exists because a category-scoped path has to wait for
@@ -69,8 +69,8 @@ export function useMeta()              { return useJson<import('../types').Meta>
  *
  * Two sources publish the same 8 indices on different schedules:
  *
- *   live      /live/indices/{slug}.json  — proxied to Supabase, refreshed by
- *             update_indices.yml on its own cron. No rebuild needed, and each
+ *   live      /live/indices/{slug}.json  — served from Neon, refreshed by
+ *             update_indices.py in the nightly run. No rebuild needed, and each
  *             file carries its full history so opening the chart costs nothing.
  *   committed data/indices.json          — written by the nightly NAV run and
  *             deployed with the site.

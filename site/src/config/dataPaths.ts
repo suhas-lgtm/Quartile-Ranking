@@ -1,9 +1,9 @@
 // src/config/dataPaths.ts — where each data file lives.
 //
-// The data no longer ships inside the site. It lives in a public Supabase
-// bucket, organised by asset class and category, and both the dev server and
-// Netlify proxy /data/* to it — so every path below stays same-origin and needs
-// no key and no CORS.
+// The data no longer ships inside the site. It lives in Neon's `files` table,
+// organised by asset class and category, and both the dev server and a Netlify
+// function serve /data/* from it — so every path below stays same-origin and
+// needs no key and no CORS.
 //
 //     meta.json  indices.json  glance_<view>.json  watchlist_<mode>.json
 //     manifest.json

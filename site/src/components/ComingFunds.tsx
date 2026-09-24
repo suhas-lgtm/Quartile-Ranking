@@ -9,13 +9,11 @@
 // own version of that test with its own wording, so a reader moving between
 // tabs got a different answer to the same question.
 //
-// THE 400 IS NOT DEFENSIVE PADDING
-// Supabase Storage answers a missing object with 404 in a public bucket but 400
-// in a private one. The SIF desk's bucket is private, so its debt categories
-// come back 400 while its equity ones return 200 — measured, not assumed.
-// scripts/supabase_store.py treats the same pair as "absent" for this reason.
-// Matching only 404 would show a red failure where the honest answer is that
-// nothing has launched yet.
+// THE 400 IS KEPT DELIBERATELY
+// The Neon-backed /data/* answers a missing file with 404. The data used to be
+// served from Supabase Storage, which answered 400 for some missing objects, and
+// accepting both costs nothing. Matching only one would show a red failure where
+// the honest answer is that nothing has launched yet.
 //
 // Renders no wrapper of its own: each section already has a padded, centred
 // container holding its other empty states, and nesting a second one inside it

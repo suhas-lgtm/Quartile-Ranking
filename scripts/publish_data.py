@@ -1,5 +1,5 @@
 """
-publish_data.py — put the dashboard's data in Supabase, organised by asset class.
+publish_data.py — put the dashboard's data in Neon, organised by asset class.
 
 WHY
 Every nightly run rewrote 2,477 files inside the website, so Netlify rebuilt and
@@ -31,7 +31,7 @@ Usage:
   python scripts/publish_data.py --plan        # print the layout, upload nothing
   python scripts/publish_data.py               # publish
   python scripts/publish_data.py --only nav/   # just one kind
-  python scripts/publish_data.py --verify      # read a sample back with no key
+  python scripts/publish_data.py --verify      # read a sample back from Neon
 """
 
 from __future__ import annotations
@@ -214,7 +214,7 @@ def write_manifest(sb, slug_ac: dict[str, str], code_slug: dict[str, str]) -> bo
     the screener would couple two screens that are otherwise independent.
 
     One small lookup, fetched once and cached, keeps path-building in one place.
-    About 65 KB, ~20 KB on the wire after Supabase gzips it.
+    About 65 KB.
     """
     manifest = build_manifest(slug_ac, code_slug)
     body = json.dumps(manifest, separators=(",", ":")).encode("utf-8")
@@ -228,12 +228,7 @@ def write_manifest(sb, slug_ac: dict[str, str], code_slug: dict[str, str]) -> bo
 
 
 def verify(sb) -> int:
-    """Read a handful back with no credentials, the way a browser does."""
-    import urllib.error
-    import urllib.parse
-    import urllib.request
-
-    base = sb.URL + "/storage/v1/object/public/" + urllib.parse.quote(sb.DATA_BUCKET)
+    """Read a handful back from Neon, the paths a browser asks for first."""
     slug_ac, code_slug = load_maps()
     a_code, a_slug = next(iter(code_slug.items()))
     samples = [
@@ -245,18 +240,16 @@ def verify(sb) -> int:
     ]
     bad = 0
     for s in samples:
-        url = base + "/" + "/".join(urllib.parse.quote(p) for p in s.split("/"))
-        try:
-            with urllib.request.urlopen(url, timeout=30) as r:
-                body = r.read()
-            log.info("  200  %-52s %7.1f KB", s, len(body) / 1024)
-        except urllib.error.HTTPError as e:
-            log.error("  %d  %s", e.code, s)
+        body = sb.download_bytes(s, bucket=sb.DATA_BUCKET)
+        if body is None:
+            log.error("  missing  %s", s)
             bad += 1
+        else:
+            log.info("  ok  %-52s %7.1f KB", s, len(body) / 1024)
     if bad:
-        log.error("%d sample(s) not publicly readable — is the bucket public?", bad)
+        log.error("%d sample(s) not found in Neon", bad)
         return 1
-    log.info("all samples readable with no key")
+    log.info("all samples present")
     return 0
 
 
@@ -403,7 +396,7 @@ def prune_remote(sb, keep: set[str], apply: bool) -> int:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Publish dashboard data to Supabase")
+    ap = argparse.ArgumentParser(description="Publish dashboard data to Neon")
     ap.add_argument("--plan", action="store_true", help="print the layout and exit")
     ap.add_argument("--only", help="restrict to a prefix, e.g. nav/ or category_")
     ap.add_argument("--workers", type=int, default=12)
@@ -424,7 +417,7 @@ def main() -> int:
     if args.to_dir:
         return write_local_tree(args.to_dir, args.only)
 
-    from scripts import supabase_store as sb
+    from scripts import neon_store as sb
 
     if args.verify:
         return verify(sb)
@@ -435,7 +428,7 @@ def main() -> int:
         return 1
 
     log.info("=" * 62)
-    log.info("PUBLISH DATA -> Supabase  bucket=%r", sb.DATA_BUCKET)
+    log.info("PUBLISH DATA -> Neon  bucket=%r", sb.DATA_BUCKET)
     log.info("source: %s", DATA_DIR)
     log.info("=" * 62)
     print_plan(items, skipped)
@@ -445,7 +438,7 @@ def main() -> int:
         return 0
 
     if not sb.enabled():
-        log.error("Supabase not configured (%s)", sb.why_disabled())
+        log.error("Neon not configured (%s)", sb.why_disabled())
         return 1
 
     t0 = time.time()

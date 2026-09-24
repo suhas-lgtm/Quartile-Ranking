@@ -1,9 +1,10 @@
 name: Daily Data Update
 
-# Pulls the latest NAVs from api.mfapi.in, runs the calculation engine inside
-# the runner, publishes the ~6 MB JSON the dashboard reads, and throws the
-# database away. Nothing is stored between runs — no Release asset, no
-# committed database.
+# Reads NAV history from Neon (bootstrapping any fund Neon lacks from
+# api.mfapi.in and adding AMFI's newest day), writes the new rows back to Neon,
+# runs the calculation engine inside the runner, and publishes the JSON the
+# dashboard reads into Neon's `files` table. The runner's SQLite database is
+# thrown away; Neon is the only durable store.
 
 # ONE RUN A DAY, ONE DEPLOY.
 #
@@ -38,18 +39,10 @@ concurrency:
   group: daily-update
   cancel-in-progress: false
 
-# The benchmark index history is pulled from Supabase Storage by
-# scripts/index_store (via build_db_from_api). Without these the run still
-# works — it falls back to the committed data/index_history.json.gz seed — but
-# it would miss whatever the Update Indices schedule published today.
+# Neon holds the NAV history, the published dashboard files and the 8 Market
+# Pulse index files. One secret: the Neon connection string.
 env:
-  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-  SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-  SUPABASE_BUCKET: ${{ secrets.SUPABASE_BUCKET }}
-  # Passed explicitly rather than relying on supabase_store's "MF Data" default,
-  # so the bucket this job reads history from and writes results to is visible
-  # here instead of being buried in a fallback.
-  SUPABASE_DATA_BUCKET: ${{ secrets.SUPABASE_DATA_BUCKET }}
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
 jobs:
   update:
@@ -88,41 +81,13 @@ jobs:
             || { echo "::error::data/scheme_catalogue.json is missing — run scripts/export_catalogue.py and commit it"; exit 1; }
           python -c "import json;d=json.load(open('data/scheme_catalogue.json'));print(f\"catalogue: {d['scheme_count']} schemes\")"
 
-      # Fail fast if the bucket is unreachable.
-      #
-      # This matters more than it used to. NAV history is now READ from Supabase
-      # and only extended by AMFI, so a run with the secrets missing does not
-      # merely fail at the end — it silently decides that all 2,051 funds are
-      # unpublished and bootstraps every one of them from api.mfapi.in. That
-      # still produces correct data, but it takes far longer and then fails at
-      # the publish step anyway. Better to stop here, before the expensive part.
-      #
-      # Both reads below go through supabase_store, which sends the service
-      # key. That is what the pipeline itself uses, so this checks the path the
-      # run actually depends on.
-      - name: Check the Supabase connection
+      # Fail fast if Neon is unreachable, before the expensive part. Without it
+      # every fund would look unstored and be bootstrapped from api.mfapi.in,
+      # only for the run to fail at the publish step anyway.
+      - name: Check the Neon connection
         run: |
-          test -n "$SUPABASE_URL"             || { echo "::error::SUPABASE_URL secret is not set"; exit 1; }
-          test -n "$SUPABASE_SERVICE_KEY"             || { echo "::error::SUPABASE_SERVICE_KEY secret is not set"; exit 1; }
-          python - <<'PY'
-          import sys
-          sys.path.insert(0, '.')
-          from scripts import supabase_store as sb
-          if not sb.enabled():
-              print(f"::error::Supabase not configured: {sb.why_disabled()}")
-              sys.exit(1)
-          objs = sb.list_objects("", bucket=sb.DATA_BUCKET)
-          print(f"bucket {sb.DATA_BUCKET!r}: {len(objs)} object(s)")
-          if not objs:
-              print("::warning::bucket is empty — every fund will be "
-                    "bootstrapped from api.mfapi.in, which is slow but correct")
-          raw = sb.download_bytes("meta.json", bucket=sb.DATA_BUCKET)
-          if raw is None and objs:
-              print("::error::cannot read meta.json from the bucket")
-              sys.exit(1)
-          print("Supabase read/write path OK")
-
-          PY
+          test -n "$DATABASE_URL" || { echo "::error::DATABASE_URL secret is not set"; exit 1; }
+          python scripts/neon_store.py --init --status
         env:
           PYTHONIOENCODING: utf-8
 
@@ -146,22 +111,14 @@ jobs:
       # Builds a temp DB, runs the engine, writes JSON, deletes the DB.
       # Aborts before touching any JSON if the upstream data is bad or stale.
       #
-      # NAV history is read back from Supabase and extended by AMFI's newest day
-      # (--history-source supabase, the default). It used to re-download every
-      # fund's entire history from api.mfapi.in on every run — ~3.5M rows and
-      # ~2,050 requests to rebuild files that had not changed below their last
-      # day. mfapi is now touched only to bootstrap a fund the bucket has never
-      # held. Pass --history-source mfapi to fall back to the old behaviour.
-      #
-      # NOTE this makes the run depend on the bucket it publishes to: if
-      # SUPABASE_* secrets are missing, every fund looks unpublished and the run
-      # bootstraps all of them from mfapi, which still works but is slow.
-      - name: Run daily pipeline (Supabase + AMFI -> engine -> JSON)
+      # NAV history comes from Neon (--history-source neon, the default) and is
+      # extended by AMFI's newest day; new rows are written back to Neon. mfapi is
+      # touched only to bootstrap a fund Neon has never held — on the very first
+      # run that is every fund (~3.5M rows, a few minutes). Pass
+      # --history-source mfapi to re-download everything instead.
+      - name: Run daily pipeline (Neon + mfapi + AMFI -> engine -> JSON)
         run: |
-          python scripts/daily_run.py \
-            --workers 12 \
-            --max-staleness "${{ github.event.inputs.max_staleness || '6' }}" \
-            ${{ github.event.inputs.skip_indices == 'true' && '--skip-indices' || '' }}
+          python scripts/daily_run.py             --workers 12             --max-staleness "${{ github.event.inputs.max_staleness || '6' }}"             ${{ github.event.inputs.skip_indices == 'true' && '--skip-indices' || '' }}
         env:
           PYTHONIOENCODING: utf-8
 
@@ -174,18 +131,10 @@ jobs:
             echo "No database stored. ✔"
           fi
 
-      # Publish the ~2,500 data files to Supabase. This REPLACES committing them.
-      #
-      # Committing meant Netlify rebuilt and re-uploaded the whole site nightly:
-      # ~15 min a deploy, ~450 min a month against a 300-min allowance. The site
-      # reads /data/* straight from the bucket now, so the moment this finishes
-      # the new data is live -- no deploy, no build minutes.
-      # --prune also REMOVES bucket objects this build no longer produces. Without
-      # it, every fund ever dropped from the catalogue left its nav/<code>.json
-      # behind for good; the dashboard never showed them (it follows
-      # manifest.json) but the bucket stopped reflecting what the site serves.
-      # It refuses to run if it would delete more than 40% of the bucket.
-      - name: Publish data to Supabase
+      # Publish the dashboard files into Neon in one transaction, so the site
+      # never sees half a build. --prune removes rows this build no longer
+      # produces; it refuses if that would be more than 40% of what is stored.
+      - name: Publish data to Neon
         run: python scripts/publish_data.py --prune
         env:
           PYTHONIOENCODING: utf-8
@@ -218,27 +167,15 @@ jobs:
             echo "::error::site/public/data is in git status - it must stay untracked"
             exit 1
           fi
-          echo "Data lives in Supabase only."
+          echo "Data lives in Neon only."
 
-      # Same run, same closes: push the 8 Market Pulse indices to Supabase so the
-      # live path and the committed copy agree instead of drifting apart.
+      # Same run, same closes: push the 8 Market Pulse indices to Neon so the
+      # live path and the nightly build agree instead of drifting apart.
       #
       # Placed AFTER the commit on purpose. The NAV data is the expensive part of
-      # this job and must never be held hostage to a Storage hiccup; by here it is
-      # already pushed. A failure below still turns the run red so it gets seen.
-      #
-      # Skipped rather than failed when the secrets are absent: the committed
-      # indices.json is already fresh, and useIndices takes whichever source has
-      # the newer close, so the site stays correct either way.
-      - name: Publish Market Pulse indices to Supabase
-        if: ${{ env.SUPABASE_URL != '' && env.SUPABASE_SERVICE_KEY != '' }}
+      # this job and must never be held hostage to an index hiccup; by here it is
+      # already stored. A failure below still turns the run red so it gets seen.
+      - name: Publish Market Pulse indices to Neon
         run: python scripts/update_indices.py
         env:
           PYTHONIOENCODING: utf-8
-
-      - name: Note when the Supabase push was skipped
-        if: ${{ env.SUPABASE_URL == '' || env.SUPABASE_SERVICE_KEY == '' }}
-        run: |
-          echo "::warning::SUPABASE_URL / SUPABASE_SERVICE_KEY not set — the 8 index"
-          echo "::warning::files were not refreshed. The site falls back to the"
-          echo "::warning::committed indices.json, which this run just updated."

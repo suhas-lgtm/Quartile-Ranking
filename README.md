@@ -15,39 +15,33 @@ not included.
 
 ## Point it at your own database
 
-**Two values.** Open `.env` and fill in:
+Everything durable lives in one **Neon** Postgres database. Open `.env` (copy
+`.env.example`) and set one value:
 
 ```
-SUPABASE_URL=https://YOUR-PROJECT-REF.supabase.co
-SUPABASE_SERVICE_KEY=YOUR-SERVICE-ROLE-KEY
+DATABASE_URL=postgresql://USER:PASSWORD@ep-xxxx-pooler.REGION.aws.neon.tech/neondb?sslmode=require
 ```
 
-Then in your Supabase project create two **public** Storage buckets, named
-exactly:
+The pipeline creates its tables on first use, or run
+`python scripts/neon_store.py --init`:
 
-```
-MF Data          the dashboard JSON
-Indicies Data    the Market Pulse index files   (spelled as shown)
-```
+| Table | Holds |
+|---|---|
+| `schemes` | the fund catalogue |
+| `nav_history` | every NAV, one row per fund per day (~3.5M rows, ~260 MB) |
+| `files` | the dashboard JSON, keyed by `(bucket, path)` |
 
-Those two names are already the defaults everywhere — in
-`scripts/supabase_store.py` and in the two proxy configs the browser uses — so
-keeping them means **nothing else needs editing**. If you rename a bucket you
-must change it in three places: `.env`, `site/vite.config.ts` and
-`netlify.toml`.
+The site never talks to Neon from the browser. `/data/*` and `/live/indices/*`
+are answered server-side from the `files` table: by the Vite dev server locally,
+and by `site/netlify/functions/data.mts` when deployed. So `DATABASE_URL` also
+goes in:
 
-Finally, put the same URL in the two proxy configs, replacing
-`YOUR-PROJECT-REF`:
+- **Netlify** → Site configuration → Environment variables (a read-only Neon
+  role is enough there)
+- **GitHub** → repository secret `DATABASE_URL`, for the scheduled run
 
-- `site/vite.config.ts` — the dev server
-- `netlify.toml` — the deployed site
-
-For the scheduled run, set the same values as repository secrets:
-`SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SUPABASE_DATA_BUCKET`.
-
-> The service key is a **write** credential. Anyone holding it can overwrite or
-> delete every file the dashboard serves. Keep `.env` out of git — `.gitignore`
-> already excludes it.
+> `DATABASE_URL` is a **write** credential. Keep `.env` out of git —
+> `.gitignore` already excludes it.
 
 ---
 
@@ -57,7 +51,9 @@ For the scheduled run, set the same values as repository secrets:
 site/                 the React dashboard (Vite + TypeScript)
   src/sections/       the three tabs
   src/hooks/useData   every fetch goes through here
-  vite.config.ts      dev proxy to Supabase
+  vite.config.ts      dev server; serves /data/* from Neon
+  server/neonFiles    the Neon file lookup, shared with the Netlify function
+  netlify/functions/  production /data/* and /live/indices/*
 scripts/              the pipeline, 17 modules
 engine/               calculation_engine.py — the maths
 tests/                the quartile rule, run by the workflow
@@ -75,27 +71,32 @@ npm run dev          # http://localhost:5173
 npm run build        # production build into site/dist
 ```
 
-No data is bundled. Both the dev server and Netlify proxy `/data/*` and
-`/live/indices/*` to the public buckets, so once the pipeline has run once the
-site works with no local data at all.
+No data is bundled. Both the dev server and the Netlify function serve `/data/*`
+and `/live/indices/*` from Neon, so once the pipeline has run once the site works
+with no local data at all.
 
 ## Running the pipeline
 
 ```bash
 pip install -r requirements.txt
-python scripts/daily_run.py            # builds the JSON
-python scripts/publish_data.py --prune # uploads it to Supabase
+python scripts/daily_run.py            # Neon/mfapi/AMFI -> engine -> JSON
+python scripts/publish_data.py --prune # stores the JSON in Neon
+python scripts/update_indices.py       # the 8 Market Pulse index files
+python scripts/neon_store.py --status  # what Neon holds
 ```
 
-`daily_run.py` builds a temporary SQLite database, runs the engine, writes the
-JSON and **deletes the database**. Nothing persists between runs except what is
-in the bucket. A full run takes about 3 minutes and writes **95 files**.
+`daily_run.py` reads NAV history from Neon, bootstraps any fund Neon has never
+held from api.mfapi.in, adds AMFI's newest day, and **writes the new rows back to
+Neon** (append-only: a stored day is never rewritten). It then builds a
+temporary SQLite database, runs the engine, writes the JSON and deletes the
+SQLite file. The very first run fetches every fund from api.mfapi.in (~3.5M
+rows); after that each run adds one day.
 
 Useful flags:
 
 | Flag | Effect |
 |---|---|
-| `--history-source supabase` | reuse published NAV history instead of refetching |
+| `--history-source mfapi` | ignore Neon and refetch every fund from api.mfapi.in |
 | `--skip-indices` | leave benchmark indices alone |
 | `--keep-db` | keep the temporary database for debugging |
 | `--max-staleness N` | allow data older than the default 6 days |
@@ -104,9 +105,9 @@ Useful flags:
 
 `.github/workflows/daily_update.yml` runs at **18:15 UTC daily** (23:45 IST,
 after the Indian market close and after AMFI publishes). It installs
-dependencies, checks the Supabase connection, refreshes the scheme catalogue,
-runs the pipeline, uploads, and pushes the Market Pulse index files. The flow is
-unchanged from the original project — only the database it points at differs.
+dependencies, checks the Neon connection, refreshes the scheme catalogue, runs
+the pipeline, stores the JSON in Neon, and refreshes the Market Pulse index
+files.
 
 ## What the pipeline computes
 
@@ -129,4 +130,5 @@ Quartiles, category averages and returns are defined there and nowhere else, so
 a figure on screen traces to one function. The front end reads the precomputed
 JSON and does not recalculate.
 
-Data sources: AMFI for NAVs, Yahoo Finance for index closes.
+Data sources: api.mfapi.in (history) and AMFI (newest day) for NAVs, Yahoo
+Finance for index closes. Storage: Neon.

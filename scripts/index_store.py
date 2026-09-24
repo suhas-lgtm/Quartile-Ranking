@@ -1,7 +1,7 @@
 """
-index_store.py — the 8 Market Pulse indices, one file each, in Supabase Storage.
+index_store.py — the 8 Market Pulse indices, one file each, in Neon (files table).
 
-    Supabase <slug>.json  ──pull──►  top up from Yahoo v8  ──gate──►  push back
+    Neon <slug>.json      ──pull──►  top up from Yahoo v8  ──gate──►  push back
 
 BUCKET LAYOUT — eight files, no folders:
 
@@ -115,7 +115,7 @@ def payload_points(payload: dict) -> Points:
 
 def pull_one(slug: str) -> Points:
     """Current published history for one index, or {} if not in the bucket."""
-    from scripts import supabase_store as sb
+    from scripts import neon_store as sb
 
     if not sb.enabled():
         return {}
@@ -377,10 +377,10 @@ def refresh_one(index_id: int, name: str, slug: str, ticker: str,
 # ── publish ──────────────────────────────────────────────────────────────────
 
 def push_one(slug: str, payload: dict) -> bool:
-    from scripts import supabase_store as sb
+    from scripts import neon_store as sb
 
     if not sb.enabled():
-        log.warning("Supabase not configured (%s) — %s.json not published",
+        log.warning("Neon not configured (%s) — %s.json not published",
                     sb.why_disabled(), slug)
         return False
     body = json.dumps(payload, separators=(",", ":")).encode("utf-8")

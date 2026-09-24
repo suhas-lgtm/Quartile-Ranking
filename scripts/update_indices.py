@@ -1,5 +1,5 @@
 """
-update_indices.py — refresh the 8 Market Pulse indices into Supabase Storage.
+update_indices.py — refresh the 8 Market Pulse indices into Neon.
 
 One file per index at the bucket root, no folders:
 
@@ -62,10 +62,10 @@ def tickers_by_index_id() -> dict[int, str]:
 
 def cmd_status() -> int:
     from scripts import index_store as store
-    from scripts import supabase_store as sb
+    from scripts import neon_store as sb
 
     if not sb.enabled():
-        log.error("Supabase not configured (%s)", sb.why_disabled())
+        log.error("Neon not configured (%s)", sb.why_disabled())
         return 1
 
     objects = sb.list_objects()
@@ -98,10 +98,10 @@ def cmd_status() -> int:
 def cmd_cleanup(dry_run: bool) -> int:
     """Remove anything in the bucket that is not one of the 8 index files."""
     from scripts import index_store as store
-    from scripts import supabase_store as sb
+    from scripts import neon_store as sb
 
     if not sb.enabled():
-        log.error("Supabase not configured (%s)", sb.why_disabled())
+        log.error("Neon not configured (%s)", sb.why_disabled())
         return 1
 
     keep = {f"{s}.json" for s in store.strip_slugs()}
@@ -140,7 +140,7 @@ def main() -> int:
     args = ap.parse_args()
 
     from scripts import index_store as store
-    from scripts import supabase_store as sb
+    from scripts import neon_store as sb
     from scripts.yahoo_chart import make_session
 
     if args.retention_years:
@@ -153,7 +153,7 @@ def main() -> int:
 
     log.info("=" * 62)
     log.info("MARKET PULSE INDICES  %s", datetime.now().isoformat(timespec="seconds"))
-    log.info("Supabase: %s  |  bucket=%r  |  retention=%dy  |  %d indices",
+    log.info("Neon: %s  |  bucket=%r  |  retention=%dy  |  %d indices",
              sb.why_disabled(), sb.BUCKET, store.RETENTION_YEARS, len(store.STRIP))
     log.info("=" * 62)
 

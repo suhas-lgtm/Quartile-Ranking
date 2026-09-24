@@ -36,43 +36,39 @@
 [build.environment]
   NODE_VERSION = "20"
 
-# ── Everything below proxies to public Supabase Storage buckets ──────────────
+[functions]
+  # Relative to base = "site".
+  directory = "netlify/functions"
+
+# ── /data/* and /live/indices/* are served from Neon ────────────────────────
 #
-# The data no longer ships inside the site. Committing ~2,500 files meant Netlify
-# rebuilt and re-uploaded the whole thing nightly: ~15 min a deploy, ~450 min a
-# month against a 300-min allowance. Now only code changes trigger a build.
+# The data does not ship inside the site: the nightly pipeline writes it into
+# Neon's `files` table, and netlify/functions/data.mts reads it back. Only code
+# changes trigger a build; new data is live the moment the pipeline commits.
 #
-# Proxying (status 200) rather than letting the browser fetch Supabase directly
-# keeps every request same-origin — no CORS, and no key in the browser. Both
-# buckets are public, so no credential is involved at all. %20 is the space in
-# each bucket name.
+# Same-origin rewrites (status 200), so the browser needs no CORS and never sees
+# a credential. The function needs DATABASE_URL set in the Netlify site's
+# environment variables (Site configuration -> Environment variables).
 #
-# force = true makes the proxy win over any same-named file left in dist/.
+# force = true makes these win over any same-named file left in dist/.
 #
 # ORDER MATTERS: Netlify evaluates redirects top-down, so both must stay above
 # the SPA catch-all or /* would swallow them.
 
 # The dashboard's data, organised by asset class:
-#   meta.json  manifest.json  indices.json  glance_*.json  watchlist_*.json
-#   index/<id>.json
-#   equity|hybrid|debt|other/<slug>/  category_*.json quartiles_*.json
-#                                     rolling.json risk.json history.json
-#                                     nav/<code>.json
+#   meta.json  manifest.json  indices.json  watchlist_*.json  index/<id>.json
+#   equity|hybrid|debt|other/<slug>/quartiles_*.json ...
 [[redirects]]
   from   = "/data/*"
-  to     = "https://YOUR-PROJECT-REF.supabase.co/storage/v1/object/public/MF%20Data/:splat"
+  to     = "/.netlify/functions/data/data/:splat"
   status = 200
   force  = true
 
-# The 8 Market Pulse index files, refreshed in the same nightly run but kept in
-# their own bucket — 2,500 category files would bury them.
-#
-# Deliberately /live/indices/, never /data/index/: the latter is the 36 committed
-# benchmark series under /data/index/, and pointing that
-# prefix at a bucket holding only 8 would break both.
+# The 8 Market Pulse index files. Deliberately /live/indices/, never
+# /data/index/: the latter is the 36 benchmark series the nightly build writes.
 [[redirects]]
   from   = "/live/indices/*"
-  to     = "https://YOUR-PROJECT-REF.supabase.co/storage/v1/object/public/Indicies%20Data/:splat"
+  to     = "/.netlify/functions/data/live/indices/:splat"
   status = 200
   force  = true
 

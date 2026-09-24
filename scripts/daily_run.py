@@ -1,8 +1,9 @@
 """
 daily_run.py — The whole daily pipeline, start to finish, storing nothing.
 
-    api.mfapi.in  ──►  temp SQLite  ──►  calculation_engine  ──►  site/public/data/*.json
-                       (deleted at end)      (unchanged)              (~6 MB, deployed)
+    Neon nav_history (+ api.mfapi.in bootstrap, + AMFI newest day)
+          ──►  temp SQLite  ──►  calculation_engine  ──►  site/public/data/*.json
+               (deleted at end)      (unchanged)           then publish_data.py -> Neon
 
 Run once a day by .github/workflows/daily_update.yml. The database exists only
 for the lifetime of this process; on exit it is removed. The only durable
@@ -233,10 +234,11 @@ def main():
     ap.add_argument("--from-date", default=None,
                     help="clip NAV history at this ISO date (default: the platform "
                          "baseline in build_db_from_api.HISTORY_START)")
-    ap.add_argument("--history-source", choices=["supabase", "mfapi"],
-                    default="supabase",
-                    help="NAV history source (default supabase: read back what "
-                         "was published and extend it with AMFI's newest day)")
+    ap.add_argument("--history-source", choices=["neon", "mfapi"],
+                    default="neon",
+                    help="NAV history source (default neon: read the stored "
+                         "history, bootstrap missing funds from api.mfapi.in, "
+                         "extend with AMFI's newest day, write new rows back)")
     ap.add_argument("--no-amfi-topup", action="store_true",
                     help="skip AMFI's latest-day top-up, leaving the newest NAV "
                          "wherever api.mfapi.in has it (a day behind AMFI)")

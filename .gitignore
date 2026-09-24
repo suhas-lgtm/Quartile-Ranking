@@ -28,8 +28,8 @@ site/dist/
 site/.vite/
 
 # Pre-built JSON (committed to repo for Netlify static hosting)
-# The dashboard's data is NOT in git any more. It lives in the public Supabase
-# "MF Data" bucket, which netlify.toml proxies as /data/*. Committing ~2,500 files
+# The dashboard's data is NOT in git any more. It lives in Neon's `files` table
+# (bucket "MF Data"), served as /data/* by a Netlify function. Committing ~2,500 files
 # nightly made Netlify rebuild and re-upload the whole site: ~15 min a deploy,
 # ~450 min a month against a 300-min allowance. Now only code changes build.
 #
@@ -52,7 +52,7 @@ desktop.ini
 .idea/
 *.swp
 
-# The rolling 6-year index window is a mirror of what lives in Supabase Storage
+# The rolling 6-year index window is a mirror of what lives in Neon
 # (scripts/index_store.py), rebuilt by every run — so it is a cache, not source.
 # data/index_history.json.gz IS committed: it is the read-only 2010-onward seed
 # that makes the first run work against an empty bucket.
