@@ -1,0 +1,82 @@
+[build]
+  base    = "site"
+  publish = "dist"
+  command = "npm run build"
+  # Build only when something outside data/ changed.
+  #
+  # Netlify runs this before building: exit 0 means SKIP. The nightly job commits
+  # data/scheme_catalogue.json when a new fund appears, and that file is only read
+  # by the pipeline, never by the site — so rebuilding for it would spend minutes
+  # producing an identical bundle.
+  #
+  # TWO BUGS WERE FIXED HERE, AND THE FIRST HAD DEADLOCKED DEPLOYS.
+  #
+  # 1. $CACHED_COMMIT_REF IS EMPTY WHENEVER THERE IS NO BUILD CACHE — a cleared
+  #    cache, a relinked site, or a previous build that was cancelled. Unquoted
+  #    and unguarded, the command then collapsed to
+  #        git diff --quiet $COMMIT_REF -- ...
+  #    which compares the WORKING TREE against that commit. Netlify's checkout is
+  #    clean at exactly that commit, so there was no diff, exit 0, build
+  #    cancelled. And a cancelled build writes no cache, so the variable stayed
+  #    empty on the next push and it cancelled again — for ever. Once it started
+  #    skipping it could never build again, which is precisely what happened:
+  #    commits kept landing on main and the deployed bundle never moved.
+  #    The `[ -n ... ] &&` guard makes an empty value mean BUILD, not skip.
+  #
+  # 2. THE PATHSPECS RESOLVED AGAINST base = "site". Netlify runs this from the
+  #    base directory, so `.` meant site/ and `:(exclude)data/` meant
+  #    site/data/ — a path that does not exist, so it excluded nothing. It gave
+  #    the right answer for catalogue commits only by luck (data/ is not under
+  #    site/), while making every change OUTSIDE site/ invisible: a scripts/ or
+  #    netlify.toml commit looked like no change at all. `:(top)` and
+  #    `:(exclude,top)` anchor the pathspecs to the repository root regardless of
+  #    where the command runs.
+  ignore = "[ -n \"$CACHED_COMMIT_REF\" ] && git diff --quiet \"$CACHED_COMMIT_REF\" \"$COMMIT_REF\" -- ':(top)' ':(exclude,top)data/' ':(exclude,top)site/public/data/'"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# ── Everything below proxies to public Supabase Storage buckets ──────────────
+#
+# The data no longer ships inside the site. Committing ~2,500 files meant Netlify
+# rebuilt and re-uploaded the whole thing nightly: ~15 min a deploy, ~450 min a
+# month against a 300-min allowance. Now only code changes trigger a build.
+#
+# Proxying (status 200) rather than letting the browser fetch Supabase directly
+# keeps every request same-origin — no CORS, and no key in the browser. Both
+# buckets are public, so no credential is involved at all. %20 is the space in
+# each bucket name.
+#
+# force = true makes the proxy win over any same-named file left in dist/.
+#
+# ORDER MATTERS: Netlify evaluates redirects top-down, so both must stay above
+# the SPA catch-all or /* would swallow them.
+
+# The dashboard's data, organised by asset class:
+#   meta.json  manifest.json  indices.json  glance_*.json  watchlist_*.json
+#   index/<id>.json
+#   equity|hybrid|debt|other/<slug>/  category_*.json quartiles_*.json
+#                                     rolling.json risk.json history.json
+#                                     nav/<code>.json
+[[redirects]]
+  from   = "/data/*"
+  to     = "https://YOUR-PROJECT-REF.supabase.co/storage/v1/object/public/MF%20Data/:splat"
+  status = 200
+  force  = true
+
+# The 8 Market Pulse index files, refreshed in the same nightly run but kept in
+# their own bucket — 2,500 category files would bury them.
+#
+# Deliberately /live/indices/, never /data/index/: the latter is the 36 committed
+# benchmark series under /data/index/, and pointing that
+# prefix at a bucket holding only 8 would break both.
+[[redirects]]
+  from   = "/live/indices/*"
+  to     = "https://YOUR-PROJECT-REF.supabase.co/storage/v1/object/public/Indicies%20Data/:splat"
+  status = 200
+  force  = true
+
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
