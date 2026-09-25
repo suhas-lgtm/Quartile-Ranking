@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useJson } from '../hooks/useData'
 import DownloadButton from '../components/DownloadButton'
+import TeamBlacklist from '../components/TeamBlacklist'
 import { currentDesk } from '../config/products'
 import { categoryColor } from '../config/categoryColors'
 import { fmtDate, fmtPct, quartilePillClass, retColor } from '../utils/format'
@@ -133,91 +134,8 @@ export default function Blacklist() {
         </div>
       ) : (
         <>
-          {/* ── Manual ─────────────────────────────────────────────── */}
-          <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
-            <div className="font-display font-bold text-sm" style={{ color: 'var(--text-hi)' }}>
-              ⛔ Flagged by the team <span style={{ color: 'var(--text-low)', fontWeight: 400 }}>({manual.length})</span>
-            </div>
-            <div className="tab-bar flex items-center gap-2">
-              <button onClick={() => setMode('monthly')}   className={`tab-btn${mode === 'monthly'   ? ' active accent' : ''}`}>Monthly</button>
-              <button onClick={() => setMode('quarterly')} className={`tab-btn${mode === 'quarterly' ? ' active accent' : ''}`}>Quarterly</button>
-              <button onClick={() => setMode('annual')}    className={`tab-btn${mode === 'annual'    ? ' active accent' : ''}`}>Annual</button>
-            </div>
-          </div>
-          {data.missing.length > 0 && (
-            <div className="card p-3 mb-2 text-xs" style={{ borderColor: 'rgba(245,158,11,0.5)', color: 'var(--text-mid)' }}>
-              ⚠️ Not in the fund catalogue, so not shown: {data.missing.join(', ')}
-            </div>
-          )}
-          <div className="card overflow-hidden mb-6">
-            {manual.length === 0 ? (
-              <div className="p-6 text-center text-xs" style={{ color: 'var(--text-mid)' }}>
-                No funds flagged yet. Once the team’s list is added, each fund appears here with its reason,
-                recent quartiles, returns and ratios.
-              </div>
-            ) : (
-              <div className="table-scroll">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th className="sticky-col text-left" style={{ minWidth: 260 }}>Fund</th>
-                      <th className="text-left" style={{ minWidth: 200 }}>Reason</th>
-                      <th style={{ textAlign: 'right' }}>NAV</th>
-                      <th style={{ textAlign: 'center', minWidth: 180 }}>Quartile · oldest → latest</th>
-                      <th style={{ textAlign: 'right' }}>1Y</th>
-                      <th style={{ textAlign: 'right' }}>3Y</th>
-                      <th style={{ textAlign: 'right' }}>5Y</th>
-                      <th style={{ textAlign: 'right' }}>Alpha (3Y)</th>
-                      <th style={{ textAlign: 'right' }}>Beta (3Y)</th>
-                      <th style={{ textAlign: 'right' }}>Sharpe (3Y)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="rows-enter">
-                    {manual.map((f: ListedFund) => {
-                      const q = f.quartiles[mode]
-                      const colour = f.category_slug ? categoryColor(f.category_slug, f.asset_class ?? undefined) : 'var(--text-low)'
-                      return (
-                        <tr key={f.scheme_code}>
-                          <td className="sticky-col" style={{ maxWidth: 300 }}>
-                            <div className="text-xs font-medium truncate" title={f.scheme_name}>{f.scheme_name}</div>
-                            <div className="text-[10px] truncate" style={{ color: colour }}>{f.category_name ?? 'Uncategorised'}</div>
-                          </td>
-                          <td className="text-xs" style={{ whiteSpace: 'normal', color: 'var(--text-mid)' }}>{f.note || '—'}</td>
-                          <td className="ret-cell">
-                            <div>{f.nav == null ? '—' : f.nav.toFixed(2)}</div>
-                            <div className="text-[10px]" style={{ color: 'var(--text-low)' }}>{fmtDate(f.nav_date)}</div>
-                          </td>
-                          <td>
-                            {q ? (
-                              <div className="flex items-center justify-center gap-1">
-                                {q.quartiles.map((qq, i) => {
-                                  const { main, sub } = periodLabelParts(q.labels[i])
-                                  return (
-                                    <div key={i} className={quartilePillClass(qq)} title={`${main}${sub ? ' ' + sub : ''}: ${qq ? 'Q' + qq : 'not ranked'}`}>
-                                      {qq ? `Q${qq}` : '−'}
-                                    </div>
-                                  )
-                                })}
-                              </div>
-                            ) : <div className="text-center text-[11px]" style={{ color: 'var(--text-low)' }}>not ranked</div>}
-                          </td>
-                          {(['12M', '3Y', '5Y'] as const).map(p => {
-                            const v = f.returns?.[p] ?? null
-                            return <td key={p} className={`ret-cell ${retColor(v)}`}>{fmtPct(v)}</td>
-                          })}
-                          <td className={`ret-cell ${retColor(f.ratios?.alpha ?? null)}`}>
-                            {f.ratios?.alpha == null ? '—' : (f.ratios.alpha * 100).toFixed(2)}
-                          </td>
-                          <td className="ret-cell">{num(f.ratios?.beta)}</td>
-                          <td className="ret-cell">{num(f.ratios?.sharpe)}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+          {/* ── Manual: the team's list, editable here ─────────────── */}
+          <TeamBlacklist built={manual} mode={mode} onModeChange={setMode} />
 
           {/* ── Automatic: weighted rules ───────────────────────────── */}
           <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">

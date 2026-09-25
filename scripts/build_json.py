@@ -1123,6 +1123,49 @@ def build_whitelist(conn):
              f", {len(missing)} not found" if missing else "")
 
 
+# ── Fund list (funds_index.json) ────────────────────────────────────────────
+
+def build_funds_index(conn):
+    """
+    Every active fund with its category, for pickers (the Blacklist "Add fund"
+    search). Short keys keep it small: c = scheme code, n = name, k = category,
+    s = category slug.
+    """
+    rows = conn.execute("""
+        SELECT s.scheme_code, s.scheme_name, c.category_name, c.slug
+        FROM schemes s JOIN categories c ON c.category_id = s.category_id
+        WHERE s.is_active = 1 AND s.last_nav_date IS NOT NULL
+        ORDER BY s.scheme_name""").fetchall()
+    write_json(out("funds_index.json"), {
+        "as_of": get_as_of(conn),
+        "funds": [{"c": str(c), "n": n, "k": k, "s": sl} for c, n, k, sl in rows],
+    })
+    log.info("✓ funds_index.json (%d funds)", len(rows))
+
+
+def _team_blacklist() -> list[dict]:
+    """
+    The funds the team flagged on the website (server/lists.ts, Neon table
+    blacklist_manual). [] when Neon is unreachable or the table is new.
+    """
+    try:
+        from scripts import neon_store as db
+        if not db.enabled():
+            return []
+        with db.connect() as c:
+            exists = c.execute("SELECT to_regclass('blacklist_manual')").fetchone()[0]
+            if not exists:
+                return []
+            return [{"scheme_code": str(code), "reason": reason, "added_by": by,
+                     "added_at": at.isoformat() if at else None}
+                    for code, reason, by, at in c.execute(
+                        "SELECT scheme_code, reason, added_by, added_at FROM blacklist_manual "
+                        "ORDER BY added_at DESC")]
+    except Exception as exc:        # never fail the build over the team list
+        log.warning("blacklist: team list unavailable (%s)", exc)
+        return []
+
+
 # ── Blacklist (blacklist.json) ──────────────────────────────────────────────
 
 BLACKLIST_PATH = os.path.join(ROOT_DIR, "data", "blacklist.json")
@@ -1176,7 +1219,16 @@ def build_blacklist(conn, categories, screener_cfg: dict):
     """
     cfg = _load_list(BLACKLIST_PATH, "blacklist")
     rules = {**BLACKLIST_RULE_DEFAULTS, **(cfg.get("rules") or {})}
-    manual, missing = fund_details(conn, cfg.get("funds") or [], note_key="reason")
+    # The team's list: flagged on the website (Neon) plus any kept in the file.
+    team = _team_blacklist()
+    seen = {e["scheme_code"] for e in team}
+    entries = team + [e for e in (cfg.get("funds") or []) if str(e.get("scheme_code")) not in seen]
+    manual, missing = fund_details(conn, entries, note_key="reason")
+    by_code = {str(e.get("scheme_code")): e for e in entries}
+    for m in manual:
+        e = by_code.get(m["scheme_code"], {})
+        m["added_by"] = e.get("added_by") or ""
+        m["added_at"] = e.get("added_at")
     as_of = get_as_of(conn)
     as_of_d = date.fromisoformat(as_of)
 
@@ -1469,6 +1521,7 @@ def main():
     build_whitelist(conn)
     build_blacklist(conn, categories, screener_cfg)
     build_alerts(conn, categories)
+    build_funds_index(conn)
 
     build_index_series(conn)
 

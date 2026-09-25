@@ -3,6 +3,7 @@
 // /api/* here. Needs WHITELIST_PASSWORD and DATABASE_URL in the site's
 // environment variables.
 import { handleAuth } from '../../server/auth'
+import { handleBlacklist } from '../../server/lists'
 
 const FN_PREFIX = '/.netlify/functions/auth'
 
@@ -11,11 +12,18 @@ export default async (req: Request): Promise<Response> => {
   if (path.startsWith(FN_PREFIX)) path = path.slice(FN_PREFIX.length)
   const action = path.replace(/^\/(api\/)?/, '').replace(/\/$/, '')
 
-  const out = await handleAuth(
-    action, req.method, req.headers.get('cookie'), () => req.text(),
-    { password: process.env.WHITELIST_PASSWORD, salt: process.env.DATABASE_URL },
-    true,
-  )
+  // /api/blacklist[/<code>]: the team's Blacklist (server/lists.ts); the rest is login.
+  const out: { status: number; body: string; setCookie?: string } =
+    action === 'blacklist' || action.startsWith('blacklist/')
+    ? await handleBlacklist(action.slice('blacklist'.length), req.method, req.headers.get('cookie'),
+                            () => req.text(),
+                            { password: process.env.WHITELIST_PASSWORD, databaseUrl: process.env.DATABASE_URL })
+        .catch(err => { console.error('blacklist', err); return { status: 502, body: '{"error":"database error"}' } })
+    : await handleAuth(
+        action, req.method, req.headers.get('cookie'), () => req.text(),
+        { password: process.env.WHITELIST_PASSWORD, salt: process.env.DATABASE_URL },
+        true,
+      )
   const headers: Record<string, string> = {
     'content-type': 'application/json',
     'cache-control': 'no-store',

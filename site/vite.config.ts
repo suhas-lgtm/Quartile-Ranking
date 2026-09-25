@@ -4,6 +4,7 @@ import fs from 'fs'
 import path from 'path'
 import { route, readFile } from './server/neonFiles'
 import { handleAuth, isProtected, readCookie, sessionValid, SESSION_COOKIE } from './server/auth'
+import { handleBlacklist } from './server/lists'
 
 // Dev mirrors what the Netlify function does in production: /data/* and
 // /live/indices/* are answered from Neon's `files` table, which the pipeline
@@ -62,14 +63,19 @@ function neonData(): Plugin {
       server.middlewares.use(async (req, res, next) => {
         const pathname = (req.url ?? '').split('?')[0]
         if (!pathname.startsWith('/api/')) return next()
-        const out = await handleAuth(
-          pathname.slice('/api/'.length), req.method ?? 'GET', req.headers.cookie,
-          () => new Promise<string>(resolve => {
-            let b = ''
-            req.on('data', c => { b += c })
-            req.on('end', () => resolve(b))
-          }),
-          { password, salt: databaseUrl }, false)
+        const action = pathname.slice('/api/'.length).replace(/\/$/, '')
+        const body = () => new Promise<string>(resolve => {
+          let b = ''
+          req.on('data', c => { b += c })
+          req.on('end', () => resolve(b))
+        })
+        const out: { status: number; body: string; setCookie?: string } =
+          action === 'blacklist' || action.startsWith('blacklist/')
+            ? await handleBlacklist(action.slice('blacklist'.length), req.method ?? 'GET', req.headers.cookie,
+                                    body, { password, databaseUrl })
+                .catch(err => { console.error('[vite] blacklist', err); return { status: 502, body: '{"error":"database error"}' } })
+            : await handleAuth(action, req.method ?? 'GET', req.headers.cookie, body,
+                               { password, salt: databaseUrl }, false)
         res.statusCode = out.status
         res.setHeader('content-type', 'application/json')
         if (out.setCookie) res.setHeader('set-cookie', out.setCookie)

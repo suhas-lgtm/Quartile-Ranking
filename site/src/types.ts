@@ -281,6 +281,16 @@ export interface ListedFund {
   quartiles: Partial<Record<'monthly' | 'quarterly' | 'annual', ListedQuartiles>>
   returns: Record<RiskPeriod, number | null> | null
   ratios: RiskRatios | null
+  /** Blacklist only: who flagged it on the website, and when. */
+  added_by?: string
+  added_at?: string | null
+}
+
+/** funds_index.json — every active fund, for pickers. */
+export interface FundsIndex {
+  as_of: string
+  /** c = scheme code, n = name, k = category, s = category slug */
+  funds: { c: string; n: string; k: string; s: string }[]
 }
 
 export type BlacklistRule =
