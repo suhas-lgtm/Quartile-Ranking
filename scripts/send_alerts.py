@@ -90,6 +90,31 @@ def _period_rows(funds: list[dict], p: str) -> list[dict]:
     return hits
 
 
+# What each fund is compared with — mirrors build_json.build_alerts.
+PEER_RULES = [
+    "Equity and Hybrid funds: the average of all funds in the same category.",
+    "Sectoral/Thematic funds: the average of funds in the same sector (e.g. banking with banking).",
+    "Index funds, ETFs, gold ETFs and domestic FoFs: the average of funds tracking the same index "
+    "(e.g. a Nifty 50 ETF with other Nifty 50 ETFs).",
+    "Overseas FoFs: the average of all overseas FoFs.",
+]
+
+
+def criteria(alerts: dict, as_of: str) -> list[str]:
+    """The selection rules, one line each, for the top of the email."""
+    th = alerts["thresholds"]
+    limits = "; ".join(f"{PERIOD_NAMES.get(p, p)}: more than {th[p]:g}% below" for p in alerts["periods"])
+    return [
+        f"Returns are point-to-point on closing NAVs, ending {as_of}.",
+        f"A fund is listed when its return trails its peer average by more than the limit for that "
+        f"period — {limits}.",
+        "Gap = fund return minus peer average, in percentage points (−1.50 pts = 1.5% worse).",
+        "Peer average means:",
+        *[f"   • {r}" for r in PEER_RULES],
+        "A fund appears under each period it breaches, so it can be listed more than once.",
+    ]
+
+
 def compose(alerts: dict, site_url: str) -> tuple[str, str, str] | None:
     """(subject, plain-text body, HTML body), or None when nothing breached."""
     funds = alerts.get("funds") or []
@@ -102,8 +127,10 @@ def compose(alerts: dict, site_url: str) -> tuple[str, str, str] | None:
     intro = (f"As per closing NAVs of {as_of}, these funds are trailing their category average by "
              f"more than the set limits.")
 
+    rules = criteria(alerts, as_of)
+
     # ── plain text (fallback for mail clients without HTML) ──
-    lines = ["Hello,", "", intro, ""]
+    lines = ["Hello,", "", intro, "", "HOW THESE FUNDS ARE SELECTED", *[f"  {r}" for r in rules], ""]
     for p in alerts["periods"]:
         hits = _period_rows(funds, p)
         if not hits:
@@ -131,8 +158,17 @@ def compose(alerts: dict, site_url: str) -> tuple[str, str, str] | None:
         return GREEN if v is not None and v >= 0 else RED
 
     cell = "padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:13px;"
+    bullets = []
+    for r in rules:
+        if r.startswith("   • "):
+            bullets.append(f'<li style="margin-left:18px;list-style:circle">{escape(r[5:])}</li>')
+        else:
+            bullets.append(f"<li>{escape(r)}</li>")
     parts = [f'<div style="font-family:Arial,Helvetica,sans-serif;color:#111827;max-width:860px">',
-             "<p>Hello,</p>", f"<p>{escape(intro)}</p>"]
+             "<p>Hello,</p>", f"<p>{escape(intro)}</p>",
+             '<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:10px 14px;'
+             'font-size:13px;color:#374151"><b>How these funds are selected</b>'
+             f'<ul style="margin:6px 0 0;padding-left:18px">{"".join(bullets)}</ul></div>']
     for p in alerts["periods"]:
         hits = _period_rows(funds, p)
         if not hits:
