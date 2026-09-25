@@ -95,8 +95,9 @@ export default function HeroHeader({
             className={`nav-tab ${activeTab === t.id ? 'active' : ''}`}
             style={{
               color: activeTab === t.id ? 'var(--accent-a)' : 'rgba(255,255,255,0.7)',
-              fontSize: '11px',
-              padding: '6px 10px',
+              fontSize: '13px',
+              fontWeight: 600,
+              padding: '7px 12px',
             }}
           >
             {t.label}

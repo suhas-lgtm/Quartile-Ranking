@@ -115,7 +115,7 @@ export default function App() {
       {/* The key makes React remount on a tab change, which replays the
           .view-enter animation so switching sections fades in rather than
           snapping. */}
-      <main key={activeTab} className="pt-[120px] pb-12 view-enter">
+      <main key={activeTab} className="pt-[128px] pb-12 view-enter">
         {activeTab === 'market-pulse' && <MarketPulse />}
 
         {/* Live Market first on the other two, so the day's context is read

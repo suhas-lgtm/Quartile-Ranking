@@ -18,6 +18,20 @@ import type { FundsIndex } from '../types'
 
 const QUICK: [string, number][] = [['1M', 1], ['3M', 3], ['6M', 6], ['1Y', 12], ['3Y', 36], ['5Y', 60]]
 
+/**
+ * Green (best) -> amber -> red (worst) by position in the table, 0 = best.
+ * Returns a translucent background and a matching text colour.
+ */
+function heat(pos: number | null): { bg?: string; fg?: string } {
+  if (pos == null) return {}
+  const stops = [[52, 211, 153], [245, 158, 11], [248, 113, 113]]   // green, amber, red
+  const t = Math.min(Math.max(pos, 0), 1) * 2
+  const [a, b] = t <= 1 ? [stops[0], stops[1]] : [stops[1], stops[2]]
+  const k = t <= 1 ? t : t - 1
+  const c = a.map((v, i) => Math.round(v + (b[i] - v) * k))
+  return { bg: `rgba(${c[0]},${c[1]},${c[2]},0.20)`, fg: `rgb(${c[0]},${c[1]},${c[2]})` }
+}
+
 export default function PointToPoint() {
   const { data: meta } = useMeta()
   const { data: index } = useJson<FundsIndex>('funds_index.json')
@@ -49,6 +63,9 @@ export default function PointToPoint() {
     }).sort((x, y) => (y.ret ?? -Infinity) - (x.ret ?? -Infinity))
   }, [navs, funds, fromDate, toDate, valid])
   const ranked = rows.filter(r => r.ret != null)
+  // Position of row i among the ranked funds, 0 (best) .. 1 (worst), for heat().
+  const pos = (i: number, ret: number | null) =>
+    ret == null ? null : ranked.length > 1 ? i / (ranked.length - 1) : 0
   const avg = ranked.length ? ranked.reduce((s, r) => s + r.ret!, 0) / ranked.length : null
 
   // Category benchmark, when it is one of the Market Pulse indices.
@@ -148,7 +165,7 @@ export default function PointToPoint() {
               <tbody className="rows-enter">
                 {rows.map((r, i) => (
                   <tr key={r.code}>
-                    <td className="text-center text-xs" style={{ color: 'var(--text-low)' }}>{r.ret != null ? i + 1 : '—'}</td>
+                    <td className="text-center text-xs font-bold" style={{ color: heat(pos(i, r.ret)).fg ?? 'var(--text-low)' }}>{r.ret != null ? i + 1 : '—'}</td>
                     <td className="sticky-col text-xs font-medium truncate" style={{ maxWidth: 300 }} title={r.name}>{r.name}</td>
                     <td className="ret-cell">
                       {r.a ? <>{r.a.nav.toFixed(4)}<div className="text-[10px]" style={{ color: 'var(--text-low)' }}>{fmtDate(r.a.date)}</div></>
@@ -158,8 +175,13 @@ export default function PointToPoint() {
                     <td className="ret-cell">
                       {r.b ? <>{r.b.nav.toFixed(4)}<div className="text-[10px]" style={{ color: 'var(--text-low)' }}>{fmtDate(r.b.date)}</div></> : '—'}
                     </td>
-                    <td className={`ret-cell font-semibold ${retColor(r.ret)}`}>{fmtPct(r.ret)}</td>
-                    <td className={`ret-cell ${retColor(r.ann)}`}>{r.ann == null ? '—' : fmtPct(r.ann)}</td>
+                    <td className="ret-cell font-bold"
+                        style={{ background: heat(pos(i, r.ret)).bg, color: heat(pos(i, r.ret)).fg }}>{fmtPct(r.ret)}</td>
+                    <td className="ret-cell font-semibold"
+                        style={{ background: r.ann == null ? undefined : heat(pos(i, r.ret)).bg,
+                                 color: r.ann == null ? 'var(--text-low)' : heat(pos(i, r.ret)).fg }}>
+                      {r.ann == null ? '—' : fmtPct(r.ann)}
+                    </td>
                   </tr>
                 ))}
                 {avg != null && (
