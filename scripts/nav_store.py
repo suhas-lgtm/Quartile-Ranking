@@ -56,6 +56,61 @@ MAX_SHRINK = 0.90         # may not fall below 90% of what is already stored
 from scripts.amfi_topup import MAX_ONE_DAY_MOVE  # noqa: E402
 
 
+# ── unit splits ─────────────────────────────────────────────────────────────
+#
+# ETFs (and the odd liquid fund) split their units — 1:10 is common, gold ETFs
+# have done 1:100 — so the NAV per unit falls by that factor overnight while an
+# investor's holding is unchanged. Unadjusted, every return spanning the split
+# reads as a -90% crash. 37 such splits were in the data by September 2026.
+#
+# A day-on-day ratio within SPLIT_TOLERANCE of 1/k (or k, a consolidation) for a
+# k in SPLIT_FACTORS is treated as a split. No real fund moves 50%+ in a day
+# (the widest genuine move measured was ~13%), so these cannot be mistaken for
+# market moves. The raw NAVs stay as published; only the series the engine
+# computes from is adjusted.
+SPLIT_FACTORS = (2, 3, 4, 5, 10, 20, 25, 50, 100, 1000)
+SPLIT_TOLERANCE = 0.06
+
+
+def split_factor(ratio: float) -> float | None:
+    """k when new/old NAV looks like a 1:k split (1/k for a k:1 consolidation)."""
+    if ratio <= 0:
+        return None
+    for k in SPLIT_FACTORS:
+        if abs(ratio * k - 1) <= SPLIT_TOLERANCE:
+            return float(k)
+        if abs(ratio / k - 1) <= SPLIT_TOLERANCE:
+            return 1.0 / k
+    return None
+
+
+def adjust_for_splits(series: Series) -> tuple[Series, list[tuple[str, float]]]:
+    """
+    (series restated in today's units, [(split date, factor), ...]).
+
+    Every NAV before a split is divided by the split's factor, so returns across
+    it are continuous. With no split the series comes back unchanged.
+    """
+    dates = sorted(series)
+    splits = []
+    for prev_d, d in zip(dates, dates[1:]):
+        prev = series[prev_d]
+        if prev > 0:
+            k = split_factor(series[d] / prev)
+            if k is not None:
+                splits.append((d, k))
+    if not splits:
+        return series, []
+    out: Series = {}
+    for d in dates:
+        f = 1.0
+        for sd, k in splits:
+            if sd > d:
+                f *= k
+        out[d] = series[d] / f
+    return out, splits
+
+
 def pull_stored(codes: list[str], from_date: str | None = None) -> dict[str, Series]:
     """
     Stored series for many funds. A fund with no rows is simply missing from
@@ -140,7 +195,11 @@ def merge_amfi(series_by_code: dict[str, Series],
         if series:
             prev_date = max(series)
             prev = series[prev_date]
-            if prev > 0 and abs(nav / prev - 1) > MAX_ONE_DAY_MOVE:
+            # A unit split is not a bad value: accept it (adjust_for_splits
+            # restates the history later). Refusing it would freeze the fund,
+            # since every later NAV would be refused against the old level too.
+            if (prev > 0 and abs(nav / prev - 1) > MAX_ONE_DAY_MOVE
+                    and split_factor(nav / prev) is None):
                 stats["rejected_move"] += 1
                 rejected.append((code, prev, d, nav, abs(nav / prev - 1)))
                 continue

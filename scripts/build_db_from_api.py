@@ -350,6 +350,19 @@ def load_history_from_neon(conn, schemes: list[dict], from_date: str | None,
     added = db.write_nav_rows(nav_store.new_rows(series, stored))
     log.info("Neon: stored %s new NAV row(s)", f"{added:,}")
 
+    # Restate history across unit splits before the engine sees it; Neon keeps
+    # the NAVs exactly as published.
+    split_log = []
+    for code in list(series):
+        adj, splits = nav_store.adjust_for_splits(series[code])
+        if splits:
+            series[code] = adj
+            split_log.extend((code, d, k) for d, k in splits)
+    if split_log:
+        log.info("Adjusted %d unit split(s) in %d fund(s), e.g. %s", len(split_log),
+                 len({c for c, _, _ in split_log}),
+                 ", ".join(f"{c} {d} 1:{k:g}" for c, d, k in split_log[:4]))
+
     floor = from_date or "0000-01-01"
     conn.executemany(
         "INSERT OR IGNORE INTO nav_history(scheme_code, nav_date, nav) VALUES(?,?,?)",

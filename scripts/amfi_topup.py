@@ -61,6 +61,12 @@ MIN_ROWS = 5_000
 # to sit in the history (Bandhan Short Duration Plan D restated 12.03 -> 22.16).
 MAX_ONE_DAY_MOVE = 0.25
 
+
+def _looks_like_split(ratio: float) -> bool:
+    """A unit split (see nav_store.split_factor), not a bad value."""
+    from scripts.nav_store import split_factor
+    return split_factor(ratio) is not None
+
 _MONTHS = {m: i for i, m in enumerate(
     ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], 1)}
@@ -197,7 +203,8 @@ def top_up(conn: sqlite3.Connection, text: str | None = None) -> dict:
             # Nothing newer. History belongs to mfapi, so do not touch it.
             stats["already_current"] += 1
             continue
-        elif prev[1] > 0 and abs(nav / prev[1] - 1) > MAX_ONE_DAY_MOVE:
+        elif (prev[1] > 0 and abs(nav / prev[1] - 1) > MAX_ONE_DAY_MOVE
+              and not _looks_like_split(nav / prev[1])):
             stats["rejected_move"] += 1
             rejected.append((code, prev, (date, nav), abs(nav / prev[1] - 1)))
             continue
