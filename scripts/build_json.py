@@ -43,6 +43,7 @@ from engine.calculation_engine import (
     risk_metrics, composite_risk_score,
     short_return, SHORT_PERIODS,
     index_std_annual, bear_period_stats, screener_parameter_scores,
+    screener_weighted_score,
     rolling_statistics,
 )
 from scripts.sectors import SECTORAL_THEMATIC_SLUG, sector_of, SECTOR_ORDER
@@ -917,24 +918,24 @@ def _read_out(filename: str):
         return None
 
 
-def build_whitelist(conn):
+def _load_list(path: str, label: str) -> dict:
+    """A hand-kept fund list (data/whitelist.json, data/blacklist.json)."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError) as exc:
+        log.warning("%s: cannot read %s (%s) — treating it as empty", label, path, exc)
+        return {}
+
+
+def fund_details(conn, entries: list[dict], note_key: str = "note") -> tuple[list[dict], list[str]]:
     """
-    One row per fund on data/whitelist.json, for the Whitelist tab and the
-    email alerts.
+    Latest NAV, recent quartiles, returns and ratios for each listed fund.
 
     Nothing is recalculated: quartiles come from quartiles_{slug}_{mode}.json and
     returns/ratios from risk_{slug}.json, both written earlier in this build, so
-    the Whitelist can never disagree with the other tabs.
+    a list can never disagree with the other tabs. Returns (funds, missing codes).
     """
-    try:
-        with open(WHITELIST_PATH, encoding="utf-8") as fh:
-            entries = json.load(fh).get("funds") or []
-    except (OSError, ValueError) as exc:
-        log.warning("whitelist: cannot read %s (%s) — writing an empty list",
-                    WHITELIST_PATH, exc)
-        entries = []
-
-    as_of = get_as_of(conn)
     cache: dict[str, dict | None] = {}
 
     def cached(name: str):
@@ -979,7 +980,7 @@ def build_whitelist(conn):
         funds.append({
             "scheme_code":   code,
             "scheme_name":   name,
-            "note":          e.get("note") or "",
+            "note":          e.get(note_key) or "",
             "category_name": cat_name,
             "category_slug": slug,
             "asset_class":   asset_class,
@@ -990,6 +991,14 @@ def build_whitelist(conn):
             "returns":       rf["returns"] if rf else None,
             "ratios":        {k: rf.get(k) for k in RISK_RATIO_KEYS} if rf else None,
         })
+    return funds, missing
+
+
+def build_whitelist(conn):
+    """One row per fund on data/whitelist.json, for the email alerts."""
+    entries = _load_list(WHITELIST_PATH, "whitelist").get("funds") or []
+    as_of = get_as_of(conn)
+    funds, missing = fund_details(conn, entries)
 
     if missing:
         log.warning("whitelist: %d code(s) not in the catalogue: %s",
@@ -1001,6 +1010,81 @@ def build_whitelist(conn):
     })
     log.info("✓ whitelist.json (%d funds%s)", len(funds),
              f", {len(missing)} not found" if missing else "")
+
+
+# ── Blacklist (blacklist.json) ──────────────────────────────────────────────
+
+BLACKLIST_PATH = os.path.join(ROOT_DIR, "data", "blacklist.json")
+SCREENER_GROUPS = {
+    "risk":        ["beta", "relative_risk", "down_capture", "std_dev"],
+    "performance": ["returns", "relative_return", "alpha", "up_capture", "sharpe", "sortino"],
+    "drawdown":    ["max_drawdown", "recovery_time", "active_share"],
+}
+
+
+def build_blacklist(conn, categories, screener_cfg: dict):
+    """
+    Two sections, both public:
+
+      manual  the funds the team lists in data/blacklist.json, with a reason,
+              shown with the same details as any other list (fund_details);
+      auto    the bottom `auto_bottom_n` ranked funds of every category on the
+              Whitelist Screener, ranked with the screener's DEFAULT weights
+              (engine.screener_weighted_score, the formula the screen uses).
+
+    Reads the screener files written earlier in this build.
+    """
+    cfg = _load_list(BLACKLIST_PATH, "blacklist")
+    bottom_n = int(cfg.get("auto_bottom_n", 3))
+    weights = screener_cfg.get("weights") or {}
+    manual, missing = fund_details(conn, cfg.get("funds") or [], note_key="reason")
+
+    auto = []
+    for _, slug, asset_class in categories:
+        if asset_class not in ("Equity", "Hybrid"):
+            continue
+        scr = _read_out(f"screener_{slug}.json")
+        if not scr:
+            continue
+        ranked = []
+        for f in scr["funds"]:
+            if not f.get("eligible") or not f.get("scores"):
+                continue
+            total = screener_weighted_score(f["scores"], weights)
+            if total is None:
+                continue
+            groups = {}
+            for g, keys in SCREENER_GROUPS.items():
+                v = screener_weighted_score(f["scores"], weights, keys)
+                groups[g] = round(v, 1) if v is not None else None
+            ranked.append({
+                "scheme_code": f["scheme_code"],
+                "scheme_name": f["scheme_name"],
+                "score": round(total, 1),
+                **groups,
+                "return_3y": f["returns"].get("3Y"),
+            })
+        if len(ranked) <= bottom_n:
+            continue     # too few ranked funds for a "bottom" to mean anything
+        ranked.sort(key=lambda r: -r["score"])
+        for i, r in enumerate(ranked, 1):
+            r["rank"] = i
+        auto.append({
+            "category_name": scr["category_name"],
+            "category_slug": slug,
+            "ranked": len(ranked),
+            "funds": ranked[-bottom_n:][::-1],   # worst first
+        })
+
+    write_json(out("blacklist.json"), {
+        "as_of":         get_as_of(conn),
+        "auto_bottom_n": bottom_n,
+        "manual":        manual,
+        "missing":       missing,
+        "auto":          auto,
+    })
+    log.info("✓ blacklist.json (%d listed, bottom %d of %d categories)",
+             len(manual), bottom_n, len(auto))
 
 
 # ── Index series (index/{index_id}.json) ─────────────────────────────────────
@@ -1054,6 +1138,7 @@ def main():
         if asset_class in ("Equity", "Hybrid"):
             build_screener(conn, slug, screener_cfg)
     build_whitelist(conn)
+    build_blacklist(conn, categories, screener_cfg)
 
     build_index_series(conn)
 

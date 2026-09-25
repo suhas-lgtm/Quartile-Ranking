@@ -463,6 +463,24 @@ def screener_parameter_scores(parts_by_fund: list[dict[str, list[Optional[float]
     return out
 
 
+def screener_weighted_score(scores: dict, weights: dict, keys: list[str] | None = None) -> Optional[float]:
+    """
+    The Whitelist Screener's Score: the weighted average of a fund's parameter
+    scores, over the parameters it has a score for and a positive weight.
+    `keys` restricts it to one group (Risk / Performance / Drawdown). The screen
+    (site/src/sections/WhitelistScreener.tsx, weighted()) applies the same rule
+    with the viewer's own weights.
+    """
+    num = den = 0.0
+    for k in (keys if keys is not None else list(scores.keys())):
+        sc, w = scores.get(k), float(weights.get(k) or 0)
+        if sc is None or w <= 0:
+            continue
+        num += sc * w
+        den += w
+    return num / den if den else None
+
+
 # ── E3. Annual Returns (Calendar Year) ───────────────────────────────────────
 
 def annual_return(

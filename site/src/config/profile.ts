@@ -7,7 +7,7 @@
 // The tab list below is the single source of truth. Adding a section means
 // adding it to SectionId and ALL_TABS, and rendering it in App.tsx.
 
-export type SectionId = 'market-pulse' | 'quartile' | 'risk' | 'watchlist' | 'whitelist'
+export type SectionId = 'market-pulse' | 'quartile' | 'risk' | 'watchlist' | 'whitelist' | 'blacklist'
 
 /** In the order they appear in the header. */
 const ALL_TABS: ReadonlyArray<{ id: SectionId; label: string }> = [
@@ -16,6 +16,7 @@ const ALL_TABS: ReadonlyArray<{ id: SectionId; label: string }> = [
   { id: 'risk',         label: 'Risk & Returns' },
   { id: 'watchlist',    label: 'Fund Signals' },
   { id: 'whitelist',    label: 'Whitelist Screener' },
+  { id: 'blacklist',    label: 'Blacklist' },
 ]
 
 /** Landing tab, and the fallback when a saved tab is no longer valid. */

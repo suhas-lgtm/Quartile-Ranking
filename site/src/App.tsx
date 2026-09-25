@@ -13,6 +13,7 @@ import QuartileRanking from './sections/QuartileRanking'
 import Watchlist       from './sections/Watchlist'
 import RiskReturns     from './sections/RiskReturns'
 import WhitelistScreener from './sections/WhitelistScreener'
+import Blacklist       from './sections/Blacklist'
 import { useMeta }     from './hooks/useData'
 import { defaultTab, tabAllowed } from './config/profile'
 import { currentDesk } from './config/products'
@@ -141,6 +142,13 @@ export default function App() {
           <>
             <MarketPulseBar />
             <WhitelistScreener />
+          </>
+        )}
+
+        {activeTab === 'blacklist' && (
+          <>
+            <MarketPulseBar />
+            <Blacklist />
           </>
         )}
       </main>

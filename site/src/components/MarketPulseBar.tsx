@@ -150,7 +150,7 @@ export default function MarketPulseBar() {
                       </div>
 
                       {/* A day-end close, not a live price. */}
-                      <div className="mb-1" style={{ fontSize: 9, color: 'var(--text-low)' }}>
+                      <div className="mb-1 font-medium" style={{ fontSize: 10, color: 'var(--text-mid)' }}>
                         Close · {fmtDate(idx.date)}
                       </div>
 

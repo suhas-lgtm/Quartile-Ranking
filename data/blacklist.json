@@ -1,0 +1,5 @@
+{
+  "_about": "Blacklist tab. funds: the team's manual list of funds to avoid, one entry per fund: scheme_code (the AMFI / api.mfapi.in code, e.g. 103174) and an optional reason shown on the tab. auto_bottom_n: how many of the lowest-ranked funds per category (Whitelist Screener, default weights) are listed automatically.",
+  "auto_bottom_n": 3,
+  "funds": []
+}

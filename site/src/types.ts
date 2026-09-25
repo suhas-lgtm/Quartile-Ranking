@@ -257,6 +257,53 @@ export interface ScreenerData {
   funds: ScreenerFund[]
 }
 
+/** One mode's recent quartile history for a listed fund, oldest first. */
+export interface ListedQuartiles {
+  labels: string[]
+  quartiles: (number | null)[]
+  returns: (number | null)[]
+}
+
+/** A fund on a hand-kept list (build_json.fund_details). */
+export interface ListedFund {
+  scheme_code: string
+  scheme_name: string
+  /** The note or reason given for it on the list. */
+  note: string
+  category_name: string | null
+  category_slug: string | null
+  asset_class: string | null
+  nav: number | null
+  nav_date: string | null
+  change_1d: number | null
+  quartiles: Partial<Record<'monthly' | 'quarterly' | 'annual', ListedQuartiles>>
+  returns: Record<RiskPeriod, number | null> | null
+  ratios: RiskRatios | null
+}
+
+/** blacklist.json — Blacklist tab. */
+export interface BlacklistData {
+  as_of: string
+  auto_bottom_n: number
+  manual: ListedFund[]
+  missing: string[]
+  auto: {
+    category_name: string
+    category_slug: string
+    ranked: number
+    funds: {
+      rank: number
+      scheme_code: string
+      scheme_name: string
+      score: number
+      risk: number | null
+      performance: number | null
+      drawdown: number | null
+      return_3y: number | null
+    }[]
+  }[]
+}
+
 export interface DrawdownPoint {
   date: string
   drawdown_pct: number
