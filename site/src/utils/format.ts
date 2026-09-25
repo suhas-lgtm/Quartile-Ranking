@@ -17,6 +17,24 @@ export function fmtDate(iso: string | null | undefined): string {
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
+/** "25 Sep 2026, 1:04 PM IST" — refresh times are always shown in IST. */
+export function fmtDateTimeIST(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return '—'
+  return d.toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: true,
+  }).replace(/(am|pm)/, m => m.toUpperCase()) + ' IST'
+}
+
+/** Cards whose close is more than this many days behind the newest are held back. */
+export const INDEX_LAG_DAYS = 6
+
+export function daysBetween(a: string, b: string): number {
+  return (new Date(a).getTime() - new Date(b).getTime()) / 86_400_000
+}
+
 export function retColor(v: number | null): string {
   if (v == null) return 'ret-nil'
   return v >= 0 ? 'ret-pos' : 'ret-neg'

@@ -109,4 +109,6 @@ export interface LiveIndexFile {
   change_1d_abs: number | null
   sparkline: [string, number][]
   history: [string, number][]
+  /** When this file was written by the refresh (ISO timestamp). */
+  generated?: string
 }

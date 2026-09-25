@@ -48,8 +48,11 @@ export interface IndexCard {
 }
 
 export interface IndicesData {
+  /** Newest closing date held (the cards show closes, not live prices). */
   as_of: string
   indices: IndexCard[]
+  /** When the index data was last refreshed (ISO timestamp), if known. */
+  generated?: string
 }
 
 export interface GlanceRow {

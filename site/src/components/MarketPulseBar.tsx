@@ -4,7 +4,7 @@
 import { useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { useIndices } from '../hooks/useData'
-import { fmtNum, fmtPct } from '../utils/format'
+import { fmtDate, fmtDateTimeIST, fmtNum, fmtPct } from '../utils/format'
 import { indexGroup } from '../config/indices'
 import IndexChartModal from './IndexChartModal'
 
@@ -68,7 +68,12 @@ export default function MarketPulseBar() {
             className="text-xs font-semibold uppercase mb-2 tracking-widest"
             style={{ color: 'var(--text-low)', letterSpacing: '0.12em' }}
           >
-            Live Market
+            Market Close{data ? ` · ${fmtDate(data.as_of)}` : ''}
+            {data?.generated && (
+              <span className="normal-case tracking-normal font-normal ml-2" style={{ letterSpacing: 0 }}>
+                · last updated {fmtDateTimeIST(data.generated)}
+              </span>
+            )}
           </div>
 
           {/* Cards grid */}

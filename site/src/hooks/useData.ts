@@ -114,6 +114,7 @@ export function useIndices() {
       return {
         // The strip labels itself with the freshest close it holds.
         as_of: files.reduce((a, f) => (f.date > a ? f.date : a), files[0].date),
+        generated: files.reduce((a, f) => (f.generated && f.generated > a ? f.generated : a), ''),
         indices: files.map(f => ({
           index_id: f.index_id,
           index_name: f.index_name,

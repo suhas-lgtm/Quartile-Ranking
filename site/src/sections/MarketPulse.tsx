@@ -4,7 +4,7 @@ import { useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { useIndices } from '../hooks/useData'
 import { MARKET_PULSE_GROUPS, indexGroup } from '../config/indices'
-import { fmtDate, fmtNum, fmtPct } from '../utils/format'
+import { daysBetween, fmtDate, fmtDateTimeIST, fmtNum, fmtPct, INDEX_LAG_DAYS } from '../utils/format'
 import IndexChartModal from '../components/IndexChartModal'
 
 const INDEX_META: Record<string, { gradient: [string, string] }> = {
@@ -105,11 +105,7 @@ function GroupHeading({ label, gradient, count }: {
   )
 }
 
-function IndexCard({ idx, onOpen, newest }: { idx: LiveIndex; onOpen: () => void; newest: string }) {
-  // A card whose last close is more than a few days behind the freshest one on
-  // the page says so, rather than passing an old value off as today's.
-  const lagging = !!newest && !!idx.date &&
-    (new Date(newest).getTime() - new Date(idx.date).getTime()) / 86_400_000 > 6
+function IndexCard({ idx, onOpen }: { idx: LiveIndex; onOpen: () => void }) {
   const meta = INDEX_META[idx.index_name]
   const [g1, g2] = meta?.gradient ?? ['#1d4ed8', '#22D3EE']
   const isUp = (idx.change_1d ?? 0) >= 0
@@ -171,14 +167,12 @@ function IndexCard({ idx, onOpen, newest }: { idx: LiveIndex; onOpen: () => void
           fontSize: 11,
         }}
       >
-        {idx.change_1d == null ? '— no 1-day change' : <>{isUp ? '▲' : '▼'} {fmtPct(idx.change_1d)} today</>}
+        {idx.change_1d == null ? '— 1-day change n/a' : <>{isUp ? '▲' : '▼'} {fmtPct(idx.change_1d)} 1D</>}
       </div>
-      {lagging && (
-        <div className="text-[10px] mb-1" style={{ color: 'var(--text-low)' }}
-             title="This index's daily data is catching up; the value shown is from this date.">
-          as of {fmtDate(idx.date)}
-        </div>
-      )}
+      {/* The value is a CLOSE, refreshed overnight, not a live price. */}
+      <div className="text-[10px] mb-1" style={{ color: 'var(--text-low)' }}>
+        Close · {fmtDate(idx.date)}
+      </div>
 
       {/* Sparkline */}
       <Sparkline data={idx.sparkline} color={sparkColor} />
@@ -213,14 +207,26 @@ export default function MarketPulse() {
     <>
       <section id="market-pulse" className="px-6 py-6 max-w-screen-2xl mx-auto">
         <div className="section-header">Market Pulse</div>
+        {data && (
+          <p className="text-xs -mt-2 mb-4" style={{ color: 'var(--text-mid)' }}>
+            Closing values as of <b style={{ color: 'var(--text-hi)' }}>{fmtDate(data.as_of)}</b>
+            {data.generated && <> · Last updated {fmtDateTimeIST(data.generated)}</>}
+            <span style={{ color: 'var(--text-low)' }}> · refreshed daily at 8:00 AM and 11:45 PM IST; these are day-end closes, not live prices</span>
+          </p>
+        )}
 
         <div className="space-y-6">
           {MARKET_PULSE_GROUPS.map(g => {
             // Grouped by index identity, not by array position: the live bucket
             // and the committed fallback order their cards differently.
-            const items = (data?.indices ?? []).filter(
+            const inGroup = (data?.indices ?? []).filter(
               i => indexGroup(i.index_id) === g.key,
             )
+            // A card whose close is well behind the rest (a sector still
+            // catching up) is held back rather than shown with an old date.
+            const items = inGroup.filter(
+              i => !data || daysBetween(data.as_of, i.date) <= INDEX_LAG_DAYS)
+            const heldBack = inGroup.length - items.length
             const isBroad = g.key === 'broad'
             // Only the broad group has a known card count to reserve space for.
             const skeletons = loading && isBroad ? 8 : 0
@@ -235,18 +241,25 @@ export default function MarketPulse() {
                     {Array.from({ length: skeletons }).map((_, i) => <CardSkeleton key={i} />)}
                   </div>
                 ) : items.length ? (
+                  <>
                   <div className="grid gap-3" style={GRID_STYLE}>
                     {items.map(idx => (
                       <IndexCard
                         key={idx.index_id}
                         idx={idx}
-                        newest={data?.as_of ?? ''}
                         onOpen={() => setModalIndex({
                           index_id: idx.index_id, index_name: idx.index_name,
                         })}
                       />
                     ))}
                   </div>
+                  {heldBack > 0 && (
+                    <p className="text-[11px] mt-2" style={{ color: 'var(--text-low)' }}>
+                      {heldBack} more {g.label.toLowerCase()} {heldBack === 1 ? 'index appears' : 'indices appear'} once
+                      their latest close is in (after the next morning refresh).
+                    </p>
+                  )}
+                  </>
                 ) : (
                   // An empty group says so. A group heading with nothing under it
                   // reads as a failed fetch, which is the one thing it is not.
