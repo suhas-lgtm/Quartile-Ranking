@@ -6,24 +6,28 @@ name: Daily Data Update
 # dashboard reads into Neon's `files` table. The runner's SQLite database is
 # thrown away; Neon is the only durable store.
 
-# ONE RUN A DAY, ONE DEPLOY.
+# TWO RUNS A DAY: 23:45 IST AND 08:00 IST.
 #
-# There used to be a second cron at 08:15 IST as a catch-up. It committed too
-# whenever more funds had reported overnight, so Netlify rebuilt twice a day for
-# the same day's data. Now there is a single run and a single deploy; if it
-# fails, re-run it from the Actions tab rather than waiting for a second cron.
+# A run no longer deploys anything: the data goes straight to Neon and the site
+# reads it from there, so a second daily run costs no Netlify build minutes.
+# (An earlier 08:15 catch-up was dropped only because each run committed data
+# and triggered a rebuild; that reason is gone.)
 #
-# 23:45 IST is chosen because both upstreams are settled by then:
-#   AMFI/mfapi publish the day's NAVs by ~23:00 IST  (verified: the 23:45 run
-#     picked up as_of 2026-07-30 on 2026-07-30)
-#   NSE closes 15:30 IST, so Yahoo's daily bar is 8h old  (verified: 2026-07-31
-#     closes were available by 19:39 IST)
+# 23:45 IST: both upstreams are settled by then —
+#   AMFI/mfapi publish the day's NAVs by ~23:00 IST
+#   NSE closes 15:30 IST, so Yahoo's daily bar is 8h old
+#   Asking earlier risks storing an intraday index value as if it were a close.
+# 08:00 IST: the morning run. NAVs are capped at IST-yesterday, so this is the
+#   run that adds the previous day's NAVs (the 23:45 run on that same day caps
+#   one day earlier), and it catches funds AMFI published late overnight.
 #
-# Asking earlier risks storing an intraday index value as if it were a close.
+# GitHub may start a scheduled run a few minutes late under load.
 on:
   schedule:
     # 23:45 IST = 18:15 UTC
     - cron: '15 18 * * *'
+    # 08:00 IST = 02:30 UTC
+    - cron: '30 2 * * *'
   workflow_dispatch:
     inputs:
       max_staleness:
