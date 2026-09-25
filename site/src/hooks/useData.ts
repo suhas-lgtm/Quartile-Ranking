@@ -98,13 +98,19 @@ export function useIndices() {
     setError(null)
 
     const live = async (): Promise<IndicesData> => {
-      const files = await Promise.all(
+      // Settled per file: one sector file missing or failing must not take the
+      // whole strip down with it.
+      const settled = await Promise.allSettled(
         MARKET_PULSE_INDICES.map(async ({ slug }) => {
           const r = await fetch(`${LIVE_INDEX_BASE}/${slug}.json`)
           if (!r.ok) throw new Error(`HTTP ${r.status} for ${slug}`)
           return (await r.json()) as LiveIndexFile
         }),
       )
+      const files = settled
+        .filter((s): s is PromiseFulfilledResult<LiveIndexFile> => s.status === 'fulfilled')
+        .map(s => s.value)
+      if (!files.length) throw new Error('no live index files')
       return {
         // The strip labels itself with the freshest close it holds.
         as_of: files.reduce((a, f) => (f.date > a ? f.date : a), files[0].date),

@@ -53,10 +53,26 @@ export const MARKET_PULSE_INDICES: readonly MarketPulseIndex[] = [
   { id: 9, slug: 'gold-goldbees',      group: 'broad' },
 
   // ── Sectoral ─────────────────────────────────────────────────────────────
-  // Awaiting the benchmark list. Each one added here needs the same three
-  // lists to agree as any other index — see the header of this file — plus a
-  // gradient in INDEX_META in sections/MarketPulse.tsx so its card is not
-  // rendered in the fallback blue.
+  // Must match scripts/index_store.SECTORS (ids and slugs). Most of these now
+  // get only a latest bar from Yahoo, so a card can lag while its history
+  // catches up; the card then shows the date its value is from.
+  { id: 10, slug: 'nifty-it',                 group: 'sectoral' },
+  { id: 26, slug: 'nifty-pharma',             group: 'sectoral' },
+  { id: 24, slug: 'nifty-healthcare',         group: 'sectoral' },
+  { id: 21, slug: 'nifty-financial-services', group: 'sectoral' },
+  { id: 27, slug: 'nifty-private-bank',       group: 'sectoral' },
+  { id: 28, slug: 'nifty-psu-bank',           group: 'sectoral' },
+  { id: 20, slug: 'nifty-auto',               group: 'sectoral' },
+  { id: 23, slug: 'nifty-fmcg',               group: 'sectoral' },
+  { id: 30, slug: 'nifty-consumer-durables',  group: 'sectoral' },
+  { id: 25, slug: 'nifty-metal',              group: 'sectoral' },
+  { id: 35, slug: 'nifty-energy',             group: 'sectoral' },
+  { id: 31, slug: 'nifty-oil-gas',            group: 'sectoral' },
+  { id: 45, slug: 'nifty-infrastructure',     group: 'sectoral' },
+  { id: 29, slug: 'nifty-realty',             group: 'sectoral' },
+  { id: 54, slug: 'nifty-media',              group: 'sectoral' },
+  { id: 48, slug: 'nifty-pse',                group: 'sectoral' },
+  { id: 34, slug: 'nifty-cpse',               group: 'sectoral' },
 ]
 
 /** Group headings and the accent each group's rule is drawn in. */

@@ -5,6 +5,7 @@ import { useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { useIndices } from '../hooks/useData'
 import { fmtNum, fmtPct } from '../utils/format'
+import { indexGroup } from '../config/indices'
 import IndexChartModal from './IndexChartModal'
 
 const INDEX_META: Record<string, { gradient: [string, string] }> = {
@@ -87,7 +88,9 @@ export default function MarketPulseBar() {
                     <div className="skeleton w-12 h-2.5 rounded" />
                   </div>
                 ))
-              : data?.indices.map(idx => {
+              // The slim strip above the other tabs keeps to the broad market;
+              // the sector cards live on Market Pulse itself.
+              : data?.indices.filter(idx => indexGroup(idx.index_id) === 'broad').map(idx => {
                   const meta = INDEX_META[idx.index_name]
                   const [g1, g2] = meta?.gradient ?? ['#1d4ed8', '#22D3EE']
                   const isUp = (idx.change_1d ?? 0) >= 0

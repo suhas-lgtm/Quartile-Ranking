@@ -75,7 +75,7 @@ def cmd_status() -> int:
     log.info("Bucket %r: %d object(s), %.0f KB", sb.BUCKET, len(objects), total / 1024)
 
     newest_all = []
-    for index_id, name, slug in store.STRIP:
+    for index_id, name, slug in store.all_indices():
         raw = sb.download_bytes(f"{slug}.json")
         if raw is None:
             log.warning("  %-22s %-26s MISSING", name, slug + ".json")
@@ -154,7 +154,7 @@ def main() -> int:
     log.info("=" * 62)
     log.info("MARKET PULSE INDICES  %s", datetime.now().isoformat(timespec="seconds"))
     log.info("Neon: %s  |  bucket=%r  |  retention=%dy  |  %d indices",
-             sb.why_disabled(), sb.BUCKET, store.RETENTION_YEARS, len(store.STRIP))
+             sb.why_disabled(), sb.BUCKET, store.RETENTION_YEARS, len(store.all_indices()))
     log.info("=" * 62)
 
     # The eight are listed here and in build_json.STRIP_INDICES. Drift would mean
@@ -166,7 +166,7 @@ def main() -> int:
         return 1
 
     tickers = tickers_by_index_id()
-    missing = [n for i, n, _ in store.STRIP if i not in tickers]
+    missing = [n for i, n, _ in store.all_indices() if i not in tickers]
     if missing:
         log.error("No Yahoo ticker in the catalogue for: %s", ", ".join(missing))
         return 1
@@ -176,7 +176,7 @@ def main() -> int:
     published = skipped = 0
     failures: list[str] = []
 
-    for index_id, name, slug in store.STRIP:
+    for index_id, name, slug in store.all_indices():
         payload, problems = store.refresh_one(
             index_id, name, slug, tickers[index_id],
             session=session, seed=seed, force_seed=args.seed,

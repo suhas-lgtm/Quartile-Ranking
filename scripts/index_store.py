@@ -67,6 +67,46 @@ STRIP: list[tuple[int, str, str]] = [
     (9, "GOLD (GOLDBEES)",    "gold-goldbees"),
 ]
 
+# Sector indices for the Market Pulse "Sectoral" group. Not part of STRIP, so
+# they do not have to match build_json.STRIP_INDICES (that list feeds the
+# committed indices.json fallback, which stays broad-market only).
+#
+# Yahoo still serves full history for IT and Pharma. For the rest it now answers
+# with the latest bar only, so their files are seeded from the committed history
+# (which runs to mid-June 2026) and then grow one close per run — the 08:00 IST
+# run is the one that picks up the previous day's close. build_payload refuses
+# a "1-day" change across that gap.
+SECTORS: list[tuple[int, str, str]] = [
+    (10, "NIFTY IT",                 "nifty-it"),
+    (26, "NIFTY PHARMA",             "nifty-pharma"),
+    (24, "NIFTY HEALTHCARE",         "nifty-healthcare"),
+    (21, "NIFTY FINANCIAL SERVICES", "nifty-financial-services"),
+    (27, "NIFTY PRIVATE BANK",       "nifty-private-bank"),
+    (28, "NIFTY PSU BANK",           "nifty-psu-bank"),
+    (20, "NIFTY AUTO",               "nifty-auto"),
+    (23, "NIFTY FMCG",               "nifty-fmcg"),
+    (30, "NIFTY CONSUMER DURABLES",  "nifty-consumer-durables"),
+    (25, "NIFTY METAL",              "nifty-metal"),
+    (35, "NIFTY ENERGY",             "nifty-energy"),
+    (31, "NIFTY OIL & GAS",          "nifty-oil-gas"),
+    (45, "NIFTY INFRASTRUCTURE",     "nifty-infrastructure"),
+    (29, "NIFTY REALTY",             "nifty-realty"),
+    (54, "NIFTY MEDIA",              "nifty-media"),
+    (48, "NIFTY PSE",                "nifty-pse"),
+    (34, "NIFTY CPSE",               "nifty-cpse"),
+]
+
+# A "1-day" change is only reported when the previous close is at most this many
+# calendar days older (a long weekend plus a holiday). Across a longer gap the
+# difference is not a day's move and would mislead.
+MAX_1D_GAP_DAYS = 6
+
+
+def all_indices() -> list[tuple[int, str, str]]:
+    """Every published Market Pulse index: the broad strip, then the sectors."""
+    return STRIP + SECTORS
+
+
 # ── Safety gates, per index ──────────────────────────────────────────────────
 # The ETF dashboard's lesson, scaled down: a rate-limited fetch once wrote an
 # empty cache, and every later run re-read it and cold-started into the same
@@ -78,7 +118,7 @@ Points = dict[str, float]
 
 
 def strip_slugs() -> list[str]:
-    return [s for _, _, s in STRIP]
+    return [s for _, _, s in all_indices()]
 
 
 # ── payload ──────────────────────────────────────────────────────────────────
@@ -88,6 +128,8 @@ def build_payload(index_id: int, name: str, slug: str, points: Points) -> dict:
     latest = dates[-1]
     prev = dates[-2] if len(dates) > 1 else None
     close = points[latest]
+    if prev and (date.fromisoformat(latest) - date.fromisoformat(prev)).days > MAX_1D_GAP_DAYS:
+        prev = None
     change_1d = (close / points[prev] - 1) if prev else None
     return {
         "version": 1,

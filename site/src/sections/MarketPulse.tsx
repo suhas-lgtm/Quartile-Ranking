@@ -4,7 +4,7 @@ import { useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { useIndices } from '../hooks/useData'
 import { MARKET_PULSE_GROUPS, indexGroup } from '../config/indices'
-import { fmtNum, fmtPct } from '../utils/format'
+import { fmtDate, fmtNum, fmtPct } from '../utils/format'
 import IndexChartModal from '../components/IndexChartModal'
 
 const INDEX_META: Record<string, { gradient: [string, string] }> = {
@@ -16,6 +16,23 @@ const INDEX_META: Record<string, { gradient: [string, string] }> = {
   'NIFTY BANK':         { gradient: ['#4338ca', '#818CF8'] },
   'NIFTY 500':          { gradient: ['#0369a1', '#7DD3FC'] },
   'GOLD (GOLDBEES)':    { gradient: ['#92400e', '#F59E0B'] },
+  'NIFTY IT':                 { gradient: ['#1e40af', '#60A5FA'] },
+  'NIFTY PHARMA':             { gradient: ['#9d174d', '#F472B6'] },
+  'NIFTY HEALTHCARE':         { gradient: ['#be185d', '#F9A8D4'] },
+  'NIFTY FINANCIAL SERVICES': { gradient: ['#3730a3', '#A5B4FC'] },
+  'NIFTY PRIVATE BANK':       { gradient: ['#4c1d95', '#C4B5FD'] },
+  'NIFTY PSU BANK':           { gradient: ['#1e3a8a', '#93C5FD'] },
+  'NIFTY AUTO':               { gradient: ['#b91c1c', '#FCA5A5'] },
+  'NIFTY FMCG':               { gradient: ['#15803d', '#86EFAC'] },
+  'NIFTY CONSUMER DURABLES':  { gradient: ['#a16207', '#FDE047'] },
+  'NIFTY METAL':              { gradient: ['#475569', '#CBD5E1'] },
+  'NIFTY ENERGY':             { gradient: ['#c2410c', '#FDBA74'] },
+  'NIFTY OIL & GAS':          { gradient: ['#78350f', '#FBBF24'] },
+  'NIFTY INFRASTRUCTURE':     { gradient: ['#155e75', '#67E8F9'] },
+  'NIFTY REALTY':             { gradient: ['#86198f', '#F0ABFC'] },
+  'NIFTY MEDIA':              { gradient: ['#6d28d9', '#DDD6FE'] },
+  'NIFTY PSE':                { gradient: ['#0f766e', '#5EEAD4'] },
+  'NIFTY CPSE':               { gradient: ['#065f46', '#6EE7B7'] },
 }
 
 function Sparkline({ data, color }: { data: [string, number][]; color: string }) {
@@ -88,7 +105,11 @@ function GroupHeading({ label, gradient, count }: {
   )
 }
 
-function IndexCard({ idx, onOpen }: { idx: LiveIndex; onOpen: () => void }) {
+function IndexCard({ idx, onOpen, newest }: { idx: LiveIndex; onOpen: () => void; newest: string }) {
+  // A card whose last close is more than a few days behind the freshest one on
+  // the page says so, rather than passing an old value off as today's.
+  const lagging = !!newest && !!idx.date &&
+    (new Date(newest).getTime() - new Date(idx.date).getTime()) / 86_400_000 > 6
   const meta = INDEX_META[idx.index_name]
   const [g1, g2] = meta?.gradient ?? ['#1d4ed8', '#22D3EE']
   const isUp = (idx.change_1d ?? 0) >= 0
@@ -150,8 +171,14 @@ function IndexCard({ idx, onOpen }: { idx: LiveIndex; onOpen: () => void }) {
           fontSize: 11,
         }}
       >
-        {isUp ? '▲' : '▼'} {fmtPct(idx.change_1d)} today
+        {idx.change_1d == null ? '— no 1-day change' : <>{isUp ? '▲' : '▼'} {fmtPct(idx.change_1d)} today</>}
       </div>
+      {lagging && (
+        <div className="text-[10px] mb-1" style={{ color: 'var(--text-low)' }}
+             title="This index's daily data is catching up; the value shown is from this date.">
+          as of {fmtDate(idx.date)}
+        </div>
+      )}
 
       {/* Sparkline */}
       <Sparkline data={idx.sparkline} color={sparkColor} />
@@ -213,6 +240,7 @@ export default function MarketPulse() {
                       <IndexCard
                         key={idx.index_id}
                         idx={idx}
+                        newest={data?.as_of ?? ''}
                         onOpen={() => setModalIndex({
                           index_id: idx.index_id, index_name: idx.index_name,
                         })}
@@ -224,10 +252,7 @@ export default function MarketPulse() {
                   // reads as a failed fetch, which is the one thing it is not.
                   <div className="rounded-xl px-4 py-6 text-xs text-center"
                        style={{ border: '1px dashed var(--line)', color: 'var(--text-low)' }}>
-                    No sectoral benchmarks are wired up yet. They are added the same
-                    way as the broader-market indices — one entry in
-                    <span className="font-mono" style={{ fontSize: 11 }}> config/indices.ts </span>
-                    and the matching index in the daily refresh.
+                    {loading ? 'Loading…' : 'No data for this group yet. It appears after the next daily refresh.'}
                   </div>
                 )}
               </div>
