@@ -15,6 +15,7 @@ import { currentDesk } from '../config/products'
 import { categoryColor } from '../config/categoryColors'
 import { fmtDate, fmtPct, retColor } from '../utils/format'
 import { monthlyDates, splitFactorBetween, useNavLookup, xirr } from '../utils/navMath'
+import { openPortfolioReport } from '../utils/portfolioReport'
 import type { SheetSpec } from '../utils/xlsx'
 import type { FundsIndex } from '../types'
 import FundLink from '../components/FundLink'
@@ -28,7 +29,21 @@ interface Buy { amount: number | null; date: string | null }
 /** A monthly SIP: one instalment a month from start to end (defaults: portfolio dates). */
 interface Sip { amount: number; start: string | null; end: string | null }
 interface Holding { code: string; buys: Buy[]; sip?: Sip | null }
-interface Portfolio { start: string; end: string; amount: number; sipAmount?: number; holdings: Holding[] }
+interface Portfolio { start: string; end: string; amount: number; sipAmount?: number; holdings: Holding[]
+                    /** Loaded with "Load demo": the report is watermarked DEMO. */
+                    demo?: boolean }
+
+/** Five well-known funds across categories, with a mix of lump sums and a SIP. */
+const DEMO: Portfolio = {
+  demo: true, start: '2024-01-01', end: '', amount: 100000, sipAmount: 10000,
+  holdings: [
+    { code: '108466', buys: [{ amount: 100000, date: '2024-01-01' }, { amount: 50000, date: '2025-03-03' }] },
+    { code: '122640', buys: [{ amount: 100000, date: '2024-01-01' }], sip: { amount: 10000, start: '2024-01-05', end: null } },
+    { code: '105758', buys: [{ amount: 100000, date: '2024-01-01' }] },
+    { code: '113177', buys: [{ amount: 75000, date: '2024-01-01' }] },
+    { code: '100119', buys: [{ amount: 100000, date: '2024-01-01' }, { amount: 25000, date: '2025-06-02' }] },
+  ],
+}
 
 const inr = (v: number | null | undefined) =>
   v == null ? '—' : '₹' + v.toLocaleString('en-IN', { maximumFractionDigits: 0 })
@@ -151,6 +166,25 @@ export default function PortfolioBuilder() {
       : { ...h, sip, buys: !sip && h.buys.length === 0 ? [{ amount: null, date: null }] : h.buys })),
   })
 
+  const openReport = () => {
+    if (!results.length) return
+    openPortfolioReport({
+      demo: !!pf.demo, asOf: end, preparedOn: new Date().toISOString().slice(0, 10),
+      total: tot,
+      funds: results.map(r => ({
+        name: r.name, category: r.cat?.k ?? '', invested: r.invested, value: r.value, gain: r.gain,
+        ret: r.ret, irr: r.irr,
+        lines: [
+          ...r.buys.map(b => ({ label: 'Lump sum', date: fmtDate(b.d), amount: b.amt, units: b.units, value: b.val })),
+          ...(r.h.sip && r.sip.count ? [{
+            label: `SIP ₹${r.h.sip.amount.toLocaleString('en-IN')}/month × ${r.sip.count}`,
+            date: `${fmtDate(r.h.sip.start || pf.start)} →`, amount: r.sip.invested, units: r.sip.units, value: r.sip.value,
+          }] : []),
+        ],
+      })),
+    })
+  }
+
   const buildExport = (): SheetSpec | null => {
     if (!results.length) return null
     const desk = currentDesk()
@@ -192,8 +226,27 @@ export default function PortfolioBuilder() {
     <section id="portfolio-builder" className="px-4 sm:px-6 py-6 max-w-screen-2xl mx-auto">
       <div className="section-header">
         <span>Portfolio Builder</span>
-        <span className="ml-auto"><DownloadButton build={buildExport} disabledHint="Add a fund first" /></span>
+        <span className="ml-auto flex items-center gap-2">
+          <button onClick={() => setPf({ ...DEMO, end: '' })} className="tab-btn"
+                  title="Replace the current portfolio with a 5-fund demo">Load demo (5 funds)</button>
+          {pf.holdings.length > 0 && (
+            <button onClick={() => { if (window.confirm('Clear the portfolio?')) setPf({ ...pf, holdings: [], demo: false }) }}
+                    className="tab-btn">Clear</button>
+          )}
+          <button onClick={openReport} disabled={!results.length} className="tab-btn font-semibold"
+                  style={{ border: '1px solid var(--accent-a)', background: 'rgba(34,211,238,0.08)', color: 'var(--accent-a)' }}
+                  title="Opens a printable report; choose “Save as PDF” in the print dialog">
+            📄 Report (PDF)
+          </button>
+          <DownloadButton build={buildExport} disabledHint="Add a fund first" />
+        </span>
       </div>
+
+      {pf.demo && pf.holdings.length > 0 && (
+        <div className="card p-2.5 mb-3 text-xs" style={{ borderColor: 'rgba(245,158,11,0.5)', color: '#F59E0B' }}>
+          DEMO portfolio — for illustration only. Its report is watermarked “DEMO”.
+        </div>
+      )}
 
       {/* ── Portfolio defaults ─────────────────────────────────── */}
       <div className="card p-4 mb-4 flex flex-wrap items-end gap-3 text-xs" style={{ color: 'var(--text-mid)' }}>
