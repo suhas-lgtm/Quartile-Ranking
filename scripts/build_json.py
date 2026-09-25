@@ -768,6 +768,7 @@ HORIZON_PERIOD = {"1Y": "12M", "3Y": "3Y", "5Y": "5Y"}
 # Ratio parameters measured at every horizon, and the risk_metrics key for each.
 SCREENER_RATIOS = {
     "beta": "beta", "std_dev": "std_annual", "alpha": "alpha", "sharpe": "sharpe",
+    "sortino": "sortino",
     "up_capture": "upside_capture", "down_capture": "downside_capture",
 }
 BENCH_RELATIVE = ("beta", "alpha", "up_capture", "down_capture",

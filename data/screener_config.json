@@ -10,6 +10,7 @@
     "alpha": 10,
     "up_capture": 10,
     "sharpe": 0,
+    "sortino": 0,
     "max_drawdown": 6,
     "recovery_time": 6,
     "active_share": 8

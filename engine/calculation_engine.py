@@ -382,7 +382,7 @@ def detect_bear_periods(
 SCREENER_DIRECTION = {
     "beta": False, "relative_risk": False, "down_capture": False, "std_dev": False,
     "returns": True, "relative_return": True, "alpha": True, "up_capture": True,
-    "sharpe": True,
+    "sharpe": True, "sortino": True,
     "max_drawdown": True,      # a bear-period fall closer to 0 is better
     "recovery_time": False,
     "active_share": True,

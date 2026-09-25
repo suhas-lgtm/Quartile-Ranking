@@ -83,6 +83,8 @@ const PARAMS: Param[] = [
     'Share of the benchmark’s gains the fund captured in up months, over 1Y, 3Y and 5Y. Higher scores higher.'),
   ratioParam('sharpe', 'Sharpe', 'performance', v => n2(v),
     'Return above the risk-free rate per unit of volatility, over 1Y, 3Y and 5Y. Weighted 0% by default, as in the team sheet.'),
+  ratioParam('sortino', 'Sortino', 'performance', v => n2(v),
+    'Like Sharpe, but only downside volatility (months below the risk-free rate) counts as risk, so upside swings are not penalised. Over 1Y, 3Y and 5Y. Higher scores higher. Weighted 0% by default; give it a weight to use it.'),
   { key: 'max_drawdown', label: 'Max Drawdown', group: 'drawdown',
     raw: f => fmtPct(avg(f.bear.map(b => b?.fall))),
     detail: (f, d) => d.bear_periods.map((b, i) => `${b.label}: ${f.bear[i] ? fmtPct(f.bear[i]!.fall) : 'not launched'}`).join('\n'),
@@ -105,11 +107,11 @@ const PARAMS: Param[] = [
 /** What the four summary columns mean — shown as header tooltips and below the table. */
 const SUMMARY_HELP: { key: 'score' | Group; label: string; help: string }[] = [
   { key: 'score', label: 'Score',
-    help: 'The final 0–100 number the ranking is sorted by: every parameter’s score combined using the weights on the left. With the default weights it is about 40% Risk + 40% Performance + 20% Drawdown, e.g. Risk 80, Performance 50, Drawdown 60 gives 0.4×80 + 0.4×50 + 0.2×60 = 64. Higher is better.' },
+    help: 'The final 0–100 number the ranking is sorted by: every parameter’s score combined using the weights on the left. With the default weights it is about 40% Risk + 40% Performance + 20% Drawdown, e.g. Risk 80, Performance 50, Drawdown 60 gives 0.4×80 + 0.4×50 + 0.2×60 = 64. Higher is better. The Score is not fixed: it changes whenever the parameter weights change, so the same fund can rank differently under different weights.' },
   { key: 'risk', label: 'Risk',
     help: 'Weighted average of the fund’s Beta, Relative Risk, Down Capture and Std Dev scores. 100 = the least risky fund in the category on all four; 0 = the most risky. Higher is better.' },
   { key: 'performance', label: 'Performance',
-    help: 'Weighted average of the Returns, Relative Return, Alpha and Up Capture scores (and Sharpe, 0% by default). 100 = the best performer in the category on all of them. Higher is better.' },
+    help: 'Weighted average of the Returns, Relative Return, Alpha and Up Capture scores (and Sharpe and Sortino, 0% by default). 100 = the best performer in the category on all of them. Higher is better.' },
   { key: 'drawdown', label: 'Drawdown',
     help: 'Weighted average of the Max Drawdown (bear-period fall), Recovery Time and Active Share scores. 100 = fell least and recovered fastest in the category. Higher is better.' },
 ]
@@ -307,7 +309,8 @@ export default function WhitelistScreener() {
             <span style={{ color: grandTotal === 100 ? 'var(--text-hi)' : '#F59E0B' }}>{grandTotal}%</span>
           </div>
           <p className="text-[10px] mt-2 leading-relaxed" style={{ color: 'var(--text-low)' }}>
-            Changes re-rank every category instantly and are remembered in this browser.
+            The Score and ranking depend on these weights: change any parameter’s weight and every fund’s
+            Score is recalculated and every category re-ranked instantly. Your weights are remembered in this browser.
             {grandTotal !== 100 && ' Weights need not add to 100 — they are used in proportion.'}
             {' '}{asCount === 0
               ? 'Active Share has no holdings data for this category yet, so its weight is shared across the rest.'

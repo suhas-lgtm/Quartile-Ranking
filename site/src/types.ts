@@ -203,12 +203,12 @@ export interface RiskData {
 
 export type ScreenerParam =
   | 'beta' | 'relative_risk' | 'down_capture' | 'std_dev'
-  | 'returns' | 'relative_return' | 'alpha' | 'up_capture' | 'sharpe'
+  | 'returns' | 'relative_return' | 'alpha' | 'up_capture' | 'sharpe' | 'sortino'
   | 'max_drawdown' | 'recovery_time' | 'active_share'
 
 /** Parameters measured once per ratio horizon (1Y / 3Y / 5Y). */
 export type ScreenerRatio =
-  | 'beta' | 'std_dev' | 'alpha' | 'sharpe' | 'up_capture' | 'down_capture'
+  | 'beta' | 'std_dev' | 'alpha' | 'sharpe' | 'sortino' | 'up_capture' | 'down_capture'
   | 'relative_risk' | 'relative_return'
 
 export interface BearStat {
