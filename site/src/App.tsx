@@ -17,6 +17,7 @@ import Blacklist       from './sections/Blacklist'
 import AutoMailing     from './sections/AutoMailing'
 import PointToPoint    from './sections/PointToPoint'
 import PortfolioBuilder from './sections/PortfolioBuilder'
+import FundDetail      from './components/FundDetail'
 import { useMeta }     from './hooks/useData'
 import { defaultTab, tabAllowed } from './config/profile'
 import { currentDesk } from './config/products'
@@ -166,6 +167,9 @@ export default function App() {
 
         {activeTab === 'portfolio' && <PortfolioBuilder />}
       </main>
+
+      {/* The fund page, opened by clicking any fund name (components/FundLink). */}
+      <FundDetail />
 
       <footer className="site-footer">
         🔒 {desk.footerName} — For Internal Research Use Only. Not for distribution.

@@ -15,6 +15,7 @@ import { categoryColor } from '../config/categoryColors'
 import { fmtDate, fmtPct } from '../utils/format'
 import type { SheetSpec } from '../utils/xlsx'
 import type { ScreenerData, ScreenerFund, ScreenerParam, ScreenerRatio } from '../types'
+import FundLink from '../components/FundLink'
 
 const EQUITY_HYBRID_CLASSES = ['Equity', 'Hybrid']
 const MAIN_TAB_NAMES = [
@@ -448,7 +449,7 @@ export default function WhitelistScreener() {
                           <td style={{ textAlign: 'center', background: b?.bg, color: b?.fg, fontWeight: 700 }}>{i + 1}</td>
                           <td className="sticky-col text-xs font-medium truncate" style={{ maxWidth: 280, background: b?.bg }}
                               title={r.fund.scheme_name}>
-                            {r.fund.scheme_name}
+                            <FundLink code={r.fund.scheme_code} name={r.fund.scheme_name} />
                           </td>
                           <td className="ret-cell font-semibold" style={{ color: 'var(--accent-a)' }}>{scoreCell(r.score)}</td>
                           {GROUPS.map(g => <td key={g.id} className="ret-cell">{scoreCell(r.groups[g.id])}</td>)}

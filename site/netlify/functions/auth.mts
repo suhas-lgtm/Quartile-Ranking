@@ -4,7 +4,7 @@
 // environment variables.
 import { handleAuth } from '../../server/auth'
 import { handleBlacklist } from '../../server/lists'
-import { handleNav } from '../../server/navLookup'
+import { handleHoldings, handleNav, handleSeries } from '../../server/navLookup'
 
 const FN_PREFIX = '/.netlify/functions/auth'
 
@@ -15,8 +15,10 @@ export default async (req: Request): Promise<Response> => {
 
   // /api/blacklist[/<code>]: the team's Blacklist (server/lists.ts); the rest is login.
   // /api/nav: NAVs on any date (server/navLookup.ts), public and CDN-cached.
-  if (action === 'nav') {
-    const r = await handleNav(new URL(req.url).searchParams, process.env.DATABASE_URL)
+  // /api/nav, /api/series, /api/holdings: read-only fund data, CDN-cached.
+  const readers: Record<string, typeof handleNav> = { nav: handleNav, series: handleSeries, holdings: handleHoldings }
+  if (readers[action]) {
+    const r = await readers[action](new URL(req.url).searchParams, process.env.DATABASE_URL)
       .catch(err => { console.error('nav', err); return { status: 502, body: '{"error":"database error"}' } })
     return new Response(r.body, { status: r.status, headers: {
       'content-type': 'application/json',

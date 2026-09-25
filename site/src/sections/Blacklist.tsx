@@ -18,6 +18,7 @@ import { fmtDate, fmtPct, quartilePillClass, retColor } from '../utils/format'
 import { periodLabelParts } from '../utils/periods'
 import type { SheetSpec } from '../utils/xlsx'
 import type { BlacklistData, BlacklistRule, ListedFund } from '../types'
+import FundLink from '../components/FundLink'
 
 const num = (v: number | null | undefined, d = 2) => (v == null ? '—' : v.toFixed(d))
 
@@ -225,7 +226,7 @@ export default function Blacklist() {
                         return (
                           <tr key={f.scheme_code}>
                             <td className="sticky-col" style={{ maxWidth: 280 }}>
-                              <div className="text-xs font-medium truncate" title={f.scheme_name}>{f.scheme_name}</div>
+                              <div className="text-xs font-medium truncate"><FundLink code={f.scheme_code} name={f.scheme_name} /></div>
                               <div className="text-[10px] truncate" style={{ color: colour }}>{f.category_name}</div>
                             </td>
                             <td className="ret-cell font-semibold" style={{ color: 'var(--loss)' }}>{f.score.toFixed(0)}</td>

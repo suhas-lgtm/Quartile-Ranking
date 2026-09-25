@@ -14,9 +14,10 @@ import DownloadButton from '../components/DownloadButton'
 import { currentDesk } from '../config/products'
 import { categoryColor } from '../config/categoryColors'
 import { fmtDate, fmtPct, retColor } from '../utils/format'
-import { splitFactorBetween, useNavLookup, xirr } from '../utils/navMath'
+import { monthlyDates, splitFactorBetween, useNavLookup, xirr } from '../utils/navMath'
 import type { SheetSpec } from '../utils/xlsx'
 import type { FundsIndex } from '../types'
+import FundLink from '../components/FundLink'
 
 const MAX_FUNDS = 15
 const MAX_BUYS = 3
@@ -24,8 +25,10 @@ const STORE_KEY = 'pb_portfolio_v1'
 
 /** A purchase; null amount/date means "use the portfolio default". */
 interface Buy { amount: number | null; date: string | null }
-interface Holding { code: string; buys: Buy[] }
-interface Portfolio { start: string; end: string; amount: number; holdings: Holding[] }
+/** A monthly SIP: one instalment a month from start to end (defaults: portfolio dates). */
+interface Sip { amount: number; start: string | null; end: string | null }
+interface Holding { code: string; buys: Buy[]; sip?: Sip | null }
+interface Portfolio { start: string; end: string; amount: number; sipAmount?: number; holdings: Holding[] }
 
 const inr = (v: number | null | undefined) =>
   v == null ? '—' : '₹' + v.toLocaleString('en-IN', { maximumFractionDigits: 0 })
@@ -56,10 +59,18 @@ export default function PortfolioBuilder() {
 
   const buyDate = (b: Buy) => b.date || pf.start
   const buyAmount = (b: Buy) => (b.amount ?? pf.amount)
+  const sipDates = (h: Holding) => {
+    if (!h.sip || !end) return []
+    const to = h.sip.end && h.sip.end < end ? h.sip.end : end
+    return monthlyDates(h.sip.start || pf.start, to, 120)
+  }
   const codes = useMemo(() => pf.holdings.map(h => h.code), [pf.holdings])
   const dates = useMemo(() => {
     const s = new Set<string>()
-    for (const h of pf.holdings) for (const b of h.buys) s.add(buyDate(b))
+    for (const h of pf.holdings) {
+      for (const b of h.buys) s.add(buyDate(b))
+      for (const d of sipDates(h)) s.add(d)
+    }
     if (end) s.add(end)
     return [...s]
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -85,8 +96,23 @@ export default function PortfolioBuilder() {
       flows.push({ date: d, amount: -amt })
       return { d, amt, nav, units, val, why: null as string | null }
     })
+    // SIP instalments: each buys units at that day's NAV; instalments before the
+    // fund launched (or with no NAV) are skipped and counted.
+    const sip = { count: 0, skipped: 0, invested: 0, units: 0, value: 0 }
+    if (h.sip && n && endNav) {
+      for (const d of sipDates(h)) {
+        const nav = n.at[d]
+        if (!nav || !(h.sip.amount > 0)) { sip.skipped++; continue }
+        const units = h.sip.amount / nav.nav
+        const val = units * endNav.nav * splitFactorBetween(n.splits, nav.date, endNav.date)
+        sip.count++; sip.invested += h.sip.amount; sip.value += val
+        sip.units += units * splitFactorBetween(n.splits, nav.date, endNav.date)
+        invested += h.sip.amount; value += val
+        flows.push({ date: d, amount: -h.sip.amount })
+      }
+    }
     if (value > 0) flows.push({ date: end, amount: value })
-    return { h, name: fundByCode.get(h.code)?.n ?? h.code, cat: fundByCode.get(h.code), endNav, buys,
+    return { h, name: fundByCode.get(h.code)?.n ?? h.code, cat: fundByCode.get(h.code), endNav, buys, sip,
              invested, value, gain: value - invested,
              ret: invested ? value / invested - 1 : null, irr: flows.length > 1 ? xirr(flows) : null, flows }
   }), [pf, navs, end, fundByCode])
@@ -120,6 +146,10 @@ export default function PortfolioBuilder() {
     ...pf, holdings: pf.holdings.map((h, i) => i !== hi ? h : { ...h, buys: h.buys.filter((_, j) => j !== bi) }),
   })
   const removeFund = (hi: number) => setPf({ ...pf, holdings: pf.holdings.filter((_, i) => i !== hi) })
+  const setSip = (hi: number, sip: Sip | null) => setPf({
+    ...pf, holdings: pf.holdings.map((h, i) => (i !== hi ? h
+      : { ...h, sip, buys: !sip && h.buys.length === 0 ? [{ amount: null, date: null }] : h.buys })),
+  })
 
   const buildExport = (): SheetSpec | null => {
     if (!results.length) return null
@@ -130,6 +160,9 @@ export default function PortfolioBuilder() {
         fund: i === 0 ? r.name : '', date: b.d, amount: b.amt, nav: b.nav?.nav ?? null, units: b.units,
         value: b.val, note: b.why ?? '',
       }))
+      if (r.h.sip && r.sip.count) rows.push({ fund: '', date: `SIP x${r.sip.count}`, amount: r.sip.invested,
+                                                units: r.sip.units, value: r.sip.value,
+                                                note: `₹${r.h.sip.amount}/month` })
       rows.push({ fund: `  ${r.name} — total`, amount: r.invested, value: r.value, ret: r.ret, irr: r.irr })
     }
     rows.push({ fund: 'PORTFOLIO', amount: tot.invested, value: tot.value, ret: tot.ret, irr: tot.irr })
@@ -177,6 +210,11 @@ export default function PortfolioBuilder() {
                  onChange={e => setPf({ ...pf, amount: Math.max(0, parseFloat(e.target.value) || 0) })}
                  className="px-3 py-1.5 rounded-lg text-sm w-36" style={inputStyle} />
         </label>
+        <label className="flex flex-col gap-1">SIP per month (default)
+          <input type="number" min={100} step={500} value={pf.sipAmount ?? 10000}
+                 onChange={e => setPf({ ...pf, sipAmount: Math.max(0, parseFloat(e.target.value) || 0) })}
+                 className="px-3 py-1.5 rounded-lg text-sm w-32" style={inputStyle} />
+        </label>
         <div className="flex-1" />
         <label className="flex flex-col gap-1 min-w-[280px]">Add a fund ({pf.holdings.length}/{MAX_FUNDS})
           <div className="flex gap-2">
@@ -216,7 +254,7 @@ export default function PortfolioBuilder() {
         {pf.holdings.length === 0 ? (
           <div className="p-8 text-center text-sm" style={{ color: 'var(--text-mid)' }}>
             Add up to {MAX_FUNDS} funds above. Each starts with one purchase of the default amount on the default date;
-            change it, or add up to {MAX_BUYS} purchases per fund at different dates.
+            change it, add up to {MAX_BUYS} purchases per fund at different dates, or add a monthly SIP.
           </div>
         ) : (
           <div className="table-scroll">
@@ -237,7 +275,7 @@ export default function PortfolioBuilder() {
                 {results.map((r, hi) => (
                   <tr key={r.h.code}>
                     <td className="sticky-col" style={{ maxWidth: 280 }}>
-                      <div className="text-xs font-medium truncate" title={r.name}>{r.name}</div>
+                      <div className="text-xs font-medium truncate"><FundLink code={r.h.code} name={r.name} /></div>
                       <div className="text-[10px] truncate" style={{ color: r.cat ? categoryColor(r.cat.s) : 'var(--text-low)' }}>
                         {r.cat?.k ?? ''}{r.endNav ? ` · NAV ${r.endNav.nav.toFixed(2)} (${fmtDate(r.endNav.date)})` : ''}
                       </div>
@@ -261,18 +299,50 @@ export default function PortfolioBuilder() {
                                 {r.buys[bi].units!.toFixed(2)} units
                               </span>
                             )}
-                            {r.h.buys.length > 1 && (
+                            {(r.h.buys.length > 1 || r.h.sip) && (
                               <button onClick={() => removeBuy(hi, bi)} title="Remove this purchase"
                                       style={{ color: 'var(--text-low)', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
                             )}
                           </div>
                         ))}
-                        {r.h.buys.length < MAX_BUYS && (
-                          <button onClick={() => addBuy(hi)} className="text-[11px] self-start"
-                                  style={{ color: 'var(--accent-a)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                            + add purchase
-                          </button>
+                        {r.h.sip && (
+                          <div className="flex items-center gap-1 flex-wrap mt-1 pt-1 border-t" style={{ borderColor: 'var(--line)' }}>
+                            <span className="text-[11px] font-semibold" style={{ color: 'var(--accent-a)' }}>SIP ₹</span>
+                            <input type="number" min={100} step={500} value={r.h.sip.amount}
+                                   onChange={e => setSip(hi, { ...r.h.sip!, amount: Math.max(0, parseFloat(e.target.value) || 0) })}
+                                   className={`${small} w-24`} style={inputStyle} title="Monthly SIP amount (₹)" />
+                            <span className="text-[11px]">/month from</span>
+                            <input type="date" value={r.h.sip.start ?? pf.start} max={end}
+                                   onChange={e => setSip(hi, { ...r.h.sip!, start: e.target.value })}
+                                   className={small} style={inputStyle} title="First instalment" />
+                            <span className="text-[11px]">to</span>
+                            <input type="date" value={r.h.sip.end ?? end} max={end}
+                                   onChange={e => setSip(hi, { ...r.h.sip!, end: e.target.value })}
+                                   className={small} style={inputStyle} title="Last instalment on or before" />
+                            <button onClick={() => setSip(hi, null)} title="Remove SIP"
+                                    style={{ color: 'var(--text-low)', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+                            <div className="w-full text-[10px]" style={{ color: 'var(--text-low)' }}>
+                              {r.sip.count} instalment{r.sip.count === 1 ? '' : 's'} · {inr(r.sip.invested)} invested ·{' '}
+                              {r.sip.units.toFixed(2)} units → {inr(r.sip.value)}
+                              {r.sip.skipped > 0 && <span style={{ color: 'var(--loss)' }}> · {r.sip.skipped} before launch / no NAV skipped</span>}
+                            </div>
+                          </div>
                         )}
+                        <div className="flex gap-3">
+                          {r.h.buys.length < MAX_BUYS && (
+                            <button onClick={() => addBuy(hi)} className="text-[11px] self-start"
+                                    style={{ color: 'var(--accent-a)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                              + add purchase
+                            </button>
+                          )}
+                          {!r.h.sip && (
+                            <button onClick={() => setSip(hi, { amount: pf.sipAmount ?? 10000, start: null, end: null })}
+                                    className="text-[11px] self-start"
+                                    style={{ color: 'var(--accent-a)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                              + add SIP
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td className="ret-cell">{inr(r.invested)}</td>
@@ -293,6 +363,7 @@ export default function PortfolioBuilder() {
         {error && <div className="p-3 text-xs" style={{ color: 'var(--loss)' }}>Could not load NAVs ({error}).</div>}
       </div>
       <p className="text-[11px]" style={{ color: 'var(--text-low)' }}>
+        A SIP buys once a month on the same day, from its start date up to the “Value as of” date (at most 10 years).
         Units bought = amount ÷ NAV on or before the purchase date. Value = units × NAV on or before the “Value as of”
         date, adjusted for unit splits. Return = value ÷ invested − 1. XIRR is the annualised return allowing for when
         each amount went in. No exit load, stamp duty or tax is deducted. The portfolio is saved in this browser.

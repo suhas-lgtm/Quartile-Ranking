@@ -14,6 +14,7 @@ import { categoryColor } from '../config/categoryColors'
 import { fmtDate, fmtPct } from '../utils/format'
 import type { SheetSpec } from '../utils/xlsx'
 import type { AlertsData } from '../types'
+import FundLink from '../components/FundLink'
 
 const PERIOD_NAMES: Record<string, string> = {
   '1D': '1 Day', '1W': '1 Week', '1M': '1 Month', '3M': '3 Months', '6M': '6 Months', '12M': '1 Year',
@@ -123,7 +124,7 @@ export default function AutoMailing() {
                   return (
                     <tr key={f.scheme_code}>
                       <td className="sticky-col" style={{ maxWidth: 300 }}>
-                        <div className="text-xs font-medium truncate" title={f.scheme_name}>{f.scheme_name}</div>
+                        <div className="text-xs font-medium truncate"><FundLink code={f.scheme_code} name={f.scheme_name} /></div>
                         <div className="text-[10px] truncate" style={{ color: colour }}>
                           {f.category_name}{f.peer_group !== f.category_name ? ` · vs ${f.peer_group}` : ''}
                         </div>

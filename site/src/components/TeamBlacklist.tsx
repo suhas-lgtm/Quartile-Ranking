@@ -13,6 +13,7 @@ import { categoryColor } from '../config/categoryColors'
 import { fmtDate, fmtPct, quartilePillClass, retColor } from '../utils/format'
 import { periodLabelParts } from '../utils/periods'
 import type { FundsIndex, ListedFund } from '../types'
+import FundLink from './FundLink'
 
 type Mode = 'monthly' | 'quarterly' | 'annual'
 interface Entry { scheme_code: string; reason: string; added_by: string; added_at: string }
@@ -190,7 +191,7 @@ export default function TeamBlacklist({ built, mode, onModeChange }: {
                   return (
                     <tr key={e.scheme_code}>
                       <td className="sticky-col" style={{ maxWidth: 300 }}>
-                        <div className="text-xs font-medium truncate" title={name}>{name}</div>
+                        <div className="text-xs font-medium truncate"><FundLink code={e.scheme_code} name={name} /></div>
                         <div className="text-[10px] truncate" style={{ color: colour }}>{f?.category_name ?? info?.k ?? ''}</div>
                       </td>
                       <td className="text-xs" style={{ whiteSpace: 'normal', color: 'var(--text-mid)' }}>{e.reason || '—'}</td>

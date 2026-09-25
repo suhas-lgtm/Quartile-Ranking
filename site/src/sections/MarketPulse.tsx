@@ -6,6 +6,7 @@ import { useIndices } from '../hooks/useData'
 import { MARKET_PULSE_GROUPS, indexGroup } from '../config/indices'
 import { daysBetween, fmtDate, fmtDateTimeIST, fmtNum, fmtPct, INDEX_LAG_DAYS } from '../utils/format'
 import IndexChartModal from '../components/IndexChartModal'
+import SipReturns from '../components/SipReturns'
 
 const INDEX_META: Record<string, { gradient: [string, string] }> = {
   'NIFTY 50':           { gradient: ['#1d4ed8', '#22D3EE'] },
@@ -284,6 +285,7 @@ export default function MarketPulse() {
             )
           })}
         </div>
+        {data && <SipReturns indices={data.indices} />}
       </section>
 
       {/* Index Chart Modal */}

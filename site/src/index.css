@@ -1416,3 +1416,7 @@ h1, h2, h3, h4, h5, h6 {
   outline: 2px solid var(--accent-a);
   outline-offset: -2px;
 }
+
+/* Fund names that open the fund page (components/FundLink). */
+.fund-link { text-decoration: underline dotted transparent; text-underline-offset: 3px; transition: color 120ms, text-decoration-color 120ms; }
+.fund-link:hover { color: var(--accent-a); text-decoration-color: var(--accent-a); }

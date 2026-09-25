@@ -15,6 +15,7 @@ import { fmtDate, fmtNum, fmtPct, retColor } from '../utils/format'
 import { cagr, closeOnOrBefore, isoMinus, pointReturn, useNavLookup } from '../utils/navMath'
 import type { SheetSpec } from '../utils/xlsx'
 import type { FundsIndex } from '../types'
+import FundLink from '../components/FundLink'
 
 const QUICK: [string, number][] = [['1M', 1], ['3M', 3], ['6M', 6], ['1Y', 12], ['3Y', 36], ['5Y', 60]]
 
@@ -166,7 +167,7 @@ export default function PointToPoint() {
                 {rows.map((r, i) => (
                   <tr key={r.code}>
                     <td className="text-center text-xs font-bold" style={{ color: heat(pos(i, r.ret)).fg ?? 'var(--text-low)' }}>{r.ret != null ? i + 1 : '—'}</td>
-                    <td className="sticky-col text-xs font-medium truncate" style={{ maxWidth: 300 }} title={r.name}>{r.name}</td>
+                    <td className="sticky-col text-xs font-medium truncate" style={{ maxWidth: 300 }} ><FundLink code={r.code} name={r.name} /></td>
                     <td className="ret-cell">
                       {r.a ? <>{r.a.nav.toFixed(4)}<div className="text-[10px]" style={{ color: 'var(--text-low)' }}>{fmtDate(r.a.date)}</div></>
                            : <span className="text-[11px]" style={{ color: 'var(--text-low)' }}>

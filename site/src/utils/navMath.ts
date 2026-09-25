@@ -118,3 +118,44 @@ export function isoMinus(iso: string, months: number): string {
   d.setUTCDate(Math.min(day, last))
   return d.toISOString().slice(0, 10)
 }
+
+
+/** Monthly instalment dates from `start` (same day each month, clamped) up to and including `end`. */
+export function monthlyDates(start: string, end: string, maxCount = 180): string[] {
+  const out: string[] = []
+  for (let k = 0; k < maxCount; k++) {
+    const d = isoPlusMonths(start, k)
+    if (d > end) break
+    out.push(d)
+  }
+  return out
+}
+
+/** YYYY-MM-DD, n months after an ISO date (clamped to the month's last day). */
+export function isoPlusMonths(iso: string, months: number): string {
+  return isoMinus(iso, -months)
+}
+
+/**
+ * A monthly SIP of `amount` into an index over the `months` ending at the last
+ * close in `history`: one instalment per month, the first `months` months back.
+ * Returns invested, value and XIRR, or null when history does not reach back.
+ */
+export function indexSip(history: [string, number][] | undefined, months: number, amount = 10000) {
+  if (!history?.length) return null
+  const endDate = history[history.length - 1][0]
+  const endClose = history[history.length - 1][1]
+  const first = isoMinus(endDate, months)
+  if (history[0][0] > first) return null
+  const flows: { date: string; amount: number }[] = []
+  let units = 0
+  for (const d of monthlyDates(first, endDate).slice(0, months)) {
+    const p = closeOnOrBefore(history, d)
+    if (!p) return null
+    units += amount / p.nav
+    flows.push({ date: d, amount: -amount })
+  }
+  const value = units * endClose
+  flows.push({ date: endDate, amount: value })
+  return { invested: amount * (flows.length - 1), value, xirr: xirr(flows), endDate }
+}

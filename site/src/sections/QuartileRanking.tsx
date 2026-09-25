@@ -12,6 +12,7 @@ import type { SheetSpec } from '../utils/xlsx'
 import { categoryColor } from '../config/categoryColors'
 import { quartilePillClass, fmtPct, shortFundName } from '../utils/format'
 import { ALL_SECTORS, SECTORAL_THEMATIC_SLUG, sectorOf, sectorOptions } from '../utils/sectors'
+import FundLink from '../components/FundLink'
 
 /* ─── Constants ──────────────────────────────────────────── */
 const EQUITY_HYBRID_CLASSES = ['Equity', 'Hybrid']
@@ -655,7 +656,7 @@ export default function QuartileRanking() {
                 {funds.map(fund => (
                   <tr key={fund.scheme_code}>
                     <td className="sticky-col text-xs font-medium truncate" style={{ maxWidth: 240 }}>
-                      {fund.scheme_name}
+                      <FundLink code={fund.scheme_code} name={fund.scheme_name} />
                     </td>
                     {/* Each cell carries the return it was ranked on. Without it
                         the grid looks wrong whenever a fund is strong over 1Y and

@@ -14,6 +14,7 @@ import { categoryColor } from '../config/categoryColors'
 import { fmtPct, retColor } from '../utils/format'
 import type { SheetSpec } from '../utils/xlsx'
 import type { RiskFundRow, RiskPeriod, RiskRatios } from '../types'
+import FundLink from '../components/FundLink'
 
 const EQUITY_HYBRID_CLASSES = ['Equity', 'Hybrid']
 // Index funds, ETFs and FoFs have returns and risk too, but no category benchmark.
@@ -314,7 +315,7 @@ export default function RiskReturns() {
                     <td className="sticky-col text-xs font-medium truncate" style={{ maxWidth: 240 }}
                         title={f.benchmark_name ? `${f.scheme_name}
 Benchmark: ${f.benchmark_name}` : f.scheme_name}>
-                      {f.scheme_name}
+                      <FundLink code={f.scheme_code} name={f.scheme_name} />
                       {f.benchmark_name && (
                         <div className="text-[10px] font-normal truncate" style={{ color: 'var(--text-low)' }}>
                           vs {f.benchmark_name}

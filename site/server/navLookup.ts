@@ -10,7 +10,7 @@
 import { neon } from '@neondatabase/serverless'
 
 const MAX_CODES = 300
-const MAX_DATES = 40
+const MAX_DATES = 200            // a 10-year monthly SIP is 120 dates
 const SEARCH_WINDOW_DAYS = 10     // engine.calculation_engine.SEARCH_WINDOW
 
 type Result = { status: number; body: string }
@@ -62,4 +62,53 @@ export async function handleNav(query: URLSearchParams, databaseUrl?: string): P
     f.at[r.want] = ok ? { date: r.d, nav: Number(r.nav) } : null
   }
   return json(200, { funds })
+}
+
+/**
+ *   GET /api/series?code=103174&from=2021-01-01
+ * One fund's daily NAVs from `from` (all history when absent) plus its unit
+ * splits, for the fund page and Compare. Raw NAVs; the page adjusts for splits.
+ */
+export async function handleSeries(query: URLSearchParams, databaseUrl?: string): Promise<Result> {
+  if (!databaseUrl) return json(503, { error: 'database is not configured' })
+  const code = (query.get('code') ?? '').trim()
+  const from = (query.get('from') ?? '').trim()
+  if (!/^\d{3,9}$/.test(code)) return json(400, { error: 'bad fund code' })
+  if (from && !/^\d{4}-\d{2}-\d{2}$/.test(from)) return json(400, { error: 'bad date' })
+  const sql = neon(databaseUrl)
+  const [rows, splits] = await Promise.all([
+    sql.query(`SELECT nav_date::text AS d, nav FROM nav_history
+               WHERE scheme_code = $1 AND nav_date >= $2::date ORDER BY nav_date`,
+              [Number(code), from || '1990-01-01']),
+    sql.query(`SELECT split_date::text AS d, factor FROM nav_splits WHERE scheme_code = $1 ORDER BY split_date`,
+              [Number(code)]).catch(() => []),
+  ]) as [any[], any[]]
+  return json(200, {
+    code,
+    points: rows.map(r => [r.d, Number(r.nav)]),
+    splits: splits.map(r => ({ date: r.d, factor: Number(r.factor) })),
+  })
+}
+
+/**
+ *   GET /api/holdings?code=122640
+ * The fund's latest stored portfolio (scripts/portfolios.py): month and equity
+ * holdings by weight. Empty when its AMC's disclosures are not loaded yet.
+ */
+export async function handleHoldings(query: URLSearchParams, databaseUrl?: string): Promise<Result> {
+  if (!databaseUrl) return json(503, { error: 'database is not configured' })
+  const code = (query.get('code') ?? '').trim()
+  if (!/^\d{3,9}$/.test(code)) return json(400, { error: 'bad fund code' })
+  const sql = neon(databaseUrl)
+  const rows = await sql.query(
+    `SELECT to_char(h.month, 'YYYY-MM') AS month, h.isin, h.name, h.industry, h.pct
+     FROM portfolio_holdings h
+     WHERE h.scheme_code = $1
+       AND h.month = (SELECT MAX(month) FROM portfolio_holdings WHERE scheme_code = $1)
+     ORDER BY h.pct DESC`, [Number(code)]).catch(() => []) as any[]
+  return json(200, {
+    code,
+    month: rows[0]?.month ?? null,
+    holdings: rows.map(r => ({ isin: r.isin, name: r.name, industry: r.industry, pct: Number(r.pct) })),
+  })
 }

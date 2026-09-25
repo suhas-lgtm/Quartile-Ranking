@@ -15,6 +15,7 @@ import type { SheetSpec } from '../utils/xlsx'
 import { useJson } from '../hooks/useData'
 import { fmtPct, shortFundName } from '../utils/format'
 import { ALL_SECTORS, SECTORAL_THEMATIC_SLUG, sectorOf, sectorOptions } from '../utils/sectors'
+import FundLink from '../components/FundLink'
 
 type Mode = 'monthly' | 'quarterly' | 'annual'
 type View = 'category' | 'ranked'
@@ -118,7 +119,7 @@ function FundRow({ fund, streak, tone, periodWord, compact, labels }: {
 
         <div className="flex-1 min-w-0">
           <div className="text-xs font-semibold truncate" style={{ color: 'var(--text-hi)' }} title={fund.scheme_name}>
-            {shortFundName(fund.scheme_name)}
+            <FundLink code={fund.scheme_code} name={shortFundName(fund.scheme_name)} />
           </div>
           <div className="text-[10px] mt-0.5 truncate" style={{ color: 'var(--text-low)' }}>
             {fund.amc_name}{!compact && ` · ${fund.category_name}`}

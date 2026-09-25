@@ -151,6 +151,10 @@ def run_index_backfill(conn: sqlite3.Connection, start: str = BACKFILL_START):
         if not ticker:
             log.warning("No ticker for %s — skipping", index_name)
             continue
+        if index_id in PROXY_EXTENSIONS:
+            # Yahoo returns only a single latest bar for these; storing it would
+            # leave a gap the proxy extension could no longer fill.
+            continue
 
         # If we already have data, only fetch what's missing.
         # Otherwise, override start date to 2019-01-01 for indices that don't have historical data back to 2010 on Yahoo
@@ -197,6 +201,35 @@ def run_index_backfill(conn: sqlite3.Connection, start: str = BACKFILL_START):
 # FoF Overseas NAVs are in rupees; measuring them against a dollar index would
 # book every rupee move as fund alpha. Registered by build_db_from_api.
 FX_CONVERTED = {72: (70, 71)}      # NASDAQ 100 (INR) = NASDAQ 100 x USD/INR
+
+# Indices Yahoo no longer serves, extended by a fund that tracks them:
+# index_id -> scheme_code. The true index history (committed seed) is kept; each
+# day after its last close is chained on with the fund's daily return. Checked
+# before adopting: Edelweiss NIFTY Large Midcap 250 Index Fund vs the index,
+# Jan 2022 - Jun 2026, daily-return correlation 0.998, tracking error 0.94%/yr.
+PROXY_EXTENSIONS = {8: "149341"}   # NIFTY LARGEMIDCAP 250 <- Edelweiss index fund
+
+
+def extend_with_proxies(conn: sqlite3.Connection):
+    """Chain each PROXY_EXTENSIONS index forward with its fund's NAV returns."""
+    for index_id, code in PROXY_EXTENSIONS.items():
+        last = conn.execute("SELECT date, close FROM index_history WHERE index_id=? "
+                            "ORDER BY date DESC LIMIT 1", (index_id,)).fetchone()
+        if not last:
+            log.warning("  Proxy extension %d: no index history to extend", index_id)
+            continue
+        last_date, last_close = last
+        base = conn.execute("SELECT nav FROM nav_history WHERE scheme_code=? AND nav_date<=? "
+                            "ORDER BY nav_date DESC LIMIT 1", (code, last_date)).fetchone()
+        later = conn.execute("SELECT nav_date, nav FROM nav_history WHERE scheme_code=? AND nav_date>? "
+                             "ORDER BY nav_date", (code, last_date)).fetchall()
+        if not base or not later:
+            log.info("  Proxy extension %d: nothing to add after %s", index_id, last_date)
+            continue
+        rows = [(index_id, d, last_close * nav / base[0]) for d, nav in later]
+        conn.executemany("INSERT OR REPLACE INTO index_history(index_id, date, close) VALUES(?,?,?)", rows)
+        conn.commit()
+        log.info("  ✓ index %d extended by fund %s: %d days after %s", index_id, code, len(rows), last_date)
 
 
 def build_currency_converted(conn: sqlite3.Connection):
