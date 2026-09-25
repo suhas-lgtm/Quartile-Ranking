@@ -43,7 +43,7 @@ from engine.calculation_engine import (
     risk_metrics, composite_risk_score,
     short_return, SHORT_PERIODS,
     index_std_annual, bear_period_stats, screener_parameter_scores,
-    screener_weighted_score,
+    tracking_error,
     rolling_statistics,
 )
 from scripts.sectors import SECTORAL_THEMATIC_SLUG, sector_of, SECTOR_ORDER
@@ -1015,76 +1015,162 @@ def build_whitelist(conn):
 # ── Blacklist (blacklist.json) ──────────────────────────────────────────────
 
 BLACKLIST_PATH = os.path.join(ROOT_DIR, "data", "blacklist.json")
-SCREENER_GROUPS = {
-    "risk":        ["beta", "relative_risk", "down_capture", "std_dev"],
-    "performance": ["returns", "relative_return", "alpha", "up_capture", "sharpe", "sortino"],
-    "drawdown":    ["max_drawdown", "recovery_time", "active_share"],
+
+# Defaults for the automatic rules; data/blacklist.json "rules" overrides any.
+BLACKLIST_RULE_DEFAULTS = {
+    "bottom_quartile_periods": ["3M", "12M", "3Y"],
+    "negative_alpha_horizons": ["3Y", "5Y"],
+    "rolling_window": "1Y",
+    "rolling_min_beat": 0.40,
+    "downside_capture_max": 100,
+    "downside_capture_strict_categories": ["small-cap", "mid-cap"],
+    "tracking_error_categories": ["large-cap"],
+    "tracking_error_top_share": 0.25,
+    "min_track_record_years": 3,
+    "track_record_exempt_categories": ["multi-cap"],
+    "bottom_3m_categories": ["multi-cap"],
+    "high_beta_categories": ["value-contra", "dividend-yield"],
+    "high_beta_max": 1.0,
 }
+PERIOD_NAME = {"12M": "1Y"}
+
+
+def _pct(v: float) -> str:
+    return f"{v * 100:+.1f}%"
 
 
 def build_blacklist(conn, categories, screener_cfg: dict):
     """
-    Two sections, both public:
+    blacklist.json, public. Two sections:
 
-      manual  the funds the team lists in data/blacklist.json, with a reason,
-              shown with the same details as any other list (fund_details);
-      auto    the bottom `auto_bottom_n` ranked funds of every category on the
-              Whitelist Screener, ranked with the screener's DEFAULT weights
-              (engine.screener_weighted_score, the formula the screen uses).
+      manual  the team's list in data/blacklist.json, with reasons
+              (fund_details, same details as any list);
+      flags   every Equity/Hybrid fund that fails one or more automatic rules,
+              each failure spelled out. The rules are the NAV-based part of the
+              team's blacklist criteria (holdings-based ones wait for holdings
+              coverage); thresholds come from BLACKLIST_RULE_DEFAULTS, overridden
+              by data/blacklist.json "rules".
 
-    Reads the screener files written earlier in this build.
+    Reads risk_{slug}.json and screener_{slug}.json from this build; tracking
+    error and rolling consistency come from the engine.
     """
     cfg = _load_list(BLACKLIST_PATH, "blacklist")
-    bottom_n = int(cfg.get("auto_bottom_n", 3))
-    weights = screener_cfg.get("weights") or {}
+    rules = {**BLACKLIST_RULE_DEFAULTS, **(cfg.get("rules") or {})}
     manual, missing = fund_details(conn, cfg.get("funds") or [], note_key="reason")
+    as_of = get_as_of(conn)
+    as_of_d = date.fromisoformat(as_of)
 
-    auto = []
+    flagged = []
     for _, slug, asset_class in categories:
         if asset_class not in ("Equity", "Hybrid"):
             continue
+        risk = _read_out(f"risk_{slug}.json")
         scr = _read_out(f"screener_{slug}.json")
-        if not scr:
+        if not risk or not risk.get("funds"):
             continue
-        ranked = []
-        for f in scr["funds"]:
-            if not f.get("eligible") or not f.get("scores"):
-                continue
-            total = screener_weighted_score(f["scores"], weights)
-            if total is None:
-                continue
-            groups = {}
-            for g, keys in SCREENER_GROUPS.items():
-                v = screener_weighted_score(f["scores"], weights, keys)
-                groups[g] = round(v, 1) if v is not None else None
-            ranked.append({
-                "scheme_code": f["scheme_code"],
-                "scheme_name": f["scheme_name"],
-                "score": round(total, 1),
-                **groups,
-                "return_3y": f["returns"].get("3Y"),
-            })
-        if len(ranked) <= bottom_n:
-            continue     # too few ranked funds for a "bottom" to mean anything
-        ranked.sort(key=lambda r: -r["score"])
-        for i, r in enumerate(ranked, 1):
-            r["rank"] = i
-        auto.append({
-            "category_name": scr["category_name"],
-            "category_slug": slug,
-            "ranked": len(ranked),
-            "funds": ranked[-bottom_n:][::-1],   # worst first
-        })
+        cat_name = risk["category_name"]
+        bench = risk.get("benchmark") or {}
+        bench_id = bench.get("index_id")
+        bench_ok = bool(bench_id) and not bench.get("stale")
+        ratios = {f["scheme_code"]: f["ratios"] for f in (scr or {}).get("funds", [])}
+        funds = risk["funds"]
+        names = [(f["scheme_code"], f["scheme_name"]) for f in funds]
+        sectors = sector_map(names, slug)
 
+        # Quartile per period within the category (per sector for sectoral).
+        quart = {}
+        for p in set(rules["bottom_quartile_periods"]) | {"3M"}:
+            rq = rank_within_sectors({f["scheme_code"]: f["returns"].get(p) for f in funds}, sectors)
+            quart[p] = {c: q for c, (_r, q) in rq.items()}
+
+        # Tracking error, for the categories that use it.
+        te = {}
+        if slug in rules["tracking_error_categories"] and bench_ok:
+            for f in funds:
+                te[f["scheme_code"]] = tracking_error(conn, f["scheme_code"], bench_id, as_of_d)
+            vals = sorted(v for v in te.values() if v is not None)
+            te_cut = vals[int(len(vals) * (1 - rules["tracking_error_top_share"]))] if len(vals) >= 4 else None
+        else:
+            te_cut = None
+
+        for f in funds:
+            code = f["scheme_code"]
+            r = ratios.get(code) or {}
+            reasons = []
+
+            qs = [quart[p].get(code) for p in rules["bottom_quartile_periods"]]
+            if qs and all(q == 4 for q in qs):
+                reasons.append({"rule": "bottom_quartile",
+                                "text": "Bottom quartile on " + ", ".join(
+                                    PERIOD_NAME.get(p, p) for p in rules["bottom_quartile_periods"])})
+
+            alphas = [(r.get("alpha") or {}).get(h) for h in rules["negative_alpha_horizons"]]
+            if bench_ok and alphas and all(a is not None and a < 0 for a in alphas):
+                reasons.append({"rule": "negative_alpha",
+                                "text": "Negative alpha " + ", ".join(
+                                    f"{h} {a * 100:.2f}" for h, a in zip(rules["negative_alpha_horizons"], alphas))})
+
+            if bench_ok:
+                roll = rolling_statistics(conn, code, bench_id, rules["rolling_window"], as_of_d)
+                beat = roll.get("pct_beats_benchmark")
+                if beat is not None and beat < rules["rolling_min_beat"]:
+                    reasons.append({"rule": "rolling_consistency",
+                                    "text": f"Beat benchmark in only {beat * 100:.0f}% of rolling "
+                                            f"{rules['rolling_window']} periods"})
+
+            dc = r.get("down_capture") or {}
+            horizons = ["1Y", "3Y"] if slug in rules["downside_capture_strict_categories"] else ["3Y"]
+            over = [(h, dc.get(h)) for h in horizons
+                    if dc.get(h) is not None and dc.get(h) > rules["downside_capture_max"]]
+            if bench_ok and over:
+                reasons.append({"rule": "downside_capture",
+                                "text": "Downside capture " + ", ".join(f"{h} {v:.0f}" for h, v in over)
+                                        + f" (above {rules['downside_capture_max']})"})
+
+            if te_cut is not None and te.get(code) is not None and te[code] >= te_cut:
+                a3 = (r.get("alpha") or {}).get("3Y")
+                if a3 is not None and a3 < 0:
+                    reasons.append({"rule": "tracking_error",
+                                    "text": f"High tracking error {te[code] * 100:.1f}% with negative 3Y alpha"})
+
+            if slug not in rules["track_record_exempt_categories"]:
+                first = conn.execute("SELECT MIN(nav_date) FROM nav_history WHERE scheme_code=?",
+                                     (code,)).fetchone()[0]
+                if first:
+                    yrs = (as_of_d - date.fromisoformat(first)).days / 365.25
+                    if yrs < rules["min_track_record_years"]:
+                        reasons.append({"rule": "short_track_record",
+                                        "text": f"Short track record ({yrs:.1f} years)"})
+
+            if slug in rules["bottom_3m_categories"] and quart["3M"].get(code) == 4:
+                reasons.append({"rule": "bottom_3m", "text": "Bottom quartile on 3-month return"})
+
+            b3 = (r.get("beta") or {}).get("3Y")
+            if (slug in rules["high_beta_categories"] and bench_ok
+                    and b3 is not None and b3 > rules["high_beta_max"]):
+                reasons.append({"rule": "high_beta", "text": f"High beta {b3:.2f} for a value mandate"})
+
+            if reasons:
+                flagged.append({
+                    "scheme_code":   code,
+                    "scheme_name":   f["scheme_name"],
+                    "category_name": cat_name,
+                    "category_slug": slug,
+                    "asset_class":   asset_class,
+                    "reasons":       reasons,
+                    "return_1y":     f["returns"].get("12M"),
+                    "return_3y":     f["returns"].get("3Y"),
+                })
+
+    flagged.sort(key=lambda x: (-len(x["reasons"]), x["category_name"], x["scheme_name"]))
     write_json(out("blacklist.json"), {
-        "as_of":         get_as_of(conn),
-        "auto_bottom_n": bottom_n,
-        "manual":        manual,
-        "missing":       missing,
-        "auto":          auto,
+        "as_of":   as_of,
+        "rules":   rules,
+        "manual":  manual,
+        "missing": missing,
+        "flagged": flagged,
     })
-    log.info("✓ blacklist.json (%d listed, bottom %d of %d categories)",
-             len(manual), bottom_n, len(auto))
+    log.info("✓ blacklist.json (%d listed, %d flagged by rules)", len(manual), len(flagged))
 
 
 # ── Index series (index/{index_id}.json) ─────────────────────────────────────

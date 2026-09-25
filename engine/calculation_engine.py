@@ -481,6 +481,42 @@ def screener_weighted_score(scores: dict, weights: dict, keys: list[str] | None 
     return num / den if den else None
 
 
+def tracking_error(
+    conn: sqlite3.Connection,
+    scheme_code: str,
+    benchmark_index_id: int,
+    as_of: Optional[date] = None,
+    years: int = 3,
+) -> Optional[float]:
+    """
+    Annualised tracking error: the standard deviation of the monthly difference
+    between fund and benchmark returns over the last `years`, x sqrt(12).
+    Months are paired by calendar month exactly as risk_metrics pairs them.
+    None with fewer than RISK_WINDOW_MIN_OBS aligned months.
+    """
+    today = as_of or date.today()
+    start = _subtract_period(today, years=years)
+    fund_ym: dict[str, tuple[str, float]] = {}
+    for d, v in conn.execute(
+            "SELECT nav_date, nav FROM nav_history WHERE scheme_code=? AND nav_date>=? "
+            "AND nav_date<=? ORDER BY nav_date", (scheme_code, start.isoformat(), today.isoformat())):
+        fund_ym[d[:7]] = (d, v)
+    bench_ym: dict[str, tuple[str, float]] = {}
+    for d, v in conn.execute(
+            "SELECT date, close FROM index_history WHERE index_id=? AND date>=? "
+            "AND date<=? ORDER BY date", (benchmark_index_id, start.isoformat(), today.isoformat())):
+        bench_ym[d[:7]] = (d, v)
+    common = [ym for ym in sorted(set(fund_ym) & set(bench_ym))
+              if abs((datetime.fromisoformat(fund_ym[ym][0]).date()
+                      - datetime.fromisoformat(bench_ym[ym][0]).date()).days) <= 7]
+    f = _monthly_returns_from_navs([fund_ym[ym] for ym in common])
+    b = _monthly_returns_from_navs([bench_ym[ym] for ym in common])
+    diffs = [x - y for x, y in zip(f, b)]
+    if len(diffs) < RISK_WINDOW_MIN_OBS.get(years, int(years * 12 * 0.83)):
+        return None
+    return statistics.stdev(diffs) * math.sqrt(12)
+
+
 # ── E3. Annual Returns (Calendar Year) ───────────────────────────────────────
 
 def annual_return(

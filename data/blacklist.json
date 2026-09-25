@@ -1,5 +1,38 @@
 {
-  "_about": "Blacklist tab. funds: the team's manual list of funds to avoid, one entry per fund: scheme_code (the AMFI / api.mfapi.in code, e.g. 103174) and an optional reason shown on the tab. auto_bottom_n: how many of the lowest-ranked funds per category (Whitelist Screener, default weights) are listed automatically.",
-  "auto_bottom_n": 3,
+  "_about": "Blacklist tab. funds: the team's manual list of funds to avoid, one entry per fund: scheme_code (AMFI / api.mfapi.in code, e.g. 103174) and an optional reason. rules: thresholds for the automatic flags (NAV-based criteria); any key left out uses the default in scripts/build_json.py BLACKLIST_RULE_DEFAULTS. Category keys are slugs (large-cap, mid-cap, small-cap, multi-cap, value-contra, dividend-yield, ...).",
+  "rules": {
+    "bottom_quartile_periods": [
+      "3M",
+      "12M",
+      "3Y"
+    ],
+    "negative_alpha_horizons": [
+      "3Y",
+      "5Y"
+    ],
+    "rolling_window": "1Y",
+    "rolling_min_beat": 0.4,
+    "downside_capture_max": 100,
+    "downside_capture_strict_categories": [
+      "small-cap",
+      "mid-cap"
+    ],
+    "tracking_error_categories": [
+      "large-cap"
+    ],
+    "tracking_error_top_share": 0.25,
+    "min_track_record_years": 3,
+    "track_record_exempt_categories": [
+      "multi-cap"
+    ],
+    "bottom_3m_categories": [
+      "multi-cap"
+    ],
+    "high_beta_categories": [
+      "value-contra",
+      "dividend-yield"
+    ],
+    "high_beta_max": 1.0
+  },
   "funds": []
 }

@@ -281,26 +281,29 @@ export interface ListedFund {
   ratios: RiskRatios | null
 }
 
+/** One automatic blacklist rule a fund failed. */
+export interface BlacklistReason {
+  rule: 'bottom_quartile' | 'negative_alpha' | 'rolling_consistency' | 'downside_capture'
+      | 'tracking_error' | 'short_track_record' | 'bottom_3m' | 'high_beta'
+  text: string
+}
+
 /** blacklist.json — Blacklist tab. */
 export interface BlacklistData {
   as_of: string
-  auto_bottom_n: number
+  /** The thresholds the automatic flags were computed with. */
+  rules: Record<string, unknown>
   manual: ListedFund[]
   missing: string[]
-  auto: {
+  flagged: {
+    scheme_code: string
+    scheme_name: string
     category_name: string
     category_slug: string
-    ranked: number
-    funds: {
-      rank: number
-      scheme_code: string
-      scheme_name: string
-      score: number
-      risk: number | null
-      performance: number | null
-      drawdown: number | null
-      return_3y: number | null
-    }[]
+    asset_class: string
+    reasons: BlacklistReason[]
+    return_1y: number | null
+    return_3y: number | null
   }[]
 }
 
