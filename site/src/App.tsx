@@ -18,6 +18,7 @@ import AutoMailing     from './sections/AutoMailing'
 import PointToPoint    from './sections/PointToPoint'
 import PortfolioBuilder from './sections/PortfolioBuilder'
 import FundDetail      from './components/FundDetail'
+import CompareFunds    from './sections/CompareFunds'
 import { useMeta }     from './hooks/useData'
 import { defaultTab, tabAllowed } from './config/profile'
 import { currentDesk } from './config/products'
@@ -166,6 +167,8 @@ export default function App() {
         {activeTab === 'p2p' && <PointToPoint />}
 
         {activeTab === 'portfolio' && <PortfolioBuilder />}
+
+        {activeTab === 'compare' && <CompareFunds />}
       </main>
 
       {/* The fund page, opened by clicking any fund name (components/FundLink). */}
