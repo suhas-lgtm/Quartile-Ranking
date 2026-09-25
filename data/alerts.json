@@ -1,11 +1,9 @@
 {
-  "_about": "Auto Mailing thresholds, in percentage points: a fund is flagged when its return for the period is below its category average (its sector average for Sectoral/Thematic) by MORE than this. 12M = 1 year. Email recipients, the sender and the Brevo API key are NOT kept here (this repository is public): they are the secrets ALERT_RECIPIENTS, BREVO_SENDER_EMAIL, BREVO_SENDER_NAME and BREVO_API_KEY, in .env locally and in GitHub Actions secrets.",
+  "_about": "Auto Mailing thresholds, in percentage points: a fund is flagged when its return for the period is below its category average (its sector average for Sectoral/Thematic) by MORE than this. Only the periods listed here are checked (6M and 1Y were removed to keep the email short; add \"6M\" or \"12M\" back to check them). Email recipients, the sender and the Brevo API key are NOT kept here (this repository is public): they are the secrets ALERT_RECIPIENTS, BREVO_SENDER_EMAIL, BREVO_SENDER_NAME and BREVO_API_KEY, in .env locally and in GitHub Actions secrets.",
   "thresholds": {
     "1D": 1.0,
     "1W": 2.0,
     "1M": 2.5,
-    "3M": 3.0,
-    "6M": 3.5,
-    "12M": 3.5
+    "3M": 3.0
   }
 }

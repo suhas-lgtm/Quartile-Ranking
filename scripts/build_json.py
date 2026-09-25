@@ -1208,13 +1208,13 @@ def build_blacklist(conn, categories, screener_cfg: dict):
 
 ALERTS_PATH = os.path.join(ROOT_DIR, "data", "alerts.json")
 # Percentage points a fund may trail its category average before it is flagged.
-ALERT_THRESHOLD_DEFAULTS = {"1D": 1.0, "1W": 2.0, "1M": 2.5, "3M": 3.0, "6M": 3.5, "12M": 3.5}
+ALERT_THRESHOLD_DEFAULTS = {"1D": 1.0, "1W": 2.0, "1M": 2.5, "3M": 3.0}
 
 
 def build_alerts(conn, categories):
     """
     alerts.json: every Equity/Hybrid fund that trails its category average by
-    more than the threshold for a period (1D, 1W, 1M, 3M, 6M, 1Y).
+    more than the threshold for a period (1D, 1W, 1M, 3M by default).
 
     Returns come from risk_{slug}.json (this build). The average is the plain
     mean of the category's funds (engine.category_average); for Sectoral/
@@ -1223,7 +1223,8 @@ def build_alerts(conn, categories):
     alert on every sector rotation. scripts/send_alerts.py mails this file.
     """
     cfg = _load_list(ALERTS_PATH, "alerts")
-    thresholds = {**ALERT_THRESHOLD_DEFAULTS, **(cfg.get("thresholds") or {})}
+    # The config's list is the list: a period removed there is not checked.
+    thresholds = cfg.get("thresholds") or ALERT_THRESHOLD_DEFAULTS
     periods = [p for p in thresholds if p in RISK_RETURN_PERIODS]
 
     flagged = []
