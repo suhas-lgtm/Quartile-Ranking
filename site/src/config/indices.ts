@@ -25,7 +25,7 @@ export const LIVE_INDEX_BASE = '/live/indices'
  * answers "which part of it did", and reading them off one undifferentiated
  * grid of eighteen cards makes neither question easy to ask.
  */
-export type IndexGroup = 'broad' | 'sectoral'
+export type IndexGroup = 'broad' | 'sectoral' | 'global'
 
 export interface MarketPulseIndex {
   id: number
@@ -73,6 +73,21 @@ export const MARKET_PULSE_INDICES: readonly MarketPulseIndex[] = [
   { id: 54, slug: 'nifty-media',              group: 'sectoral' },
   { id: 48, slug: 'nifty-pse',                group: 'sectoral' },
   { id: 34, slug: 'nifty-cpse',               group: 'sectoral' },
+
+  // ── Global ───────────────────────────────────────────────────────────────
+  // Must match scripts/index_store.GLOBAL. Values are in each market's currency.
+  { id: 80, slug: 'sp-500', group: 'global' },
+  { id: 81, slug: 'dow-jones', group: 'global' },
+  { id: 82, slug: 'nasdaq-composite', group: 'global' },
+  { id: 70, slug: 'nasdaq-100', group: 'global' },
+  { id: 83, slug: 'ftse-100', group: 'global' },
+  { id: 84, slug: 'dax', group: 'global' },
+  { id: 85, slug: 'cac-40', group: 'global' },
+  { id: 86, slug: 'euro-stoxx-50', group: 'global' },
+  { id: 87, slug: 'nikkei-225', group: 'global' },
+  { id: 88, slug: 'hang-seng', group: 'global' },
+  { id: 89, slug: 'shanghai-composite', group: 'global' },
+  { id: 90, slug: 'kospi', group: 'global' },
 ]
 
 /** Group headings and the accent each group's rule is drawn in. */
@@ -83,6 +98,7 @@ export const MARKET_PULSE_GROUPS: readonly {
 }[] = [
   { key: 'broad',    label: 'Broader Market', gradient: ['#22D3EE', '#1d4ed8'] },
   { key: 'sectoral', label: 'Sectoral',       gradient: ['#F59E0B', '#F472B6'] },
+  { key: 'global',   label: 'Global Markets', gradient: ['#A78BFA', '#60A5FA'] },
 ]
 
 /**

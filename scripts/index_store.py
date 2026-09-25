@@ -102,9 +102,30 @@ SECTORS: list[tuple[int, str, str]] = [
 MAX_1D_GAP_DAYS = 6
 
 
+# Global indices for the Market Pulse "Global Markets" group, with their Yahoo
+# tickers (they are not in the scheme catalogue's benchmark list). Closes are in
+# each market's own currency. The IST-yesterday cap applies as to every index,
+# so the 08:00 IST run stores the previous session for all of them.
+GLOBAL: list[tuple[int, str, str, str]] = [
+    (80, 'S&P 500'             , 'sp-500'              , '^GSPC'),
+    (81, 'DOW JONES'           , 'dow-jones'           , '^DJI'),
+    (82, 'NASDAQ COMPOSITE'    , 'nasdaq-composite'    , '^IXIC'),
+    (70, 'NASDAQ 100'          , 'nasdaq-100'          , '^NDX'),
+    (83, 'FTSE 100'            , 'ftse-100'            , '^FTSE'),
+    (84, 'DAX'                 , 'dax'                 , '^GDAXI'),
+    (85, 'CAC 40'              , 'cac-40'              , '^FCHI'),
+    (86, 'EURO STOXX 50'       , 'euro-stoxx-50'       , '^STOXX50E'),
+    (87, 'NIKKEI 225'          , 'nikkei-225'          , '^N225'),
+    (88, 'HANG SENG'           , 'hang-seng'           , '^HSI'),
+    (89, 'SHANGHAI COMPOSITE'  , 'shanghai-composite'  , '000001.SS'),
+    (90, 'KOSPI'               , 'kospi'               , '^KS11'),
+]
+GLOBAL_TICKERS = {i: t for i, _n, _s, t in GLOBAL}
+
+
 def all_indices() -> list[tuple[int, str, str]]:
-    """Every published Market Pulse index: the broad strip, then the sectors."""
-    return STRIP + SECTORS
+    """Every published Market Pulse index: the broad strip, sectors, then global."""
+    return STRIP + SECTORS + [(i, n, s) for i, n, s, _t in GLOBAL]
 
 
 # ── Safety gates, per index ──────────────────────────────────────────────────

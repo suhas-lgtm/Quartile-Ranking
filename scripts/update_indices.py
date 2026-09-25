@@ -54,6 +54,8 @@ def tickers_by_index_id() -> dict[int, str]:
         cat = json.load(fh)
     out = {b["index_id"]: b["yahoo_ticker"] for b in cat.get("benchmarks", [])
            if b.get("yahoo_ticker")}
+    from scripts.index_store import GLOBAL_TICKERS
+    out.update(GLOBAL_TICKERS)
     if not out:
         raise SystemExit(f"{CATALOGUE} carries no benchmark tickers — "
                          f"run scripts/export_catalogue.py first")

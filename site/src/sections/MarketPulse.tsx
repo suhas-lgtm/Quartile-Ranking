@@ -33,6 +33,18 @@ const INDEX_META: Record<string, { gradient: [string, string] }> = {
   'NIFTY MEDIA':              { gradient: ['#6d28d9', '#DDD6FE'] },
   'NIFTY PSE':                { gradient: ['#0f766e', '#5EEAD4'] },
   'NIFTY CPSE':               { gradient: ['#065f46', '#6EE7B7'] },
+  'S&P 500'                   : { gradient: ['#1e3a8a', '#93C5FD'] },
+  'DOW JONES'                 : { gradient: ['#0c4a6e', '#7DD3FC'] },
+  'NASDAQ COMPOSITE'          : { gradient: ['#312e81', '#A5B4FC'] },
+  'NASDAQ 100'                : { gradient: ['#4c1d95', '#C4B5FD'] },
+  'FTSE 100'                  : { gradient: ['#7f1d1d', '#FCA5A5'] },
+  'DAX'                       : { gradient: ['#78350f', '#FCD34D'] },
+  'CAC 40'                    : { gradient: ['#1e40af', '#BFDBFE'] },
+  'EURO STOXX 50'             : { gradient: ['#1e3a8a', '#FDE68A'] },
+  'NIKKEI 225'                : { gradient: ['#9f1239', '#FDA4AF'] },
+  'HANG SENG'                 : { gradient: ['#991b1b', '#FECACA'] },
+  'SHANGHAI COMPOSITE'        : { gradient: ['#b91c1c', '#FCD34D'] },
+  'KOSPI'                     : { gradient: ['#0f766e', '#99F6E4'] },
 }
 
 function Sparkline({ data, color }: { data: [string, number][]; color: string }) {

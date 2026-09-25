@@ -508,6 +508,20 @@ export default function QuartileRanking() {
           </button>
         </div>
 
+      {/* ── How the quartiles are ranked ─────────────────────────── */}
+      <div className="card p-4 mb-4 text-xs leading-relaxed" style={{ color: 'var(--text-mid)' }}>
+        <b style={{ color: 'var(--text-hi)' }}>How the quartiles are ranked:</b> for each {periodWord}, every fund’s
+        return over that {periodWord} (from its first NAV to its last NAV within the {periodWord}) is ranked against
+        all the other funds in the same category — Sectoral/Thematic funds only against funds in their own sector.
+        The highest return is rank 1. The ranked funds are then split into four equal groups:{' '}
+        <b style={{ color: 'var(--text-hi)' }}>Q1 = top 25%</b>, Q2 = next 25%, Q3 = next 25%,{' '}
+        <b style={{ color: 'var(--text-hi)' }}>Q4 = bottom 25%</b>. When the number of funds does not divide by four,
+        the spare funds go to the lower groups (Q4 first, then Q3, then Q2), never to Q1 — e.g. 17 funds are split
+        4 / 4 / 4 / 5. A pool of only one or two funds is placed from the top instead. A fund without NAVs for the
+        whole {periodWord} is not ranked for it (shown as “−”). Each {periodWord} is ranked on its own, so a fund
+        can be Q1 in one {periodWord} and Q4 in the next.
+      </div>
+
       {/* ── Controls ─────────────────────────────────────────────── */}
       {/* The mode buttons and Download stay pinned top-right whatever the left
           side does. With the SIF strategies laid out in a row the left side is
