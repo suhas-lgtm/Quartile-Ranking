@@ -102,6 +102,19 @@ const PARAMS: Param[] = [
     help: 'Number of stocks held that are not in the NIFTY 50 (the team sheet’s “uncommon stocks”), from the AMC’s monthly portfolio. More scores higher. Until holdings are loaded its weight is shared across the rest.' },
 ]
 
+/** What the four summary columns mean — shown as header tooltips and below the table. */
+const SUMMARY_HELP: { key: 'score' | Group; label: string; help: string }[] = [
+  { key: 'score', label: 'Score',
+    help: 'The final 0–100 number the ranking is sorted by: every parameter’s score combined using the weights on the left. With the default weights it is about 40% Risk + 40% Performance + 20% Drawdown, e.g. Risk 80, Performance 50, Drawdown 60 gives 0.4×80 + 0.4×50 + 0.2×60 = 64. Higher is better.' },
+  { key: 'risk', label: 'Risk',
+    help: 'Weighted average of the fund’s Beta, Relative Risk, Down Capture and Std Dev scores. 100 = the least risky fund in the category on all four; 0 = the most risky. Higher is better.' },
+  { key: 'performance', label: 'Performance',
+    help: 'Weighted average of the Returns, Relative Return, Alpha and Up Capture scores (and Sharpe, 0% by default). 100 = the best performer in the category on all of them. Higher is better.' },
+  { key: 'drawdown', label: 'Drawdown',
+    help: 'Weighted average of the Max Drawdown (bear-period fall), Recovery Time and Active Share scores. 100 = fell least and recovered fastest in the category. Higher is better.' },
+]
+const summaryHelp = (k: 'score' | Group) => SUMMARY_HELP.find(x => x.key === k)!.help
+
 /** Weighted average of the parameter scores that exist. */
 function weighted(scores: ScreenerFund['scores'], weights: Record<string, number>,
                   keys: ScreenerParam[]): number | null {
@@ -322,8 +335,12 @@ export default function WhitelistScreener() {
                     <tr>
                       <th style={{ textAlign: 'center', width: 48 }}>Rank</th>
                       <th className="sticky-col text-left" style={{ minWidth: 240 }}>Fund Name</th>
-                      <th style={{ textAlign: 'right' }}>Score</th>
-                      {GROUPS.map(g => <th key={g.id} style={{ textAlign: 'right' }}>{g.label.replace(' Ratios', '')}</th>)}
+                      <th style={{ textAlign: 'right' }} title={summaryHelp('score')}>Score</th>
+                      {GROUPS.map(g => (
+                        <th key={g.id} style={{ textAlign: 'right' }} title={summaryHelp(g.id)}>
+                          {g.label.replace(' Ratios', '')}
+                        </th>
+                      ))}
                       {PARAMS.map(p => (
                         <th key={p.key} title={p.help}
                             style={{ textAlign: 'right', borderLeft: p.key === 'beta' ? '1px solid var(--line)' : undefined }}>
@@ -421,6 +438,16 @@ export default function WhitelistScreener() {
             Risk / Performance / Drawdown are the same average within each group. Funds with under {data?.min_history ?? '5Y'} of
             history are newly launched and not ranked.
           </p>
+          <div className="space-y-1 mb-3">
+            {SUMMARY_HELP.map(x => (
+              <div key={x.key}><b style={{ color: 'var(--text-hi)' }}>{x.label}:</b> {x.help}</div>
+            ))}
+            <div className="text-[11px]" style={{ color: 'var(--text-low)' }}>
+              If a fund has no data for a parameter (e.g. Active Share before its holdings are loaded), that
+              parameter’s weight is shared across the rest, so the fund is neither rewarded nor penalised for the gap.
+            </div>
+          </div>
+          <div className="font-semibold mb-1" style={{ color: 'var(--text-hi)' }}>Parameters</div>
           <div className="space-y-1">
             {PARAMS.map(p => (
               <div key={p.key}><b style={{ color: 'var(--text-hi)' }}>{p.label}:</b> {p.help}</div>
