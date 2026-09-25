@@ -371,6 +371,28 @@ def read_nav_history(codes: list[str] | None = None,
     return out
 
 
+def write_splits(splits: list[tuple[str, str, float]]) -> int:
+    """
+    Replace the nav_splits table: (scheme_code, split date, factor) for every
+    unit split the build detected (nav_store.adjust_for_splits). The website's
+    NAV lookup (site/server/navLookup.ts) reads raw NAVs from nav_history and
+    uses this to keep returns right across a split.
+    """
+    if not enabled():
+        return 0
+    with connect() as conn:
+        conn.execute("""CREATE TABLE IF NOT EXISTS nav_splits (
+                            scheme_code integer NOT NULL,
+                            split_date  date    NOT NULL,
+                            factor      double precision NOT NULL,
+                            PRIMARY KEY (scheme_code, split_date))""")
+        conn.execute("DELETE FROM nav_splits")
+        with conn.cursor() as cur:
+            cur.executemany("INSERT INTO nav_splits (scheme_code, split_date, factor) VALUES (%s,%s,%s)",
+                            [(int(c), d, float(k)) for c, d, k in splits])
+    return len(splits)
+
+
 def write_nav_rows(rows) -> int:
     """
     Add (scheme_code, iso_date, nav) rows, never overwriting a stored day.

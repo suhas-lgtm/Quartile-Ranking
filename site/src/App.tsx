@@ -15,6 +15,8 @@ import RiskReturns     from './sections/RiskReturns'
 import WhitelistScreener from './sections/WhitelistScreener'
 import Blacklist       from './sections/Blacklist'
 import AutoMailing     from './sections/AutoMailing'
+import PointToPoint    from './sections/PointToPoint'
+import PortfolioBuilder from './sections/PortfolioBuilder'
 import { useMeta }     from './hooks/useData'
 import { defaultTab, tabAllowed } from './config/profile'
 import { currentDesk } from './config/products'
@@ -157,6 +159,15 @@ export default function App() {
           <>
             <MarketPulseBar />
             <AutoMailing />
+          </>
+        )}
+
+        {activeTab === 'p2p' && <PointToPoint />}
+
+        {activeTab === 'portfolio' && (
+          <>
+            <MarketPulseBar />
+            <PortfolioBuilder />
           </>
         )}
       </main>

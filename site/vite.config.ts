@@ -5,6 +5,7 @@ import path from 'path'
 import { route, readFile } from './server/neonFiles'
 import { handleAuth, isProtected, readCookie, sessionValid, SESSION_COOKIE } from './server/auth'
 import { handleBlacklist } from './server/lists'
+import { handleNav } from './server/navLookup'
 
 // Dev mirrors what the Netlify function does in production: /data/* and
 // /live/indices/* are answered from Neon's `files` table, which the pipeline
@@ -64,6 +65,13 @@ function neonData(): Plugin {
         const pathname = (req.url ?? '').split('?')[0]
         if (!pathname.startsWith('/api/')) return next()
         const action = pathname.slice('/api/'.length).replace(/\/$/, '')
+        if (action === 'nav') {
+          const r = await handleNav(new URL(req.url ?? '', 'http://localhost').searchParams, databaseUrl)
+            .catch(err => { console.error('[vite] nav', err); return { status: 502, body: '{"error":"database error"}' } })
+          res.statusCode = r.status
+          res.setHeader('content-type', 'application/json')
+          return res.end(r.body)
+        }
         const body = () => new Promise<string>(resolve => {
           let b = ''
           req.on('data', c => { b += c })

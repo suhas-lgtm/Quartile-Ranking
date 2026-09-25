@@ -381,6 +381,10 @@ def load_history_from_neon(conn, schemes: list[dict], from_date: str | None,
         log.info("Adjusted %d unit split(s) in %d fund(s), e.g. %s", len(split_log),
                  len({c for c, _, _ in split_log}),
                  ", ".join(f"{c} {d} 1:{k:g}" for c, d, k in split_log[:4]))
+    try:
+        db.write_splits(split_log)       # for the website's NAV lookup
+    except Exception as exc:
+        log.warning("Could not store the split list in Neon (%s)", exc)
 
     floor = from_date or "0000-01-01"
     conn.executemany(
