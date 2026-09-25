@@ -165,7 +165,8 @@ def compose(alerts: dict, site_url: str) -> tuple[str, str, str] | None:
               f'(Auto Mailing tab)</p>',
               f'<p style="color:{GREY};font-size:12px">Green = positive return, red = negative return; '
               f'Gap = fund return minus category average, in percentage points. Sectoral/Thematic funds '
-              f'are compared with their own sector.<br>This is an automated message from the MF Research '
+              f'are compared with their own sector; index funds, ETFs and domestic FoFs with funds '
+              f'tracking the same index.<br>This is an automated message from the MF Research '
               f'dashboard.</p></div>']
     return subject, text, "".join(parts)
 

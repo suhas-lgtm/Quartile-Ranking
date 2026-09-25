@@ -16,6 +16,8 @@ import type { SheetSpec } from '../utils/xlsx'
 import type { RiskFundRow, RiskPeriod, RiskRatios } from '../types'
 
 const EQUITY_HYBRID_CLASSES = ['Equity', 'Hybrid']
+// Index funds, ETFs and FoFs have returns and risk too, but no category benchmark.
+const PASSIVE_SLUGS = ['index-fund', 'etf', 'gold-etf', 'fof-domestic', 'fof-overseas']
 const MAIN_TAB_NAMES = [
   'Large Cap', 'Large & Mid Cap', 'Mid Cap', 'Small Cap',
   'Flexi Cap', 'Balanced Advantage', 'Multi Asset Allocation',
@@ -122,7 +124,8 @@ export default function RiskReturns() {
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'r_3Y', dir: 'desc' })
 
-  const eligibleCats = (meta?.categories ?? []).filter(c => EQUITY_HYBRID_CLASSES.includes(c.asset_class))
+  const eligibleCats = (meta?.categories ?? []).filter(
+    c => EQUITY_HYBRID_CLASSES.includes(c.asset_class) || PASSIVE_SLUGS.includes(c.slug))
   const activeSlug = slug || (eligibleCats[0]?.slug ?? '')
   const mainTabs  = eligibleCats.filter(c => MAIN_TAB_NAMES.includes(c.category_name))
   const otherCats = eligibleCats.filter(c => !MAIN_TAB_NAMES.includes(c.category_name))

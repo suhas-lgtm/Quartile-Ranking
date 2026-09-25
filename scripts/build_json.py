@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import logging
 from datetime import date, datetime, timezone
@@ -605,6 +606,38 @@ def build_quartiles(conn, cat_slug: str, mode: str = "quarterly"):
 
 RISK_RETURN_PERIODS = ["1D", "1W", "1M", "3M", "6M", "12M", "2Y", "3Y", "5Y", "10Y"]
 
+# "Other" categories that also get Risk & Returns and Auto Mailing. They have no
+# category benchmark, so their benchmark-relative ratios stay blank.
+PASSIVE_SLUGS = ("index-fund", "etf", "gold-etf", "fof-domestic", "fof-overseas")
+# Of those, the ones whose funds are compared with funds tracking the SAME index
+# (a Nifty 50 ETF against other Nifty 50 ETFs). FoF Overseas funds are nearly all
+# unique, so they are compared with their category average instead.
+PEER_BY_INDEX_SLUGS = ("index-fund", "etf", "gold-etf", "fof-domestic")
+
+_TRACK_DROP = re.compile(
+    r"\b(etf|exchange traded funds?|index funds?|index|fund of funds?|fofs?|funds?|regular|direct|"
+    r"plan|growth|option|idcw|the|scheme|passive|bees|an open ended|tracking|replicating)\b")
+
+
+def tracked_index(name: str, amc: str | None) -> str:
+    """
+    What a passive fund tracks, read from its name: "Kotak Nifty 50 ETF" and
+    "UTI Nifty 50 Index Fund" both give "nifty 50", "Nippon India ETF Nifty Bank
+    BeES" gives "nifty bank", every gold ETF gives "gold". Used only to pick a
+    fund's peers for Auto Mailing.
+    """
+    n = re.sub(r"\(.*?\)", " ", name.lower())
+    a = re.sub(r"\bmutual fund\b", "", (amc or "").lower()).strip()
+    if a and a in n:
+        n = n.replace(a, " ")
+    elif a and n.startswith(a.split()[0]):
+        n = n[len(a.split()[0]):]
+    n = n.replace("s&p", " ").replace("&", " and ")
+    n = re.sub(r"nifty\s*50\b", "nifty 50", n)
+    n = re.sub(r"[^a-z0-9 ]", " ", n)
+    n = _TRACK_DROP.sub(" ", n)
+    return re.sub(r"\s+", " ", n).strip() or "other"
+
 
 def _risk_period_return(conn, code, period, as_of_d, is_index=False):
     """Any RISK_RETURN_PERIODS entry, for a fund or an index."""
@@ -638,7 +671,7 @@ def build_risk(conn, cat_slug: str):
     if not row:
         return
     cat_id, cat_name, asset_class, bench_id = row
-    if asset_class not in ("Equity", "Hybrid"):
+    if asset_class not in ("Equity", "Hybrid") and cat_slug not in PASSIVE_SLUGS:
         return
 
     funds = conn.execute(
@@ -1217,26 +1250,43 @@ def build_alerts(conn, categories):
     more than the threshold for a period (1D, 1W, 1M by default).
 
     Returns come from risk_{slug}.json (this build). The average is the plain
-    mean of the category's funds (engine.category_average); for Sectoral/
-    Thematic it is the mean of the fund's own SECTOR, as quartiles are ranked,
-    since a banking fund measured against a pharma-heavy average would trip the
-    alert on every sector rotation. scripts/send_alerts.py mails this file.
+    mean of the fund's peers (engine.category_average): its category; for
+    Sectoral/Thematic its own SECTOR, as quartiles are ranked, since a banking
+    fund measured against a pharma-heavy average would trip the alert on every
+    sector rotation; for index funds, ETFs, gold ETFs and domestic FoFs the
+    funds tracking the SAME index (tracked_index). scripts/send_alerts.py mails
+    this file.
     """
     cfg = _load_list(ALERTS_PATH, "alerts")
     # The config's list is the list: a period removed there is not checked.
     thresholds = cfg.get("thresholds") or ALERT_THRESHOLD_DEFAULTS
     periods = [p for p in thresholds if p in RISK_RETURN_PERIODS]
 
+    amc_of = dict(conn.execute(
+        "SELECT s.scheme_code, a.amc_name FROM schemes s JOIN amcs a ON a.amc_id = s.amc_id").fetchall())
+
     flagged = []
     for _, slug, asset_class in categories:
-        if asset_class not in ("Equity", "Hybrid"):
+        if asset_class not in ("Equity", "Hybrid") and slug not in PASSIVE_SLUGS:
             continue
         risk = _read_out(f"risk_{slug}.json")
         if not risk or not risk.get("funds"):
             continue
         funds = risk["funds"]
-        sectors = sector_map([(f["scheme_code"], f["scheme_name"]) for f in funds], slug)
-        group_of = (lambda code: sectors[code]) if sectors else (lambda code: risk["category_name"])
+        if slug in PEER_BY_INDEX_SLUGS:
+            # Peers = funds tracking the same index. A fund with no such peer
+            # has nothing fair to be compared with and is left out.
+            tracks = {f["scheme_code"]: tracked_index(f["scheme_name"], amc_of.get(f["scheme_code"]))
+                      for f in funds}
+            sizes: dict[str, int] = {}
+            for t in tracks.values():
+                sizes[t] = sizes.get(t, 0) + 1
+            funds = [f for f in funds if sizes[tracks[f["scheme_code"]]] > 1]
+            group_of = lambda code, tracks=tracks: "tracks " + tracks[code].title()
+        else:
+            sectors = sector_map([(f["scheme_code"], f["scheme_name"]) for f in funds], slug)
+            group_of = ((lambda code, sectors=sectors: sectors[code]) if sectors
+                        else (lambda code, name=risk["category_name"]: name))
 
         averages: dict[tuple[str, str], float | None] = {}
         for p in periods:
@@ -1326,6 +1376,12 @@ def main():
     # Cross-category streak signals — one file per mode.
     for mode in ["monthly", "quarterly", "annual"]:
         build_watchlist(conn, mode)
+
+    # Risk & Returns (and so Auto Mailing) also cover index funds, ETFs and FoFs.
+    for _, slug, _ac in categories:
+        if slug in PASSIVE_SLUGS:
+            log.info("Processing category: %s", slug)
+            build_risk(conn, slug)
 
     # Both read the quartile and risk files written above, so they come after.
     screener_cfg = load_screener_config()

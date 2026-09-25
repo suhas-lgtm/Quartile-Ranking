@@ -1,6 +1,6 @@
 // src/sections/AutoMailing.tsx — funds trailing their category average.
 //
-// Shows alerts.json (build_json.build_alerts): every Equity/Hybrid fund whose
+// Shows alerts.json (build_json.build_alerts): every Equity/Hybrid, index, ETF and FoF fund whose
 // return for a period is below its category average (its sector average for
 // Sectoral/Thematic) by more than the threshold. The same list is emailed
 // through Brevo after the 08:00 IST refresh (scripts/send_alerts.py).
@@ -158,8 +158,10 @@ export default function AutoMailing() {
         <div className="font-display font-bold text-sm mb-1" style={{ color: 'var(--text-hi)' }}>How it works</div>
         Each cell is the fund’s return minus its category average for that period, in percentage points (e.g.
         −1.80 pts = the fund did 1.8% worse than the average fund in its category). Red cells cross the limit.
-        Sectoral/Thematic funds are compared with their own sector. 1 Day to 1 Year are simple returns over the
-        period. Limits are kept in <code>data/alerts.json</code>; the email goes to the team list kept privately with
+        Sectoral/Thematic funds are compared with their own sector. Index funds, ETFs, gold ETFs and domestic
+        FoFs are compared with funds tracking the same index (e.g. a Nifty 50 ETF with other Nifty 50 ETFs);
+        one with no same-index peer is not checked. Overseas FoFs are compared with their category average.
+        Returns are simple returns over the period. Limits are kept in <code>data/alerts.json</code>; the email goes to the team list kept privately with
         the email settings.
       </div>
     </section>
