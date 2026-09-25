@@ -21,7 +21,9 @@ const MAIN_TAB_NAMES = [
   'Large Cap', 'Large & Mid Cap', 'Mid Cap', 'Small Cap',
   'Flexi Cap', 'Balanced Advantage', 'Multi Asset Allocation',
 ]
-const WEIGHTS_KEY = 'wl_screener_weights_v1'
+// Bumped when the default weights change, so every browser picks up the new
+// defaults instead of an older saved set (v2: Active Share 8% -> 0%).
+const WEIGHTS_KEY = 'wl_screener_weights_v2'
 
 type Group = 'risk' | 'performance' | 'drawdown'
 const GROUPS: { id: Group; label: string }[] = [
@@ -101,7 +103,7 @@ const PARAMS: Param[] = [
     detail: f => (f.active_share
       ? `${f.active_share.uncommon_count} stocks outside the NIFTY 50, ${(f.active_share.uncommon_weight * 100).toFixed(1)}% of the portfolio (${f.active_share.month})`
       : 'Portfolio holdings not loaded yet'),
-    help: 'Number of stocks held that are not in the NIFTY 50 (the team sheet’s “uncommon stocks”), from the AMC’s monthly portfolio. More scores higher. Until holdings are loaded its weight is shared across the rest.' },
+    help: 'Number of stocks held that are not in the NIFTY 50 (the team sheet’s “uncommon stocks”), from the AMC’s monthly portfolio. More scores higher. Weighted 0% by default while holdings are loaded for only some AMCs.' },
 ]
 
 /** What the four summary columns mean — shown as header tooltips and below the table. */
@@ -396,7 +398,9 @@ export default function WhitelistScreener() {
             The Score and ranking depend on these weights: change any parameter’s weight and every fund’s
             Score is recalculated and every category re-ranked instantly. Your weights are remembered in this browser.
             {grandTotal !== 100 && ' Weights need not add to 100 — they are used in proportion.'}
-            {' '}{asCount === 0
+            {' '}{(w.active_share ?? 0) === 0
+              ? `Active Share is set to 0% by default because portfolio holdings are only loaded for some AMCs so far (${asCount} of ${ranked.length} ranked funds here). Give it a weight to include it.`
+              : asCount === 0
               ? 'Active Share has no holdings data for this category yet, so its weight is shared across the rest.'
               : `Active Share is available for ${asCount} of ${ranked.length} ranked funds so far; the others are scored without it.`}
           </p>

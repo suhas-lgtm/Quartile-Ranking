@@ -13,7 +13,7 @@
     "sortino": 0,
     "max_drawdown": 6,
     "recovery_time": 6,
-    "active_share": 8
+    "active_share": 0
   },
   "ratio_horizons": [
     "1Y",

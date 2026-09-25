@@ -149,6 +149,11 @@ export default function MarketPulseBar() {
                         </div>
                       </div>
 
+                      {/* A day-end close, not a live price. */}
+                      <div className="mb-1" style={{ fontSize: 9, color: 'var(--text-low)' }}>
+                        Close · {fmtDate(idx.date)}
+                      </div>
+
                       {/* Sparkline */}
                       <Sparkline data={idx.sparkline} color={sparkColor} />
                     </div>
