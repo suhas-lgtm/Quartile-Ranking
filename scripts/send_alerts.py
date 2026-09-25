@@ -97,10 +97,10 @@ def compose(alerts: dict, site_url: str) -> tuple[str, str, str] | None:
         return None
     as_of = date.fromisoformat(alerts["as_of"]).strftime("%d %b %Y")
     th = alerts["thresholds"]
-    subject = (f"MF Alerts {as_of}: {len(funds)} fund{'s' if len(funds) != 1 else ''} "
+    subject = (f"MF Alerts — as per closing {as_of}: {len(funds)} fund{'s' if len(funds) != 1 else ''} "
                f"below category average")
-    intro = (f"These funds are trailing their category average by more than the set limits, "
-             f"based on NAVs as of {as_of}.")
+    intro = (f"As per closing NAVs of {as_of}, these funds are trailing their category average by "
+             f"more than the set limits.")
 
     # ── plain text (fallback for mail clients without HTML) ──
     lines = ["Hello,", "", intro, ""]
@@ -108,8 +108,8 @@ def compose(alerts: dict, site_url: str) -> tuple[str, str, str] | None:
         hits = _period_rows(funds, p)
         if not hits:
             continue
-        lines.append(f"{PERIOD_NAMES.get(p, p).upper()} — more than {th[p]:g}% below category average "
-                     f"({len(hits)} fund{'s' if len(hits) != 1 else ''})")
+        lines.append(f"{PERIOD_NAMES.get(p, p).upper()} (to closing {as_of}) — more than {th[p]:g}% below "
+                     f"category average ({len(hits)} fund{'s' if len(hits) != 1 else ''})")
         current = None
         for f in hits:
             if _group(f) != current:
@@ -138,8 +138,9 @@ def compose(alerts: dict, site_url: str) -> tuple[str, str, str] | None:
         if not hits:
             continue
         parts.append(f'<h3 style="margin:22px 0 6px;font-size:15px">{escape(PERIOD_NAMES.get(p, p))} '
-                     f'<span style="font-weight:normal;color:{GREY}">— more than {th[p]:g}% below category '
-                     f'average · {len(hits)} fund{"s" if len(hits) != 1 else ""}</span></h3>')
+                     f'<span style="font-weight:normal;color:{GREY}">to closing {as_of} — more than '
+                     f'{th[p]:g}% below category average · {len(hits)} fund{"s" if len(hits) != 1 else ""}'
+                     f'</span></h3>')
         parts.append('<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%">'
                      f'<tr style="background:#f3f4f6;text-align:left">'
                      f'<th style="{cell}">Category</th><th style="{cell}">Fund</th>'
