@@ -238,6 +238,25 @@ def populate_benchmarks(conn: sqlite3.Connection, catalogue: dict):
     log.info("Loaded %d benchmarks, %d blend components", len(benchmarks), len(components))
 
 
+# Benchmarks the catalogue does not carry, and the categories that use them.
+EXTRA_BENCHMARKS = [
+    # (index_id, name, yahoo ticker, is_synthetic)
+    (70, "NASDAQ 100", "^NDX", 0),
+    (71, "USD/INR", "INR=X", 0),
+    (72, "NASDAQ 100 (INR)", None, 1),     # backfill_indices.build_currency_converted
+]
+EXTRA_CATEGORY_BENCHMARKS = {"fof-domestic": 3, "fof-overseas": 72}   # 3 = NIFTY 100
+
+
+def populate_extra_benchmarks(conn: sqlite3.Connection):
+    conn.executemany(
+        "INSERT OR REPLACE INTO benchmarks (index_id, index_name, yahoo_ticker, is_synthetic, is_active) "
+        "VALUES (?,?,?,?,1)", EXTRA_BENCHMARKS)
+    for slug, bid in EXTRA_CATEGORY_BENCHMARKS.items():
+        conn.execute("UPDATE categories SET benchmark_id=? WHERE slug=?", (bid, slug))
+    conn.commit()
+
+
 def carry_over_indices(conn: sqlite3.Connection, source_db: str):
     """
     Copy benchmarks / index_history from an existing database.
@@ -405,6 +424,7 @@ def build(db_path: str, limit: int | None, workers: int, mode: str,
         create_schema(conn)
         seed_data(conn)
         populate_benchmarks(conn, catalogue)
+        populate_extra_benchmarks(conn)
         populate_reference(conn, schemes)
 
         # Seed index history from the committed file. Without this, every run

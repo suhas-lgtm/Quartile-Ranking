@@ -191,6 +191,37 @@ def run_index_backfill(conn: sqlite3.Connection, start: str = BACKFILL_START):
         log.info("All tickers fetched successfully.")
 
 
+# ── Currency-converted indices ──────────────────────────────────────────────
+#
+# index_id -> (index quoted in a foreign currency, that currency's INR rate).
+# FoF Overseas NAVs are in rupees; measuring them against a dollar index would
+# book every rupee move as fund alpha. Registered by build_db_from_api.
+FX_CONVERTED = {72: (70, 71)}      # NASDAQ 100 (INR) = NASDAQ 100 x USD/INR
+
+
+def build_currency_converted(conn: sqlite3.Connection):
+    """index_t x fx_t for each FX_CONVERTED entry, fx taken as the latest rate on or before t."""
+    for target, (base_id, fx_id) in FX_CONVERTED.items():
+        base = conn.execute("SELECT date, close FROM index_history WHERE index_id=? ORDER BY date",
+                            (base_id,)).fetchall()
+        fx = conn.execute("SELECT date, close FROM index_history WHERE index_id=? ORDER BY date",
+                          (fx_id,)).fetchall()
+        if not base or not fx:
+            log.warning("  Currency conversion %d: missing input series — skipped", target)
+            continue
+        rows, j, rate = [], 0, None
+        for d, close in base:
+            while j < len(fx) and fx[j][0] <= d:
+                rate = fx[j][1]
+                j += 1
+            if rate:
+                rows.append((target, d, close * rate))
+        conn.execute("DELETE FROM index_history WHERE index_id=?", (target,))
+        conn.executemany("INSERT INTO index_history(index_id, date, close) VALUES(?,?,?)", rows)
+        conn.commit()
+        log.info("  ✓ currency-converted index %d: %d rows", target, len(rows))
+
+
 # ── Synthetic blend builder (E7.1) ────────────────────────────────────────────
 
 def build_synthetic_blends(conn: sqlite3.Connection):
@@ -213,6 +244,8 @@ def build_synthetic_blends(conn: sqlite3.Connection):
     log.info("Building %d synthetic blend series …", len(synthetics))
 
     for blend_id, blend_name in synthetics:
+        if blend_id in FX_CONVERTED:
+            continue      # built by build_currency_converted, not a blend
         # Get components + weights
         components = conn.execute("""
             SELECT bc.component_index_id, bc.weight, b.index_name

@@ -182,6 +182,8 @@ export interface RiskFundRow extends RiskRatios {
   /** Decimal; up to 12M absolute, beyond that CAGR. null = not enough history. */
   returns: Record<RiskPeriod, number | null>
   recovery_days: number | null
+  /** Index funds and ETFs only: the benchmark this fund's ratios use. */
+  benchmark_name?: string
 }
 
 /** risk_{slug}.json — Risk & Returns tab. */

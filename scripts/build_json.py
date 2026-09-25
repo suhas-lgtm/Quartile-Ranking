@@ -614,6 +614,14 @@ PASSIVE_SLUGS = ("index-fund", "etf", "gold-etf", "fof-domestic", "fof-overseas"
 # unique, so they are compared with their category average instead.
 PEER_BY_INDEX_SLUGS = ("index-fund", "etf", "gold-etf", "fof-domestic")
 
+# Indices held in index_history, by the key tracked_index() gives a fund name.
+TRACKED_INDEX_IDS = {
+    "nifty 50": 1, "bse sensex": 2, "sensex": 2, "nifty 100": 3, "nifty bank": 4,
+    "nifty 500": 5, "nifty midcap 150": 6, "nifty smallcap 250": 7, "nifty it": 10,
+    "nifty 200": 17, "nifty pharma": 26,
+}
+ETF_PROXY_BASE = 1_000_000      # benchmark id of an ETF used as a benchmark = base + its code
+
 _TRACK_DROP = re.compile(
     r"\b(etf|exchange traded funds?|index funds?|index|fund of funds?|fofs?|funds?|regular|direct|"
     r"plan|growth|option|idcw|the|scheme|passive|bees|an open ended|tracking|replicating)\b")
@@ -653,6 +661,55 @@ RISK_RATIO_KEYS = [
     "std_annual", "sharpe", "sortino", "alpha", "beta",
     "max_drawdown", "upside_capture", "downside_capture", "composite_score",
 ]
+
+
+def _passive_benchmarks(conn, slug: str, codes: list[str]) -> dict[str, tuple[int, str]]:
+    """
+    {scheme_code: (benchmark index_id, name)} for index funds and ETFs, which
+    have no category benchmark.
+
+      Index Fund  the listed ETF tracking the same index (the one with the
+                  longest history). Its split-adjusted NAV series is registered
+                  as a benchmark, which also covers indices with no index data.
+                  Falls back to the index itself when no ETF tracks it.
+      ETF         the index it tracks, when index_history has it.
+    Funds with neither are left out (fund-only ratios).
+    """
+    if slug not in ("index-fund", "etf"):
+        return {}
+    amc_of = dict(conn.execute(
+        "SELECT s.scheme_code, a.amc_name FROM schemes s JOIN amcs a ON a.amc_id = s.amc_id").fetchall())
+    names = dict(conn.execute("SELECT scheme_code, scheme_name FROM schemes").fetchall())
+    idx_names = dict(conn.execute("SELECT index_id, index_name FROM benchmarks").fetchall())
+
+    etf_by_track: dict[str, tuple[str, str]] = {}
+    if slug == "index-fund":
+        for code, name, first in conn.execute("""
+                SELECT s.scheme_code, s.scheme_name, MIN(n.nav_date)
+                FROM schemes s JOIN categories c ON c.category_id = s.category_id
+                JOIN nav_history n ON n.scheme_code = s.scheme_code
+                WHERE c.slug = 'etf' GROUP BY s.scheme_code"""):
+            t = tracked_index(name, amc_of.get(code))
+            if t not in etf_by_track or first < etf_by_track[t][1]:
+                etf_by_track[t] = (str(code), first)
+
+    out: dict[str, tuple[int, str]] = {}
+    for code in codes:
+        t = tracked_index(names.get(code, ""), amc_of.get(code))
+        if slug == "index-fund" and t in etf_by_track:
+            etf = etf_by_track[t][0]
+            bid = ETF_PROXY_BASE + int(etf)
+            if not conn.execute("SELECT 1 FROM benchmarks WHERE index_id=?", (bid,)).fetchone():
+                conn.execute("INSERT INTO benchmarks (index_id, index_name, yahoo_ticker, is_synthetic, "
+                             "is_active) VALUES (?,?,NULL,1,0)", (bid, f"{names.get(etf, etf)} (ETF)"))
+                conn.execute("INSERT INTO index_history (index_id, date, close) "
+                             "SELECT ?, nav_date, nav FROM nav_history WHERE scheme_code=?", (bid, etf))
+                conn.commit()
+            out[code] = (bid, f"{names.get(etf, etf)} (ETF)")
+        elif t in TRACKED_INDEX_IDS:
+            bid = TRACKED_INDEX_IDS[t]
+            out[code] = (bid, idx_names.get(bid, t.upper()))
+    return out
 
 
 def build_risk(conn, cat_slug: str):
@@ -702,11 +759,30 @@ def build_risk(conn, cat_slug: str):
         log.warning("  %s: benchmark %s last updated %s — Alpha/Beta/Capture left blank",
                     cat_slug, bench_name, bench_last)
 
+    per_fund = _passive_benchmarks(conn, cat_slug, [sc for sc, _ in funds])
+    last_close: dict[int, str | None] = {}
+
     rows = []
     for sc, name in funds:
         rets = {p: _risk_period_return(conn, sc, p, as_of_d) for p in RISK_RETURN_PERIODS}
         if all(v is None for v in rets.values()):
             continue   # no NAV at all -- nothing to show
+        if sc in per_fund:
+            fb_id, fb_name = per_fund[sc]
+            if fb_id not in last_close:
+                last_close[fb_id] = conn.execute(
+                    "SELECT MAX(date) FROM index_history WHERE index_id=?", (fb_id,)).fetchone()[0]
+            m = risk_metrics(conn, sc, fb_id, rf, as_of_d)
+            lc = last_close[fb_id]
+            if not lc or (as_of_d - date.fromisoformat(lc)).days > BENCHMARK_MAX_LAG_DAYS:
+                for k in BENCHMARK_RELATIVE_KEYS:
+                    m[k] = None
+            m["benchmark_name"] = fb_name
+            m["scheme_code"] = sc
+            m["scheme_name"] = name
+            m["returns"] = rets
+            rows.append(m)
+            continue
         # With no benchmark the index query simply finds nothing, so the
         # fund-only ratios still come back and the relative ones are None.
         m = risk_metrics(conn, sc, bench_id, rf, as_of_d)
@@ -730,6 +806,8 @@ def build_risk(conn, cat_slug: str):
         "returns":     {p: fmt(r["returns"][p]) for p in RISK_RETURN_PERIODS},
         **{k: r.get(k) for k in RISK_RATIO_KEYS},
         "recovery_days": r.get("recovery_days"),
+        # Only for index funds and ETFs, which are each measured against their own.
+        **({"benchmark_name": r["benchmark_name"]} if r.get("benchmark_name") else {}),
     } for r in rows]
 
     benchmark = None

@@ -311,8 +311,15 @@ export default function RiskReturns() {
                 </tr>
                 {funds.map((f: RiskFundRow) => (
                   <tr key={f.scheme_code}>
-                    <td className="sticky-col text-xs font-medium truncate" style={{ maxWidth: 240 }} title={f.scheme_name}>
+                    <td className="sticky-col text-xs font-medium truncate" style={{ maxWidth: 240 }}
+                        title={f.benchmark_name ? `${f.scheme_name}
+Benchmark: ${f.benchmark_name}` : f.scheme_name}>
                       {f.scheme_name}
+                      {f.benchmark_name && (
+                        <div className="text-[10px] font-normal truncate" style={{ color: 'var(--text-low)' }}>
+                          vs {f.benchmark_name}
+                        </div>
+                      )}
                     </td>
                     {cols.map(c => cell(c, f, true))}
                   </tr>

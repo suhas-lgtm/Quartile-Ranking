@@ -287,7 +287,8 @@ def main():
         else:
             log.info("Topping up benchmark indices from Yahoo Finance ...")
             import sqlite3
-            from scripts.backfill_indices import run_index_backfill, build_synthetic_blends
+            from scripts.backfill_indices import (run_index_backfill, build_synthetic_blends,
+                                                  build_currency_converted)
 
             conn = sqlite3.connect(db_path)
             try:
@@ -306,6 +307,7 @@ def main():
                                 "continuing with the committed index history",
                                 type(exc).__name__, str(exc)[:90])
                 build_synthetic_blends(conn)
+                build_currency_converted(conn)
             finally:
                 conn.close()
 
