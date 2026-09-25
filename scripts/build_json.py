@@ -1208,13 +1208,13 @@ def build_blacklist(conn, categories, screener_cfg: dict):
 
 ALERTS_PATH = os.path.join(ROOT_DIR, "data", "alerts.json")
 # Percentage points a fund may trail its category average before it is flagged.
-ALERT_THRESHOLD_DEFAULTS = {"1D": 1.0, "1W": 2.0, "1M": 2.5, "3M": 3.0}
+ALERT_THRESHOLD_DEFAULTS = {"1D": 1.0, "1W": 2.0, "1M": 2.5}
 
 
 def build_alerts(conn, categories):
     """
     alerts.json: every Equity/Hybrid fund that trails its category average by
-    more than the threshold for a period (1D, 1W, 1M, 3M by default).
+    more than the threshold for a period (1D, 1W, 1M by default).
 
     Returns come from risk_{slug}.json (this build). The average is the plain
     mean of the category's funds (engine.category_average); for Sectoral/

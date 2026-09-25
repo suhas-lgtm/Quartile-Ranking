@@ -395,6 +395,18 @@ export default function Watchlist() {
         </button>
       </div>
 
+      {/* What the page is based on */}
+      <div className="card p-4 mb-4 text-xs leading-relaxed" style={{ color: 'var(--text-mid)' }}>
+        <b style={{ color: 'var(--text-hi)' }}>What this is based on:</b> every fund is ranked against the other
+        funds in its own category each {periodWord} (Q1 = top 25%, Q4 = bottom 25%; Sectoral/Thematic funds
+        against their own sector), using the same quartiles as the Quartile Ranking tab. A fund goes on{' '}
+        <b style={{ color: EXIT }}>▼ Exit watch</b> when it has been in the <b>bottom half (Q3/Q4)</b> for{' '}
+        {minStreak} or more {periodWord}s in a row, and on <b style={{ color: ENTRY }}>▲ Entry watch</b> when it has
+        been in the <b>top half (Q1/Q2)</b> for {minStreak} or more {periodWord}s in a row. The verdicts (Keep, Give
+        it time, Review, Exit) add one more check: is the fund’s 1-year return above or below its category
+        average. Change the period and the streak length with the controls below.
+      </div>
+
       {/* Controls */}
       <div className="card p-4 mb-5">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
@@ -461,8 +473,14 @@ export default function Watchlist() {
             <div className="text-xs font-semibold mb-3" style={{ color: 'var(--text-mid)' }}>
               Category Pulse
               <span className="ml-2 font-normal" style={{ color: 'var(--text-low)' }}>
-                click a tile to focus · net = entries − exits
+                click a tile to focus
               </span>
+              <div className="font-normal mt-1" style={{ color: 'var(--text-low)' }}>
+                <span style={{ color: EXIT, fontWeight: 700 }}>▼ number</span> = funds on exit watch (bottom half,
+                Q3/Q4, for {minStreak}+ {periodWord}s in a row) ·{' '}
+                <span style={{ color: ENTRY, fontWeight: 700 }}>▲ number</span> = funds on entry watch (top half,
+                Q1/Q2, for {minStreak}+ {periodWord}s in a row) · net = ▲ − ▼
+              </div>
             </div>
             <div className="flex flex-wrap gap-2">
               {data.categories.map(c => {
