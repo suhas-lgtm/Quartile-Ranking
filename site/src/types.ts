@@ -315,6 +315,25 @@ export interface BlacklistData {
   }[]
 }
 
+/** alerts.json — Auto Mailing tab. */
+export interface AlertsData {
+  as_of: string
+  /** Percentage points below the category average that trigger a flag, per period. */
+  thresholds: Record<string, number>
+  periods: string[]
+  funds: {
+    scheme_code: string
+    scheme_name: string
+    category_name: string
+    category_slug: string
+    asset_class: string
+    /** What the fund was compared with: its category, or its sector for Sectoral/Thematic. */
+    peer_group: string
+    periods: Record<string, { fund: number; average: number; gap: number; breach: boolean } | null>
+    breaches: string[]
+  }[]
+}
+
 export interface DrawdownPoint {
   date: string
   drawdown_pct: number

@@ -61,7 +61,7 @@ DATA_DIR = os.environ.get("MF_OUTPUT_DIR") or os.path.join(
 
 # Files that are not category-scoped and stay at the bucket root.
 GLOBAL_FILES = re.compile(
-    r"^(meta|indices|funds_index|whitelist|blacklist|glance_[a-z]+|watchlist_[a-z]+)\.json$")
+    r"^(meta|indices|funds_index|whitelist|blacklist|alerts|glance_[a-z]+|watchlist_[a-z]+)\.json$")
 
 # Defined in init_db, beside the asset classes it maps, so the publisher and
 # nav_store cannot disagree about where a file lives.

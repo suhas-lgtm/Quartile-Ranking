@@ -14,6 +14,7 @@ import Watchlist       from './sections/Watchlist'
 import RiskReturns     from './sections/RiskReturns'
 import WhitelistScreener from './sections/WhitelistScreener'
 import Blacklist       from './sections/Blacklist'
+import AutoMailing     from './sections/AutoMailing'
 import { useMeta }     from './hooks/useData'
 import { defaultTab, tabAllowed } from './config/profile'
 import { currentDesk } from './config/products'
@@ -149,6 +150,13 @@ export default function App() {
           <>
             <MarketPulseBar />
             <Blacklist />
+          </>
+        )}
+
+        {activeTab === 'alerts' && (
+          <>
+            <MarketPulseBar />
+            <AutoMailing />
           </>
         )}
       </main>

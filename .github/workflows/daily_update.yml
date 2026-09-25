@@ -38,6 +38,10 @@ on:
         description: 'Skip the Yahoo Finance index refresh'
         required: false
         default: 'false'
+      send_alerts:
+        description: 'Send the Auto Mailing email at the end of this run'
+        required: false
+        default: 'false'
 
 concurrency:
   group: daily-update
@@ -152,6 +156,21 @@ jobs:
         run: python scripts/publish_data.py --prune
         env:
           PYTHONIOENCODING: utf-8
+
+      # The Auto Mailing email (scripts/send_alerts.py via Brevo): once a day,
+      # after the 08:00 IST run, which is the one that adds the previous day's
+      # NAVs. Nothing is sent when no fund breaches a threshold. Mail trouble
+      # must never fail the data run, hence continue-on-error.
+      - name: Send Auto Mailing email (Brevo)
+        if: github.event.schedule == '30 2 * * *' || github.event.inputs.send_alerts == 'true'
+        continue-on-error: true
+        run: python scripts/send_alerts.py
+        env:
+          PYTHONIOENCODING: utf-8
+          BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
+          BREVO_SENDER_EMAIL: ${{ secrets.BREVO_SENDER_EMAIL }}
+          BREVO_SENDER_NAME: ${{ secrets.BREVO_SENDER_NAME }}
+          ALERT_RECIPIENTS: ${{ secrets.ALERT_RECIPIENTS }}
 
       # Only the catalogue is committed, and only when it changed -- without it a
       # newly launched fund would be rediscovered every day and never persist. It

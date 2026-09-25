@@ -1204,6 +1204,83 @@ def build_blacklist(conn, categories, screener_cfg: dict):
              len(manual), len(out_funds), failing)
 
 
+# ── Auto Mailing alerts (alerts.json) ───────────────────────────────────────
+
+ALERTS_PATH = os.path.join(ROOT_DIR, "data", "alerts.json")
+# Percentage points a fund may trail its category average before it is flagged.
+ALERT_THRESHOLD_DEFAULTS = {"1D": 1.0, "1W": 2.0, "1M": 2.5, "3M": 3.0, "6M": 3.5, "12M": 3.5}
+
+
+def build_alerts(conn, categories):
+    """
+    alerts.json: every Equity/Hybrid fund that trails its category average by
+    more than the threshold for a period (1D, 1W, 1M, 3M, 6M, 1Y).
+
+    Returns come from risk_{slug}.json (this build). The average is the plain
+    mean of the category's funds (engine.category_average); for Sectoral/
+    Thematic it is the mean of the fund's own SECTOR, as quartiles are ranked,
+    since a banking fund measured against a pharma-heavy average would trip the
+    alert on every sector rotation. scripts/send_alerts.py mails this file.
+    """
+    cfg = _load_list(ALERTS_PATH, "alerts")
+    thresholds = {**ALERT_THRESHOLD_DEFAULTS, **(cfg.get("thresholds") or {})}
+    periods = [p for p in thresholds if p in RISK_RETURN_PERIODS]
+
+    flagged = []
+    for _, slug, asset_class in categories:
+        if asset_class not in ("Equity", "Hybrid"):
+            continue
+        risk = _read_out(f"risk_{slug}.json")
+        if not risk or not risk.get("funds"):
+            continue
+        funds = risk["funds"]
+        sectors = sector_map([(f["scheme_code"], f["scheme_name"]) for f in funds], slug)
+        group_of = (lambda code: sectors[code]) if sectors else (lambda code: risk["category_name"])
+
+        averages: dict[tuple[str, str], float | None] = {}
+        for p in periods:
+            by_group: dict[str, list] = {}
+            for f in funds:
+                by_group.setdefault(group_of(f["scheme_code"]), []).append(f["returns"].get(p))
+            for g, vals in by_group.items():
+                averages[(g, p)] = category_average(vals)
+
+        for f in funds:
+            g = group_of(f["scheme_code"])
+            rows, breached = {}, []
+            for p in periods:
+                ret, avg = f["returns"].get(p), averages.get((g, p))
+                if ret is None or avg is None:
+                    rows[p] = None
+                    continue
+                gap = (ret - avg) * 100            # percentage points
+                hit = gap < -thresholds[p]
+                rows[p] = {"fund": fmt(ret), "average": fmt(avg), "gap": round(gap, 2), "breach": hit}
+                if hit:
+                    breached.append(p)
+            if breached:
+                flagged.append({
+                    "scheme_code":   f["scheme_code"],
+                    "scheme_name":   f["scheme_name"],
+                    "category_name": risk["category_name"],
+                    "category_slug": slug,
+                    "asset_class":   asset_class,
+                    "peer_group":    g,
+                    "periods":       rows,
+                    "breaches":      breached,
+                })
+
+    flagged.sort(key=lambda x: (-len(x["breaches"]),
+                                min(x["periods"][p]["gap"] for p in x["breaches"])))
+    write_json(out("alerts.json"), {
+        "as_of":      get_as_of(conn),
+        "thresholds": thresholds,
+        "periods":    periods,
+        "funds":      flagged,
+    })
+    log.info("✓ alerts.json (%d funds breach at least one threshold)", len(flagged))
+
+
 # ── Index series (index/{index_id}.json) ─────────────────────────────────────
 
 def build_index_series(conn):
@@ -1256,6 +1333,7 @@ def main():
             build_screener(conn, slug, screener_cfg)
     build_whitelist(conn)
     build_blacklist(conn, categories, screener_cfg)
+    build_alerts(conn, categories)
 
     build_index_series(conn)
 
