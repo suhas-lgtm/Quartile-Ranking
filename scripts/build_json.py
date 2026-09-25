@@ -1034,6 +1034,13 @@ BLACKLIST_RULE_DEFAULTS = {
 }
 PERIOD_NAME = {"12M": "1Y"}
 
+# Default % weight of each rule in the Blacklist Score (editable on the page).
+BLACKLIST_WEIGHT_DEFAULTS = {
+    "bottom_quartile": 20, "negative_alpha": 20, "rolling_consistency": 15,
+    "downside_capture": 15, "high_beta": 10, "tracking_error": 10,
+    "short_track_record": 5, "bottom_3m": 5,
+}
+
 
 def _pct(v: float) -> str:
     return f"{v * 100:+.1f}%"
@@ -1045,14 +1052,16 @@ def build_blacklist(conn, categories, screener_cfg: dict):
 
       manual  the team's list in data/blacklist.json, with reasons
               (fund_details, same details as any list);
-      flags   every Equity/Hybrid fund that fails one or more automatic rules,
-              each failure spelled out. The rules are the NAV-based part of the
-              team's blacklist criteria (holdings-based ones wait for holdings
-              coverage); thresholds come from BLACKLIST_RULE_DEFAULTS, overridden
-              by data/blacklist.json "rules".
+      funds   every Equity/Hybrid fund with the result of each automatic rule:
+              {"fail": true/false, or null when the rule does not apply to the
+              fund's category or the data is missing, "value": what was measured,
+              "text": the failure spelled out}. The page weights the failed rules
+              (editable, defaults in data/blacklist.json "weights") into a
+              Blacklist Score and lists funds above a cut-off.
 
-    Reads risk_{slug}.json and screener_{slug}.json from this build; tracking
-    error and rolling consistency come from the engine.
+    The rules are the NAV-based part of the team's blacklist criteria; the
+    holdings-based ones wait for holdings coverage. Thresholds come from
+    BLACKLIST_RULE_DEFAULTS, overridden by data/blacklist.json "rules".
     """
     cfg = _load_list(BLACKLIST_PATH, "blacklist")
     rules = {**BLACKLIST_RULE_DEFAULTS, **(cfg.get("rules") or {})}
@@ -1060,7 +1069,11 @@ def build_blacklist(conn, categories, screener_cfg: dict):
     as_of = get_as_of(conn)
     as_of_d = date.fromisoformat(as_of)
 
-    flagged = []
+    def res(fail, value, text=""):
+        return {"fail": fail, "value": value, "text": text if fail else ""}
+
+    NA = {"fail": None, "value": None, "text": ""}
+    out_funds = []
     for _, slug, asset_class in categories:
         if asset_class not in ("Equity", "Hybrid"):
             continue
@@ -1074,103 +1087,121 @@ def build_blacklist(conn, categories, screener_cfg: dict):
         bench_ok = bool(bench_id) and not bench.get("stale")
         ratios = {f["scheme_code"]: f["ratios"] for f in (scr or {}).get("funds", [])}
         funds = risk["funds"]
-        names = [(f["scheme_code"], f["scheme_name"]) for f in funds]
-        sectors = sector_map(names, slug)
+        sectors = sector_map([(f["scheme_code"], f["scheme_name"]) for f in funds], slug)
 
-        # Quartile per period within the category (per sector for sectoral).
         quart = {}
         for p in set(rules["bottom_quartile_periods"]) | {"3M"}:
             rq = rank_within_sectors({f["scheme_code"]: f["returns"].get(p) for f in funds}, sectors)
             quart[p] = {c: q for c, (_r, q) in rq.items()}
 
-        # Tracking error, for the categories that use it.
-        te = {}
+        te, te_cut = {}, None
         if slug in rules["tracking_error_categories"] and bench_ok:
             for f in funds:
                 te[f["scheme_code"]] = tracking_error(conn, f["scheme_code"], bench_id, as_of_d)
             vals = sorted(v for v in te.values() if v is not None)
-            te_cut = vals[int(len(vals) * (1 - rules["tracking_error_top_share"]))] if len(vals) >= 4 else None
-        else:
-            te_cut = None
+            if len(vals) >= 4:
+                te_cut = vals[int(len(vals) * (1 - rules["tracking_error_top_share"]))]
 
         for f in funds:
             code = f["scheme_code"]
             r = ratios.get(code) or {}
-            reasons = []
+            out = {}
 
+            # Persistent laggard
             qs = [quart[p].get(code) for p in rules["bottom_quartile_periods"]]
-            if qs and all(q == 4 for q in qs):
-                reasons.append({"rule": "bottom_quartile",
-                                "text": "Bottom quartile on " + ", ".join(
-                                    PERIOD_NAME.get(p, p) for p in rules["bottom_quartile_periods"])})
+            if all(q is not None for q in qs):
+                out["bottom_quartile"] = res(
+                    all(q == 4 for q in qs), " · ".join(f"Q{q}" for q in qs),
+                    "Bottom quartile on " + ", ".join(PERIOD_NAME.get(p, p) for p in rules["bottom_quartile_periods"]))
+            else:
+                out["bottom_quartile"] = NA
 
+            # Negative alpha
             alphas = [(r.get("alpha") or {}).get(h) for h in rules["negative_alpha_horizons"]]
-            if bench_ok and alphas and all(a is not None and a < 0 for a in alphas):
-                reasons.append({"rule": "negative_alpha",
-                                "text": "Negative alpha " + ", ".join(
-                                    f"{h} {a * 100:.2f}" for h, a in zip(rules["negative_alpha_horizons"], alphas))})
+            if bench_ok and all(a is not None for a in alphas):
+                out["negative_alpha"] = res(
+                    all(a < 0 for a in alphas), " / ".join(f"{a * 100:.2f}" for a in alphas),
+                    "Negative alpha " + ", ".join(f"{h} {a * 100:.2f}"
+                                                  for h, a in zip(rules["negative_alpha_horizons"], alphas)))
+            else:
+                out["negative_alpha"] = NA
 
-            if bench_ok:
-                roll = rolling_statistics(conn, code, bench_id, rules["rolling_window"], as_of_d)
-                beat = roll.get("pct_beats_benchmark")
-                if beat is not None and beat < rules["rolling_min_beat"]:
-                    reasons.append({"rule": "rolling_consistency",
-                                    "text": f"Beat benchmark in only {beat * 100:.0f}% of rolling "
-                                            f"{rules['rolling_window']} periods"})
+            # Rolling consistency
+            beat = (rolling_statistics(conn, code, bench_id, rules["rolling_window"], as_of_d)
+                    .get("pct_beats_benchmark") if bench_ok else None)
+            out["rolling_consistency"] = NA if beat is None else res(
+                beat < rules["rolling_min_beat"], f"{beat * 100:.0f}%",
+                f"Beat benchmark in only {beat * 100:.0f}% of rolling {rules['rolling_window']} periods")
 
+            # Downside capture
             dc = r.get("down_capture") or {}
             horizons = ["1Y", "3Y"] if slug in rules["downside_capture_strict_categories"] else ["3Y"]
-            over = [(h, dc.get(h)) for h in horizons
-                    if dc.get(h) is not None and dc.get(h) > rules["downside_capture_max"]]
-            if bench_ok and over:
-                reasons.append({"rule": "downside_capture",
-                                "text": "Downside capture " + ", ".join(f"{h} {v:.0f}" for h, v in over)
-                                        + f" (above {rules['downside_capture_max']})"})
+            got = [(h, dc.get(h)) for h in horizons if dc.get(h) is not None]
+            if bench_ok and got:
+                over = [(h, v) for h, v in got if v > rules["downside_capture_max"]]
+                out["downside_capture"] = res(
+                    bool(over), " · ".join(f"{h} {v:.0f}" for h, v in got),
+                    "Downside capture " + ", ".join(f"{h} {v:.0f}" for h, v in over)
+                    + f" (above {rules['downside_capture_max']})")
+            else:
+                out["downside_capture"] = NA
 
-            if te_cut is not None and te.get(code) is not None and te[code] >= te_cut:
-                a3 = (r.get("alpha") or {}).get("3Y")
-                if a3 is not None and a3 < 0:
-                    reasons.append({"rule": "tracking_error",
-                                    "text": f"High tracking error {te[code] * 100:.1f}% with negative 3Y alpha"})
+            # Tracking error with negative alpha (large cap)
+            a3 = (r.get("alpha") or {}).get("3Y")
+            if te_cut is not None and te.get(code) is not None and a3 is not None:
+                out["tracking_error"] = res(
+                    te[code] >= te_cut and a3 < 0, f"{te[code] * 100:.1f}%",
+                    f"High tracking error {te[code] * 100:.1f}% with negative 3Y alpha")
+            else:
+                out["tracking_error"] = NA
 
-            if slug not in rules["track_record_exempt_categories"]:
+            # Short track record
+            if slug in rules["track_record_exempt_categories"]:
+                out["short_track_record"] = NA
+            else:
                 first = conn.execute("SELECT MIN(nav_date) FROM nav_history WHERE scheme_code=?",
                                      (code,)).fetchone()[0]
                 if first:
                     yrs = (as_of_d - date.fromisoformat(first)).days / 365.25
-                    if yrs < rules["min_track_record_years"]:
-                        reasons.append({"rule": "short_track_record",
-                                        "text": f"Short track record ({yrs:.1f} years)"})
+                    out["short_track_record"] = res(
+                        yrs < rules["min_track_record_years"], f"{yrs:.1f}y",
+                        f"Short track record ({yrs:.1f} years)")
+                else:
+                    out["short_track_record"] = NA
 
-            if slug in rules["bottom_3m_categories"] and quart["3M"].get(code) == 4:
-                reasons.append({"rule": "bottom_3m", "text": "Bottom quartile on 3-month return"})
+            # Multi cap: bottom of pack on 3M
+            q3 = quart["3M"].get(code)
+            out["bottom_3m"] = (res(q3 == 4, f"Q{q3}", "Bottom quartile on 3-month return")
+                                if slug in rules["bottom_3m_categories"] and q3 is not None else NA)
 
+            # Value / dividend yield: high beta
             b3 = (r.get("beta") or {}).get("3Y")
-            if (slug in rules["high_beta_categories"] and bench_ok
-                    and b3 is not None and b3 > rules["high_beta_max"]):
-                reasons.append({"rule": "high_beta", "text": f"High beta {b3:.2f} for a value mandate"})
+            out["high_beta"] = (res(b3 > rules["high_beta_max"], f"{b3:.2f}", f"High beta {b3:.2f} for a value mandate")
+                                if slug in rules["high_beta_categories"] and bench_ok and b3 is not None else NA)
 
-            if reasons:
-                flagged.append({
-                    "scheme_code":   code,
-                    "scheme_name":   f["scheme_name"],
-                    "category_name": cat_name,
-                    "category_slug": slug,
-                    "asset_class":   asset_class,
-                    "reasons":       reasons,
-                    "return_1y":     f["returns"].get("12M"),
-                    "return_3y":     f["returns"].get("3Y"),
-                })
+            out_funds.append({
+                "scheme_code":   code,
+                "scheme_name":   f["scheme_name"],
+                "category_name": cat_name,
+                "category_slug": slug,
+                "asset_class":   asset_class,
+                "rules":         out,
+                "return_1y":     f["returns"].get("12M"),
+                "return_3y":     f["returns"].get("3Y"),
+            })
 
-    flagged.sort(key=lambda x: (-len(x["reasons"]), x["category_name"], x["scheme_name"]))
     write_json(out("blacklist.json"), {
-        "as_of":   as_of,
-        "rules":   rules,
-        "manual":  manual,
-        "missing": missing,
-        "flagged": flagged,
+        "as_of":           as_of,
+        "rules":           rules,
+        "default_weights": {**BLACKLIST_WEIGHT_DEFAULTS, **(cfg.get("weights") or {})},
+        "default_min_score": cfg.get("min_score", 20),
+        "manual":          manual,
+        "missing":         missing,
+        "funds":           out_funds,
     })
-    log.info("✓ blacklist.json (%d listed, %d flagged by rules)", len(manual), len(flagged))
+    failing = sum(1 for f in out_funds if any(v["fail"] for v in f["rules"].values()))
+    log.info("✓ blacklist.json (%d listed, %d funds checked, %d fail a rule)",
+             len(manual), len(out_funds), failing)
 
 
 # ── Index series (index/{index_id}.json) ─────────────────────────────────────

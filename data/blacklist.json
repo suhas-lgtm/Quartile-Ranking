@@ -1,5 +1,16 @@
 {
-  "_about": "Blacklist tab. funds: the team's manual list of funds to avoid, one entry per fund: scheme_code (AMFI / api.mfapi.in code, e.g. 103174) and an optional reason. rules: thresholds for the automatic flags (NAV-based criteria); any key left out uses the default in scripts/build_json.py BLACKLIST_RULE_DEFAULTS. Category keys are slugs (large-cap, mid-cap, small-cap, multi-cap, value-contra, dividend-yield, ...).",
+  "_about": "Blacklist tab. funds: the team's manual list of funds to avoid, one entry per fund: scheme_code (AMFI / api.mfapi.in code, e.g. 103174) and an optional reason. rules: thresholds for the automatic flags (NAV-based criteria); any key left out uses the default in scripts/build_json.py BLACKLIST_RULE_DEFAULTS. Category keys are slugs (large-cap, mid-cap, small-cap, multi-cap, value-contra, dividend-yield, ...). weights: default % of each rule in the Blacklist Score (a fund's score = total weight of the rules it fails; viewers can change weights on the page). min_score: default cut-off; funds at or above it are listed.",
+  "weights": {
+    "bottom_quartile": 20,
+    "negative_alpha": 20,
+    "rolling_consistency": 15,
+    "downside_capture": 15,
+    "high_beta": 10,
+    "tracking_error": 10,
+    "short_track_record": 5,
+    "bottom_3m": 5
+  },
+  "min_score": 20,
   "rules": {
     "bottom_quartile_periods": [
       "3M",

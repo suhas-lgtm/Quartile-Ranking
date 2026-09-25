@@ -281,27 +281,35 @@ export interface ListedFund {
   ratios: RiskRatios | null
 }
 
-/** One automatic blacklist rule a fund failed. */
-export interface BlacklistReason {
-  rule: 'bottom_quartile' | 'negative_alpha' | 'rolling_consistency' | 'downside_capture'
-      | 'tracking_error' | 'short_track_record' | 'bottom_3m' | 'high_beta'
+export type BlacklistRule =
+  | 'bottom_quartile' | 'negative_alpha' | 'rolling_consistency' | 'downside_capture'
+  | 'tracking_error' | 'short_track_record' | 'bottom_3m' | 'high_beta'
+
+/** One rule's result for one fund. fail is null when the rule does not apply. */
+export interface BlacklistRuleResult {
+  fail: boolean | null
+  /** What was measured, ready to display (e.g. "Q4 · Q4 · Q3", "37%"). */
+  value: string | null
+  /** The failure spelled out; empty when it passed. */
   text: string
 }
 
 /** blacklist.json — Blacklist tab. */
 export interface BlacklistData {
   as_of: string
-  /** The thresholds the automatic flags were computed with. */
+  /** The thresholds the rules were evaluated with. */
   rules: Record<string, unknown>
+  default_weights: Record<BlacklistRule, number>
+  default_min_score: number
   manual: ListedFund[]
   missing: string[]
-  flagged: {
+  funds: {
     scheme_code: string
     scheme_name: string
     category_name: string
     category_slug: string
     asset_class: string
-    reasons: BlacklistReason[]
+    rules: Record<BlacklistRule, BlacklistRuleResult>
     return_1y: number | null
     return_3y: number | null
   }[]
