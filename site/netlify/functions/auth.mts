@@ -19,6 +19,7 @@ export default async (req: Request): Promise<Response> => {
   const headers: Record<string, string> = {
     'content-type': 'application/json',
     'cache-control': 'no-store',
+    'netlify-cdn-cache-control': 'no-store',
   }
   if (out.setCookie) headers['set-cookie'] = out.setCookie
   return new Response(out.body, { status: out.status, headers })

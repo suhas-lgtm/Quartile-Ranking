@@ -9,6 +9,17 @@ import { isProtected, readCookie, sessionValid, SESSION_COOKIE } from '../../ser
 
 const FN_PREFIX = '/.netlify/functions/data'
 
+// CDN caching, to spend fewer Netlify credits: every uncached page view would
+// otherwise invoke this function and query Neon. Public files are kept at the
+// edge for 15 minutes and then revalidated in the background, so the data
+// refreshed twice a day reaches visitors within ~15 minutes while the function
+// runs at most about once per file per 15 minutes. "durable" shares the cached
+// copy across Netlify's edge nodes.
+const CDN_PUBLIC = 'public, durable, s-maxage=900, stale-while-revalidate=86400'
+// Anything personal or failed must never be cached: the cache key ignores
+// cookies, so a cached protected file would be served to everyone.
+const NO_STORE = { 'cache-control': 'private, no-store', 'netlify-cdn-cache-control': 'no-store' }
+
 export default async (req: Request): Promise<Response> => {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     return new Response('Method not allowed', { status: 405 })
@@ -34,25 +45,35 @@ export default async (req: Request): Promise<Response> => {
     const token = readCookie(req.headers.get('cookie'), SESSION_COOKIE)
     if (!password || !sessionValid(token, password, databaseUrl)) {
       return new Response(JSON.stringify({ error: 'login required' }), {
-        status: 401, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+        status: 401, headers: { 'content-type': 'application/json', ...NO_STORE },
       })
     }
   }
 
   try {
     const file = await readFile(databaseUrl, target.bucket, target.path)
-    if (!file) return new Response('Not found', { status: 404 })
+    const protectedFile = target.bucket === 'MF Data' && isProtected(target.path)
+    if (!file) {
+      // A category with no funds has no file, and the page asks for it on every
+      // visit; caching the 404 briefly saves those calls too.
+      return new Response('Not found', {
+        status: 404,
+        headers: protectedFile ? NO_STORE
+          : { 'cache-control': 'public, max-age=300', 'netlify-cdn-cache-control': CDN_PUBLIC },
+      })
+    }
     return new Response(req.method === 'HEAD' ? null : new Uint8Array(file.body), {
       status: 200,
       headers: {
         'content-type': file.contentType,
-        // A protected file must never sit in a shared cache.
-        'cache-control': isProtected(target.path) && target.bucket === 'MF Data'
-          ? 'private, no-store' : (file.cacheControl ?? 'max-age=300'),
+        ...(protectedFile ? NO_STORE : {
+          'cache-control': file.cacheControl ?? 'public, max-age=300',
+          'netlify-cdn-cache-control': CDN_PUBLIC,
+        }),
       },
     })
   } catch (err) {
     console.error('neon read failed', target, err)
-    return new Response('Upstream error', { status: 502 })
+    return new Response('Upstream error', { status: 502, headers: NO_STORE })
   }
 }
