@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import fs from 'fs'
 import path from 'path'
 import { route, readFile } from './server/neonFiles'
+import { handleAuth, isProtected, readCookie, sessionValid, SESSION_COOKIE } from './server/auth'
 
 // Dev mirrors what the Netlify function does in production: /data/* and
 // /live/indices/* are answered from Neon's `files` table, which the pipeline
@@ -49,6 +50,7 @@ function hasLocal(pathname: string): boolean {
 
 function neonData(): Plugin {
   const databaseUrl = readEnv('DATABASE_URL')
+  const password = readEnv('WHITELIST_PASSWORD')
   return {
     name: 'neon-data',
     configureServer(server) {
@@ -56,10 +58,36 @@ function neonData(): Plugin {
         console.warn('[vite] DATABASE_URL is not set in ../.env — /data requests will 404 '
           + 'until you add your Neon connection string there.')
       }
+      // Whitelist Screener login, same handler as netlify/functions/auth.mts.
+      server.middlewares.use(async (req, res, next) => {
+        const pathname = (req.url ?? '').split('?')[0]
+        if (!pathname.startsWith('/api/')) return next()
+        const out = await handleAuth(
+          pathname.slice('/api/'.length), req.method ?? 'GET', req.headers.cookie,
+          () => new Promise<string>(resolve => {
+            let b = ''
+            req.on('data', c => { b += c })
+            req.on('end', () => resolve(b))
+          }),
+          { password, salt: databaseUrl }, false)
+        res.statusCode = out.status
+        res.setHeader('content-type', 'application/json')
+        if (out.setCookie) res.setHeader('set-cookie', out.setCookie)
+        res.end(out.body)
+      })
       server.middlewares.use(async (req, res, next) => {
         const pathname = (req.url ?? '').split('?')[0]
         const target = route(pathname)
-        if (!target || hasLocal(pathname)) return next()
+        if (!target) return next()
+        if (target.bucket === 'MF Data' && isProtected(target.path)) {
+          const token = readCookie(req.headers.cookie, SESSION_COOKIE)
+          if (!password || !databaseUrl || !sessionValid(token, password, databaseUrl)) {
+            res.statusCode = 401
+            res.setHeader('content-type', 'application/json')
+            return res.end(JSON.stringify({ error: 'login required' }))
+          }
+        }
+        if (hasLocal(pathname)) return next()
         if (!databaseUrl) {
           res.statusCode = 404
           return res.end('DATABASE_URL not configured')

@@ -55,6 +55,15 @@
 # ORDER MATTERS: Netlify evaluates redirects top-down, so both must stay above
 # the SPA catch-all or /* would swallow them.
 
+# Whitelist Screener login: /api/login, /api/session, /api/logout
+# (netlify/functions/auth.mts). Needs WHITELIST_PASSWORD set in the site's
+# environment variables.
+[[redirects]]
+  from   = "/api/*"
+  to     = "/.netlify/functions/auth/:splat"
+  status = 200
+  force  = true
+
 # The dashboard's data, organised by asset class:
 #   meta.json  manifest.json  indices.json  watchlist_*.json  index/<id>.json
 #   equity|hybrid|debt|other/<slug>/quartiles_*.json ...

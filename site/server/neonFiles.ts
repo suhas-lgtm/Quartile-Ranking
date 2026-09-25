@@ -61,10 +61,21 @@ export async function readFile(databaseUrl: string, bucket: string,
   const sql = client(databaseUrl)
   // base64 because bytea over the HTTP driver arrives as a hex string; this
   // keeps the decode to one well-defined step.
-  const rows = (await sql`
+  type Row = { b64: string; content_type: string; cache_control: string | null }
+  const query = async () => (await sql`
     SELECT encode(body, 'base64') AS b64, content_type, cache_control
     FROM files WHERE bucket = ${bucket} AND path = ${path}
-  `) as Array<{ b64: string; content_type: string; cache_control: string | null }>
+  `) as Row[]
+  // Neon's free tier suspends an idle database, and the request that wakes it
+  // can fail ("fetch failed") while it starts. One retry after a short pause
+  // covers the wake-up so the visitor never sees it.
+  let rows
+  try {
+    rows = await query()
+  } catch {
+    await new Promise(r => setTimeout(r, 1500))
+    rows = await query()
+  }
   if (!rows.length) return null
   return {
     body: Buffer.from(rows[0].b64, 'base64'),

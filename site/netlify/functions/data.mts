@@ -5,6 +5,7 @@
 // Needs DATABASE_URL in the Netlify site's environment variables; a read-only
 // Neon role is enough, since this only ever SELECTs.
 import { route, readFile } from '../../server/neonFiles'
+import { isProtected, readCookie, sessionValid, SESSION_COOKIE } from '../../server/auth'
 
 const FN_PREFIX = '/.netlify/functions/data'
 
@@ -26,6 +27,18 @@ export default async (req: Request): Promise<Response> => {
   const target = route(pathname)
   if (!target) return new Response('Not found', { status: 404 })
 
+  // Whitelist Screener data needs a login (server/auth.ts). Fails closed: with
+  // no password configured the files are simply not served.
+  if (target.bucket === 'MF Data' && isProtected(target.path)) {
+    const password = process.env.WHITELIST_PASSWORD
+    const token = readCookie(req.headers.get('cookie'), SESSION_COOKIE)
+    if (!password || !sessionValid(token, password, databaseUrl)) {
+      return new Response(JSON.stringify({ error: 'login required' }), {
+        status: 401, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+      })
+    }
+  }
+
   try {
     const file = await readFile(databaseUrl, target.bucket, target.path)
     if (!file) return new Response('Not found', { status: 404 })
@@ -33,7 +46,9 @@ export default async (req: Request): Promise<Response> => {
       status: 200,
       headers: {
         'content-type': file.contentType,
-        'cache-control': file.cacheControl ?? 'max-age=300',
+        // A protected file must never sit in a shared cache.
+        'cache-control': isProtected(target.path) && target.bucket === 'MF Data'
+          ? 'private, no-store' : (file.cacheControl ?? 'max-age=300'),
       },
     })
   } catch (err) {

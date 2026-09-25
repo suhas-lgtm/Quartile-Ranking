@@ -148,7 +148,80 @@ function loadWeights(): Record<string, number> | null {
   }
 }
 
+/**
+ * Password screen. The check itself happens on the server (server/auth.ts):
+ * without a session the screener files answer 401, so this form is the only
+ * way in, not just a curtain over data the browser already has.
+ */
+function LoginGate({ onSuccess }: { onSuccess: () => void }) {
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setBusy(true)
+    setError(null)
+    try {
+      const r = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ password }),
+      })
+      if (r.ok) {
+        onSuccess()
+        return
+      }
+      setError(r.status === 401 ? 'Incorrect password.' : 'Login is not available right now.')
+    } catch {
+      setError('Could not reach the server.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="px-4 sm:px-6 py-16 max-w-screen-2xl mx-auto">
+      <form onSubmit={submit} className="card p-6 max-w-sm mx-auto">
+        <div className="font-display font-bold text-base mb-1" style={{ color: 'var(--text-hi)' }}>
+          🔒 Whitelist Screener
+        </div>
+        <p className="text-xs mb-4" style={{ color: 'var(--text-mid)' }}>
+          This section is for Armstrong employees. Enter the team password to continue.
+        </p>
+        <input
+          type="password" autoFocus autoComplete="current-password"
+          value={password} onChange={e => setPassword(e.target.value)}
+          placeholder="Password"
+          className="w-full px-3 py-2 rounded-lg text-sm mb-3"
+          style={{ background: 'var(--bg-raised)', border: '1px solid var(--line)', color: 'var(--text-hi)', outline: 'none' }}
+        />
+        {error && <div className="text-xs mb-3" style={{ color: 'var(--loss)' }}>{error}</div>}
+        <button type="submit" disabled={busy || !password}
+                className="w-full py-2 rounded-lg text-sm font-semibold"
+                style={{ background: 'var(--accent-a)', color: '#04121A', opacity: busy || !password ? 0.6 : 1,
+                         cursor: busy || !password ? 'default' : 'pointer', border: 'none' }}>
+          {busy ? 'Checking…' : 'Unlock'}
+        </button>
+        <p className="text-[10px] mt-3" style={{ color: 'var(--text-low)' }}>
+          You stay signed in on this browser for 30 days.
+        </p>
+      </form>
+    </section>
+  )
+}
+
 export default function WhitelistScreener() {
+  const [auth, setAuth] = useState<'checking' | 'in' | 'out'>('checking')
+  useEffect(() => {
+    fetch('/api/session', { cache: 'no-store' })
+      .then(r => setAuth(r.ok ? 'in' : 'out'))
+      .catch(() => setAuth('out'))
+  }, [])
+  const logout = () => {
+    fetch('/api/logout', { method: 'POST' }).finally(() => setAuth('out'))
+  }
+
   const { data: meta } = useMeta()
   const [slug, setSlug] = useState('')
   const [showRaw, setShowRaw] = useState(true)
@@ -160,7 +233,8 @@ export default function WhitelistScreener() {
   const mainTabs  = eligibleCats.filter(c => MAIN_TAB_NAMES.includes(c.category_name))
   const otherCats = eligibleCats.filter(c => !MAIN_TAB_NAMES.includes(c.category_name))
 
-  const { data, loading, error } = useScreener(activeSlug)
+  // Nothing is requested until the session is confirmed.
+  const { data, loading, error } = useScreener(auth === 'in' ? activeSlug : '')
 
   const defaults = data?.default_weights
   const w: Record<string, number> = weights ?? defaults ?? {}
@@ -229,10 +303,20 @@ export default function WhitelistScreener() {
   const colour = categoryColor(activeSlug)
   const scoreCell = (v: number | null | undefined) => (v == null ? '—' : v.toFixed(1))
 
+  if (auth === 'checking') {
+    return <section className="px-4 sm:px-6 py-16 max-w-screen-2xl mx-auto"><div className="skeleton h-40 max-w-sm mx-auto" /></section>
+  }
+  if (auth === 'out') return <LoginGate onSuccess={() => setAuth('in')} />
+
   return (
     <section id="whitelist-screener" className="px-4 sm:px-6 py-6 max-w-screen-2xl mx-auto">
       <div className="section-header">
         <span>Whitelist Screener</span>
+        <button onClick={logout} className="ml-auto text-[11px]"
+                style={{ color: 'var(--text-low)', background: 'none', border: '1px solid var(--line)',
+                         borderRadius: 6, padding: '3px 10px', cursor: 'pointer' }}>
+          🔒 Log out
+        </button>
       </div>
 
       {/* ── Category + controls ─────────────────────────────────── */}
