@@ -164,12 +164,7 @@ export default function App() {
 
         {activeTab === 'p2p' && <PointToPoint />}
 
-        {activeTab === 'portfolio' && (
-          <>
-            <MarketPulseBar />
-            <PortfolioBuilder />
-          </>
-        )}
+        {activeTab === 'portfolio' && <PortfolioBuilder />}
       </main>
 
       <footer className="site-footer">

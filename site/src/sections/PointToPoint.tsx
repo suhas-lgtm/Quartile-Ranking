@@ -1,8 +1,8 @@
-// src/sections/PointToPoint.tsx — any two dates: index levels and every fund's
-// NAV and return in a category between them.
+// src/sections/PointToPoint.tsx — any two dates: every fund's NAV and return in
+// a category between them, with the category average and benchmark.
 //
 // Fund NAVs come from /api/nav (server/navLookup.ts, the full history in Neon);
-// index levels from the Market Pulse files' history (6 years). Returns follow
+// the benchmark row from the Market Pulse files' history (6 years). Returns follow
 // the engine's rules: NEAREST-PREVIOUS NAV on each date, simple return up to a
 // year and CAGR beyond it, unit splits compensated (utils/navMath).
 
@@ -11,7 +11,6 @@ import { useIndices, useJson, useMeta } from '../hooks/useData'
 import DownloadButton from '../components/DownloadButton'
 import { currentDesk } from '../config/products'
 import { categoryColor } from '../config/categoryColors'
-import { MARKET_PULSE_GROUPS, MARKET_PULSE_INDICES, indexGroup } from '../config/indices'
 import { fmtDate, fmtNum, fmtPct, retColor } from '../utils/format'
 import { cagr, closeOnOrBefore, isoMinus, pointReturn, useNavLookup } from '../utils/navMath'
 import type { SheetSpec } from '../utils/xlsx'
@@ -27,7 +26,6 @@ export default function PointToPoint() {
   const [slug, setSlug] = useState('large-cap')
   const [to, setTo] = useState('')
   const [from, setFrom] = useState('')
-  const [group, setGroup] = useState<'broad' | 'sectoral' | 'global'>('broad')
   const toDate = to || latest
   const fromDate = from || (latest ? isoMinus(latest, 12) : '')
   const valid = !!fromDate && !!toDate && fromDate < toDate
@@ -58,14 +56,6 @@ export default function PointToPoint() {
   const bA = closeOnOrBefore(benchIdx?.history, fromDate)
   const bB = closeOnOrBefore(benchIdx?.history, toDate)
   const benchRet = bA && bB ? bB.nav / bA.nav - 1 : null
-
-  const cards = (indices?.indices ?? [])
-    .filter(i => indexGroup(i.index_id) === group && MARKET_PULSE_INDICES.some(m => m.id === i.index_id))
-    .map(i => {
-      const a = closeOnOrBefore(i.history, fromDate)
-      const b = closeOnOrBefore(i.history, toDate)
-      return { i, a, b, ret: a && b ? b.nav / a.nav - 1 : null }
-    })
 
   const quick = (months: number) => { setTo(''); setFrom(latest ? isoMinus(latest, months) : '') }
 
@@ -120,28 +110,6 @@ export default function PointToPoint() {
           Uses the NAV / close on or before each date · latest data {fmtDate(latest)}
         </span>
         {!valid && fromDate && toDate && <span style={{ color: 'var(--loss)' }}>“From” must be before “To”.</span>}
-      </div>
-
-      {/* ── Index cards ─────────────────────────────────────────── */}
-      <div className="flex items-center gap-2 mb-2">
-        <div className="font-display font-bold text-sm" style={{ color: 'var(--text-hi)' }}>Indices</div>
-        <div className="tab-bar flex gap-1">
-          {MARKET_PULSE_GROUPS.map(g => (
-            <button key={g.key} onClick={() => setGroup(g.key)} className={`tab-btn${group === g.key ? ' active accent' : ''}`}>{g.label}</button>
-          ))}
-        </div>
-      </div>
-      <div className="grid gap-2 mb-6" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))' }}>
-        {cards.map(({ i, a, b, ret }) => (
-          <div key={i.index_id} className="rounded-xl p-3" style={{ border: '1px solid var(--line)', background: 'var(--bg-card)' }}>
-            <div className="text-[11px] font-semibold truncate mb-1" style={{ color: 'var(--accent-a)' }}>{i.index_name}</div>
-            <div className={`font-display font-bold text-lg ${retColor(ret)}`}>{ret == null ? '—' : fmtPct(ret)}</div>
-            <div className="text-[10px] mt-1" style={{ color: 'var(--text-low)' }}>
-              {a ? `${fmtNum(a.nav, 0)} (${fmtDate(a.date)})` : 'no data at start'}<br />
-              → {b ? `${fmtNum(b.nav, 0)} (${fmtDate(b.date)})` : 'no data at end'}
-            </div>
-          </div>
-        ))}
       </div>
 
       {/* ── Funds ───────────────────────────────────────────────── */}
@@ -220,8 +188,8 @@ export default function PointToPoint() {
       </div>
       <p className="text-[11px]" style={{ color: 'var(--text-low)' }}>
         Return = NAV on the “To” date ÷ NAV on the “From” date − 1, using the last NAV on or before each date and
-        adjusted for unit splits. CAGR is shown when the period is longer than a year. Index cards cover the last six
-        years; the benchmark row appears when the category’s benchmark is one of them.
+        adjusted for unit splits. CAGR is shown when the period is longer than a year. The benchmark row appears when
+        the category’s benchmark is a Market Pulse index (six years of history).
       </p>
     </section>
   )
