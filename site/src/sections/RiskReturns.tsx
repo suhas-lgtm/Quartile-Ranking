@@ -118,8 +118,7 @@ const SIP_COLS: Col[] = (['1Y', '3Y', '5Y', '10Y'] as SipPeriod[]).map(p => ({
   help: `XIRR of a fixed monthly SIP over the last ${p === '1Y' ? 'year' : p.replace('Y', ' years')}: one instalment a month, all valued at the latest NAV. Annualised, allowing for when each instalment went in.`,
 }))
 
-const ALL_COLS = [...RETURN_COLS, ...RATIO_COLS, ...FACT_COLS]
-const SORTABLE_COLS = [...ALL_COLS, ...SIP_COLS]
+const ALL_COLS = [...RETURN_COLS, ...SIP_COLS, ...RATIO_COLS, ...FACT_COLS]
 
 const GOOD_BG = 'rgba(52,211,153,0.14)'
 const BAD_BG  = 'rgba(248,113,113,0.14)'
@@ -161,7 +160,7 @@ export default function RiskReturns() {
   const funds = useMemo(() => {
     const q = query.trim().toLowerCase()
     const list = (data?.funds ?? []).filter(f => !q || f.scheme_name.toLowerCase().includes(q))
-    const col = SORTABLE_COLS.find(c => c.key === sort.key)
+    const col = ALL_COLS.find(c => c.key === sort.key)
     if (!col) return list
     // Blanks always sink to the bottom, whichever way the column is sorted.
     return [...list].sort((a, b) => {
@@ -177,7 +176,7 @@ export default function RiskReturns() {
   // so filtering never changes what "top quarter" means.
   const cuts = useMemo(() => {
     const out: Record<string, ReturnType<typeof cutoffs>> = {}
-    for (const c of SORTABLE_COLS) {
+    for (const c of ALL_COLS) {
       out[c.key] = cutoffs((data?.funds ?? [])
         .map(f => c.get(f)).filter((v): v is number => v != null))
     }
@@ -323,7 +322,7 @@ export default function RiskReturns() {
                       <th key={c.key} title={c.help} onClick={() => onSort(c.key)}
                           style={{ textAlign: 'right', cursor: 'pointer', userSelect: 'none',
                                    color: on ? 'var(--accent-a)' : undefined,
-                                   borderLeft: c.key === 'alpha' && view === 'all' ? '1px solid var(--line)' : undefined }}>
+                                   borderLeft: (c.key === 'alpha' || c.key === 'sip_1Y') && view === 'all' ? '1px solid var(--line)' : undefined }}>
                         {c.label}{on ? (sort.dir === 'desc' ? ' ▼' : ' ▲') : ''}
                       </th>
                     )
