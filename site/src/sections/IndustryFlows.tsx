@@ -6,6 +6,8 @@ import { useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import { useJson } from '../hooks/useData'
 import { currentDesk } from '../config/products'
+import { fuzzyMatcher } from '../utils/fuzzy'
+import TableSearch from '../components/TableSearch'
 import DownloadButton from '../components/DownloadButton'
 import type { SheetSpec } from '../utils/xlsx'
 import type { IndustryData, IndustryRow } from '../types'
@@ -16,10 +18,35 @@ const count = (v: number | null | undefined) => (v == null ? '—' : v >= 1e7 ? 
 const signCls = (v: number | null | undefined) => (v == null ? '' : v >= 0 ? 'ret-pos' : 'ret-neg')
 
 /** The groups drawn in the chart, as AMFI names them. */
-const CHART_GROUPS: [string, string, string][] = [
-  ['Equity Schemes', 'Equity', '#22D3EE'], ['Hybrid Schemes', 'Hybrid', '#A78BFA'], ['Debt Schemes', 'Debt', '#F59E0B'],
-  ['Index Funds', 'Index funds', '#34D399'], ['Exchange Traded Funds (ETFs)', 'ETFs', '#F472B6'],
+const CHART_GROUPS: [string, string, string, string][] = [
+  ['Equity Schemes', 'Equity', '#22D3EE', 'equity'], ['Hybrid Schemes', 'Hybrid', '#A78BFA', 'hybrid'],
+  ['Index Funds', 'Index funds', '#34D399', 'index'], ['Exchange Traded Funds (ETFs)', 'ETFs', '#F472B6', 'etf'],
+  ['Debt Schemes', 'Debt', '#F59E0B', 'debt'],
 ]
+
+/** The type filters, in display order. Debt is off by default: its flows are
+ *  large and swing with quarter-end corporate cash, drowning out the rest. */
+const TYPES: { id: string; label: string; on: boolean; groups: [string, string][] }[] = [
+  { id: 'equity', label: 'Equity', on: true, groups: [['Open ended', 'Equity Schemes']] },
+  { id: 'hybrid', label: 'Hybrid', on: true, groups: [['Open ended', 'Hybrid Schemes']] },
+  { id: 'index', label: 'Index funds', on: true, groups: [['Open ended', 'Index Funds']] },
+  { id: 'etf', label: 'ETFs', on: true, groups: [['Open ended', 'Exchange Traded Funds (ETFs)']] },
+  { id: 'fof', label: 'FoF overseas', on: true, groups: [['Open ended', 'Overseas Fund of Funds']] },
+  { id: 'solution', label: 'Retirement / children / life cycle', on: true,
+    groups: [['Open ended', 'Solution Oriented Schemes'], ['Open ended', 'Life Cycle Funds']] },
+  { id: 'debt', label: 'Debt', on: false,
+    groups: [['Open ended', 'Debt Schemes'], ['Close ended', 'Income/Debt Oriented Schemes'], ['Interval', 'Interval Schemes']] },
+  { id: 'closed', label: 'Close-ended equity', on: false, groups: [['Close ended', 'Growth/Equity Oriented Schemes']] },
+]
+const typeOf = (section: string, group: string) =>
+  TYPES.find(t => t.groups.some(([s, g]) => s === section && g === group))?.id ?? 'other'
+const orderOf = (section: string, group: string) => {
+  for (let i = 0; i < TYPES.length; i++) {
+    const j = TYPES[i].groups.findIndex(([s, g]) => s === section && g === group)
+    if (j >= 0) return i * 10 + j
+  }
+  return 999
+}
 
 /** Tiny bars of a category's net flow over the months, oldest left. */
 function FlowBars({ values }: { values: (number | null)[] }) {
@@ -40,9 +67,35 @@ function FlowBars({ values }: { values: (number | null)[] }) {
 export default function IndustryFlows() {
   const { data, loading, error } = useJson<IndustryData>('industry.json')
   const [month, setMonth] = useState('')
+  const [types, setTypes] = useState<Set<string>>(() => new Set(TYPES.filter(t => t.on).map(t => t.id)))
+  const [query, setQuery] = useState('')
+  const toggle = (id: string) => setTypes(t => { const n = new Set(t); n.has(id) ? n.delete(id) : n.add(id); return n })
   const months = data?.months ?? []
   const m = months.find(x => x.month === month) ?? months[0]
   const oldestFirst = useMemo(() => [...months].reverse(), [months])
+
+  /** The selected month's groups: chosen types only, Equity first, categories filtered by the search. */
+  const shownGroups = useMemo(() => {
+    if (!m) return []
+    const hit = fuzzyMatcher(query)
+    return m.groups
+      .filter(g => types.has(typeOf(g.section, g.group)))
+      .sort((a, b) => orderOf(a.section, a.group) - orderOf(b.section, b.group))
+      .map(g => ({ ...g, categories: g.categories.filter(c => hit(c.name) || hit(g.group)) }))
+      .filter(g => g.categories.length > 0)
+  }, [m, types, query])
+
+  /** Sum of the shown groups (whole groups, so a search does not change it). */
+  const selectedTotal = useMemo(() => {
+    const keys: (keyof IndustryRow)[] = ['schemes', 'folios', 'mobilised', 'redeemed', 'net_flow', 'aum', 'avg_aum', 'sip_inflow', 'sip_accounts']
+    const out = Object.fromEntries(keys.map(k => [k, 0])) as unknown as IndustryRow
+    for (const g of m?.groups ?? []) {
+      if (!types.has(typeOf(g.section, g.group))) continue
+      const t = g.total ?? g.categories[0]
+      for (const k of keys) (out as unknown as Record<string, number>)[k] += (t?.[k] as number | null) ?? 0
+    }
+    return out
+  }, [m, types])
 
   /** Net flow per category across the months, oldest first, keyed "group|name". */
   const series = useMemo(() => {
@@ -73,7 +126,7 @@ export default function IndustryFlows() {
       { type: 'value', name: 'SIP ₹ Cr', nameTextStyle: { color: axis, fontSize: 10 }, axisLabel: { color: axis, fontSize: 10 }, splitLine: { show: false } },
     ],
     series: [
-      ...CHART_GROUPS.map(([g, label, color]) => ({
+      ...CHART_GROUPS.filter(([, , , id]) => types.has(id)).map(([g, label, color]) => ({
         name: label, type: 'bar', stack: 'flow', data: oldestFirst.map(mm => groupTotal(mm, g)), itemStyle: { color },
       })),
       { name: 'SIP inflow', type: 'line', yAxisIndex: 1, data: oldestFirst.map(mm => mm.total.sip_inflow),
@@ -85,14 +138,16 @@ export default function IndustryFlows() {
     if (!m) return null
     const desk = currentDesk()
     const rows: SheetSpec['rows'] = []
-    for (const g of m.groups) {
+    for (const g of shownGroups) {
       for (const c of g.categories) rows.push({ group: `${g.section} · ${g.group}`, cat: c.name, ...c })
       if (g.total) rows.push({ group: `${g.section} · ${g.group}`, cat: 'Sub total', ...g.total })
     }
-    rows.push({ group: '', cat: 'Grand total', ...m.total })
+    rows.push({ group: '', cat: 'Total of the selected types', ...selectedTotal })
+    rows.push({ group: '', cat: 'Grand total (all schemes)', ...m.total })
     return {
       sheet: 'Industry', title: `Mutual fund industry - ${m.label}`,
-      meta: [['Desk', desk.name], ['Source', 'AMFI Monthly Report'], ['Month', m.label], ['Amounts', '₹ crore']],
+      meta: [['Desk', desk.name], ['Source', 'AMFI Monthly Report'], ['Month', m.label], ['Amounts', '₹ crore'],
+             ['Types', TYPES.filter(t => types.has(t.id)).map(t => t.label).join(', ')]],
       columns: [
         { key: 'group', label: 'Group', type: 'text', width: 30 }, { key: 'cat', label: 'Category', type: 'text', width: 36 },
         { key: 'schemes', label: 'Schemes', type: 'int' }, { key: 'folios', label: 'Folios', type: 'int' },
@@ -146,7 +201,8 @@ export default function IndustryFlows() {
           <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))' }}>
             {[
               ['Industry AUM', lakhCr(m.total.aum), `End of ${m.label}`, null],
-              ['Net inflow', '₹' + cr(m.total.net_flow) + ' Cr', 'All schemes, the month', m.total.net_flow],
+              ['Net inflow, selected types', '₹' + cr(selectedTotal.net_flow) + ' Cr',
+               `All schemes incl. debt: ₹${cr(m.total.net_flow)} Cr`, selectedTotal.net_flow],
               ['Equity net inflow', '₹' + cr(groupTotal(m, 'Equity Schemes')) + ' Cr', 'Active equity schemes', groupTotal(m, 'Equity Schemes')],
               ['SIP inflow', '₹' + cr(m.total.sip_inflow) + ' Cr', 'Money through SIPs this month', null],
               ['SIP accounts', count(m.total.sip_accounts), `${count(m.total.sip_registered)} new · ${count(m.total.sip_stopped)} stopped`, null],
@@ -168,6 +224,19 @@ export default function IndustryFlows() {
             </div>
           )}
 
+          <div className="flex items-center gap-2 mb-2 flex-wrap text-xs" style={{ color: 'var(--text-mid)' }}>
+            <span>Show:</span>
+            {TYPES.map(t => (
+              <button key={t.id} onClick={() => toggle(t.id)} className={`tab-btn${types.has(t.id) ? ' active accent' : ''}`}
+                      title={types.has(t.id) ? 'Click to hide' : 'Click to show'}>
+                {types.has(t.id) ? '✓ ' : ''}{t.label}
+              </button>
+            ))}
+            <button onClick={() => setTypes(new Set(TYPES.map(t => t.id)))} className="tab-btn">All</button>
+            <button onClick={() => setTypes(new Set(TYPES.filter(t => t.on).map(t => t.id)))} className="tab-btn">Reset</button>
+          </div>
+          <TableSearch value={query} onChange={setQuery} />
+
           <div className="card overflow-hidden mb-4">
             <div className="table-scroll">
               <table className="data-table">
@@ -185,14 +254,20 @@ export default function IndustryFlows() {
                   </tr>
                 </thead>
                 <tbody>
-                  {m.groups.map(g => (
+                  {shownGroups.length === 0 && (
+                    <tr><td colSpan={9} className="p-4 text-center text-xs" style={{ color: 'var(--text-mid)' }}>
+                      Nothing to show — pick a type above{query ? ' or change the search' : ''}.
+                    </td></tr>
+                  )}
+                  {shownGroups.map(g => (
                     <FragmentGroup key={`${g.section}|${g.group}`} title={`${g.group}${g.section !== 'Open ended' ? ` (${g.section.toLowerCase()})` : ''}`}>
                       {g.categories.map(c => row(c, c.name, `${g.section}|${g.group}|${c.name}`))}
-                      {g.total && g.categories.length > 1 && row(g.total, `Total ${g.group}`, null, true)}
+                      {g.total && g.categories.length > 1 && !query && row(g.total, `Total ${g.group}`, null, true)}
                     </FragmentGroup>
                   ))}
-                  {row(m.total, 'Grand total (all schemes)', null, true)}
-                  {m.fof_domestic && row(m.fof_domestic, 'Fund of Funds (domestic) — shown separately by AMFI', null)}
+                  {!query && row(selectedTotal, 'Total of the selected types', null, true)}
+                  {!query && row(m.total, 'Grand total (all schemes, incl. debt)', null, true)}
+                  {!query && types.has('fof') && m.fof_domestic && row(m.fof_domestic, 'Fund of Funds (domestic) — shown separately by AMFI', null)}
                 </tbody>
               </table>
             </div>
@@ -209,6 +284,8 @@ export default function IndustryFlows() {
               <li><b>Folios</b> = investor accounts (one investor can hold several). Debt flows swing with quarter-end
                 corporate cash, so a large debt outflow in March/June/September/December is normal.</li>
               <li>The small bars show each category&apos;s net flow for every month shown, oldest on the left: green in, red out.</li>
+              <li><b>Show</b> picks which types appear in the table, the chart and the download. Debt is hidden to start
+                with — its flows are many times larger and swing with corporate cash — click <b>Debt</b> to add it.</li>
             </ul>
           </div>
         </>
