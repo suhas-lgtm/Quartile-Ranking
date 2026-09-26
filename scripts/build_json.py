@@ -712,6 +712,84 @@ def _passive_benchmarks(conn, slug: str, codes: list[str]) -> dict[str, tuple[in
     return out
 
 
+# TER and AUM per scheme code, fetched from AMFI once per build (main()).
+# Empty when AMFI is unreachable; the columns then show blank.
+FUND_FACTS: dict[str, dict] = {}
+
+
+def _facts(code) -> dict:
+    f = FUND_FACTS.get(str(code)) or {}
+    return {"ter": f.get("ter_regular"), "ter_direct": f.get("ter_direct"),
+            "ter_base": f.get("ter_base"), "aum_cr": f.get("aum_cr")}
+
+
+# SIP returns: one instalment a month for the last N months, valued at the
+# latest NAV, as XIRR. Same method as the site's own SIP maths (navMath.indexSip).
+SIP_PERIODS = {"1Y": 12, "3Y": 36, "5Y": 60, "10Y": 120}
+
+
+def _months_before(d: date, n: int) -> date:
+    y, m = divmod(d.year * 12 + d.month - 1 - n, 12)
+    m += 1
+    import calendar
+    return date(y, m, min(d.day, calendar.monthrange(y, m)[1]))
+
+
+def _xirr(flows: list[tuple[date, float]]) -> float | None:
+    t0 = min(d for d, _ in flows)
+    yrs = [((d - t0).days / 365.0, a) for d, a in flows]
+    npv = lambda r: sum(a / (1 + r) ** t for t, a in yrs)
+    lo, hi = -0.9999, 10.0
+    try:
+        flo, fhi = npv(lo), npv(hi)
+    except (OverflowError, ZeroDivisionError):
+        return None
+    if flo * fhi > 0:
+        return None
+    for _ in range(200):
+        mid = (lo + hi) / 2
+        fm = npv(mid)
+        if abs(fm) < 1e-7:
+            return mid
+        if flo * fm < 0:
+            hi = mid
+        else:
+            lo, flo = mid, fm
+    return (lo + hi) / 2
+
+
+def sip_returns(conn, code, as_of_d: date, is_index: bool = False) -> dict:
+    """{period: XIRR or None} for a monthly SIP ending on the latest price."""
+    import bisect
+    if is_index:
+        rows = conn.execute("SELECT date, close FROM index_history WHERE index_id=? AND date<=? "
+                            "ORDER BY date", (code, as_of_d.isoformat())).fetchall()
+    else:
+        rows = conn.execute("SELECT nav_date, nav FROM nav_history WHERE scheme_code=? AND nav_date<=? "
+                            "ORDER BY nav_date", (code, as_of_d.isoformat())).fetchall()
+    rows = [(d, v) for d, v in rows if v]
+    if not rows:
+        return {p: None for p in SIP_PERIODS}
+    dates = [d for d, _ in rows]
+    end_d, end_v = date.fromisoformat(rows[-1][0]), rows[-1][1]
+    out = {}
+    for p, months in SIP_PERIODS.items():
+        first = _months_before(end_d, months)
+        if dates[0] > first.isoformat():
+            out[p] = None
+            continue
+        units, flows = 0.0, []
+        for k in range(months):
+            d = _months_before(end_d, months - k)
+            i = bisect.bisect_right(dates, d.isoformat()) - 1
+            units += 1.0 / rows[i][1]
+            flows.append((d, -1.0))
+        flows.append((end_d, units * end_v))
+        x = _xirr(flows)
+        out[p] = fmt(x) if x is not None else None
+    return out
+
+
 def build_risk(conn, cat_slug: str):
     """
     Trailing returns and the full ratio set for every fund in one category.
@@ -781,6 +859,7 @@ def build_risk(conn, cat_slug: str):
             m["scheme_code"] = sc
             m["scheme_name"] = name
             m["returns"] = rets
+            m["sip"] = sip_returns(conn, sc, as_of_d)
             rows.append(m)
             continue
         # With no benchmark the index query simply finds nothing, so the
@@ -792,6 +871,7 @@ def build_risk(conn, cat_slug: str):
         m["scheme_code"] = sc
         m["scheme_name"] = name
         m["returns"] = rets
+        m["sip"] = sip_returns(conn, sc, as_of_d)
         rows.append(m)
 
     composite_risk_score(rows)
@@ -804,8 +884,10 @@ def build_risk(conn, cat_slug: str):
         "scheme_code": r["scheme_code"],
         "scheme_name": r["scheme_name"],
         "returns":     {p: fmt(r["returns"][p]) for p in RISK_RETURN_PERIODS},
+        "sip":         r["sip"],
         **{k: r.get(k) for k in RISK_RATIO_KEYS},
         "recovery_days": r.get("recovery_days"),
+        **_facts(r["scheme_code"]),
         # Only for index funds and ETFs, which are each measured against their own.
         **({"benchmark_name": r["benchmark_name"]} if r.get("benchmark_name") else {}),
     } for r in rows]
@@ -817,6 +899,7 @@ def build_risk(conn, cat_slug: str):
             "name":     bench_name,
             "returns":  {p: fmt(_risk_period_return(conn, bench_id, p, as_of_d, is_index=True))
                          for p in RISK_RETURN_PERIODS},
+            "sip":      sip_returns(conn, bench_id, as_of_d, is_index=True),
             "last_date": bench_last,
             "stale":    bench_stale,
         }
@@ -831,8 +914,12 @@ def build_risk(conn, cat_slug: str):
         "category_average": {
             "returns": {p: avg([f["returns"][p] for f in fund_rows])
                         for p in RISK_RETURN_PERIODS},
+            "sip":     {p: avg([f["sip"][p] for f in fund_rows]) for p in SIP_PERIODS},
             **{k: avg([f[k] for f in fund_rows]) for k in RISK_RATIO_KEYS},
+            "ter":    avg([f["ter"] for f in fund_rows]),
+            "aum_cr": avg([f["aum_cr"] for f in fund_rows]),
         },
+        "facts": _facts_meta(),
         "funds": fund_rows,
     })
     rated = sum(1 for f in fund_rows if f["sharpe"] is not None)
@@ -1185,6 +1272,14 @@ BLACKLIST_RULE_DEFAULTS = {
     "bottom_3m_categories": ["multi-cap"],
     "high_beta_categories": ["value-contra", "dividend-yield"],
     "high_beta_max": 1.0,
+    # Cost: TER in the costliest share of the category AND 3Y return below the
+    # category median — paying more without getting more.
+    "high_ter_top_share": 0.25,
+    # Size: too small to be sustainable anywhere; too big to stay nimble in
+    # the cap-constrained categories. Rupees crore, all plans.
+    "aum_min_cr": 300,
+    "aum_max_cr": 30000,
+    "aum_max_categories": ["small-cap", "mid-cap"],
 }
 PERIOD_NAME = {"12M": "1Y"}
 
@@ -1193,6 +1288,8 @@ BLACKLIST_WEIGHT_DEFAULTS = {
     "bottom_quartile": 20, "negative_alpha": 20, "rolling_consistency": 15,
     "downside_capture": 15, "high_beta": 10, "tracking_error": 10,
     "short_track_record": 5, "bottom_3m": 5,
+    # New with AMFI's TER/AUM data; 0 until the team chooses a weight.
+    "high_ter": 0, "aum_size": 0,
 }
 
 
@@ -1264,6 +1361,11 @@ def build_blacklist(conn, categories, screener_cfg: dict):
             vals = sorted(v for v in te.values() if v is not None)
             if len(vals) >= 4:
                 te_cut = vals[int(len(vals) * (1 - rules["tracking_error_top_share"]))]
+
+        ters = sorted(f["ter"] for f in funds if f.get("ter") is not None)
+        ter_cut = ters[int(len(ters) * (1 - rules["high_ter_top_share"]))] if len(ters) >= 4 else None
+        r3 = sorted(f["returns"]["3Y"] for f in funds if f["returns"].get("3Y") is not None)
+        r3_median = r3[len(r3) // 2] if r3 else None
 
         for f in funds:
             code = f["scheme_code"]
@@ -1341,6 +1443,26 @@ def build_blacklist(conn, categories, screener_cfg: dict):
             b3 = (r.get("beta") or {}).get("3Y")
             checks["high_beta"] = (res(b3 > rules["high_beta_max"], f"{b3:.2f}", f"High beta {b3:.2f} for a value mandate")
                                 if slug in rules["high_beta_categories"] and bench_ok and b3 is not None else NA)
+
+            # Expensive without the returns
+            ter, ret3 = f.get("ter"), f["returns"].get("3Y")
+            checks["high_ter"] = (res(ter >= ter_cut and ret3 < r3_median, f"{ter:.2f}%",
+                                      f"TER {ter:.2f}% among the costliest in the category, "
+                                      f"3Y return below the category median")
+                                  if None not in (ter, ter_cut, ret3, r3_median) else NA)
+
+            # Size
+            aum = f.get("aum_cr")
+            if aum is None:
+                checks["aum_size"] = NA
+            elif aum < rules["aum_min_cr"]:
+                checks["aum_size"] = res(True, f"₹{aum:,.0f} Cr",
+                                         f"AUM ₹{aum:,.0f} Cr, below ₹{rules['aum_min_cr']:,} Cr")
+            elif slug in rules["aum_max_categories"] and aum > rules["aum_max_cr"]:
+                checks["aum_size"] = res(True, f"₹{aum:,.0f} Cr",
+                                         f"AUM ₹{aum:,.0f} Cr, above ₹{rules['aum_max_cr']:,} Cr for this category")
+            else:
+                checks["aum_size"] = res(False, f"₹{aum:,.0f} Cr")
 
             out_funds.append({
                 "scheme_code":   code,
@@ -1476,8 +1598,21 @@ def build_index_series(conn):
 
 # ── Main orchestrator ─────────────────────────────────────────────────────────
 
+def _facts_meta() -> dict | None:
+    for v in FUND_FACTS.values():
+        if v.get("aum_period") or v.get("ter_date"):
+            return {"aum_period": next((x.get("aum_period") for x in FUND_FACTS.values() if x.get("aum_period")), None),
+                    "ter_date": max((x.get("ter_date") or "" for x in FUND_FACTS.values()), default="") or None}
+    return None
+
+
 def main():
     conn = _get_conn()
+    try:
+        from scripts.amfi_facts import facts_for_catalogue
+        FUND_FACTS.update(facts_for_catalogue())
+    except Exception as exc:                       # never let this stop the build
+        log.warning("TER/AUM unavailable (%s) — columns left blank", exc)
     as_of = get_as_of(conn)
     log.info("Building JSON outputs. Data as of: %s", as_of)
 

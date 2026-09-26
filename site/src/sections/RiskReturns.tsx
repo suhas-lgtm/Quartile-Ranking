@@ -13,7 +13,7 @@ import { currentDesk } from '../config/products'
 import { categoryColor } from '../config/categoryColors'
 import { fmtPct, retColor } from '../utils/format'
 import type { SheetSpec } from '../utils/xlsx'
-import type { RiskFundRow, RiskPeriod, RiskRatios } from '../types'
+import type { RiskFundRow, RiskPeriod, RiskRatios, SipPeriod } from '../types'
 import FundLink from '../components/FundLink'
 
 const EQUITY_HYBRID_CLASSES = ['Equity', 'Hybrid']
@@ -24,13 +24,13 @@ const MAIN_TAB_NAMES = [
   'Flexi Cap', 'Balanced Advantage', 'Multi Asset Allocation',
 ]
 
-type View = 'returns' | 'ratios' | 'all'
+type View = 'returns' | 'ratios' | 'sip' | 'all'
 type Better = 'high' | 'low' | null
 
 interface Col {
   key: string
   label: string
-  group: 'returns' | 'ratios'
+  group: 'returns' | 'ratios' | 'sip'
   /** Value from a fund row, the category average or the benchmark. */
   get: (r: { returns?: Partial<Record<RiskPeriod, number | null>> } & Partial<RiskRatios>) => number | null | undefined
   show: (v: number | null | undefined) => string
@@ -97,7 +97,32 @@ const RATIO_COLS: Col[] = [
     help: 'One 0–100 number ranking the fund against its own category: Sharpe 30%, Sortino 20%, Alpha 20%, Max Drawdown 15% and capture spread (Up minus Down Capture) 15%. Each ratio is turned into a percentile within the category first, so 90 means better than roughly 90% of peers on this blend. Ratios a fund lacks are left out and the rest re-weighted.' },
 ]
 
-const ALL_COLS = [...RETURN_COLS, ...RATIO_COLS]
+const crore = (v: number | null | undefined) =>
+  v == null ? '—' : v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(0)
+
+// Cost and size, from AMFI. Shown with the ratios, but left out of the Score.
+const FACT_COLS: Col[] = [
+  { key: 'ter', label: 'TER (Reg)', group: 'ratios', get: r => r.ter, better: 'low', exportType: 'number',
+    show: v => (v == null ? '—' : `${v.toFixed(2)}%`),
+    help: 'Total Expense Ratio of the Regular plan (% a year), as disclosed to AMFI: the fund’s fee (Base Expense Ratio) plus brokerage, trading costs and statutory levies such as GST, STT and stamp duty — everything taken out of the NAV. High-turnover funds (e.g. arbitrage) show higher totals. Hover a fund for its base fee and Direct plan TER. Lower is better.' },
+  { key: 'aum_cr', label: 'AUM (₹ Cr)', group: 'ratios', get: r => r.aum_cr, better: null, exportType: 'number',
+    show: crore,
+    help: 'Average assets under management of the whole fund (all plans and options together), in ₹ crore, for the latest quarter AMFI has published. 12.3k = ₹12,300 crore. Not shaded: neither very small nor very large is "good" by itself.' },
+]
+
+const SIP_COLS: Col[] = (['1Y', '3Y', '5Y', '10Y'] as SipPeriod[]).map(p => ({
+  key: `sip_${p}`,
+  label: `${p} SIP`,
+  group: 'sip' as const,
+  get: r => r.sip?.[p],
+  show: pct,
+  better: 'high' as const,
+  exportType: 'percent' as const,
+  help: `XIRR of a fixed monthly SIP over the last ${p === '1Y' ? 'year' : p.replace('Y', ' years')}: one instalment a month, all valued at the latest NAV. Annualised, allowing for when each instalment went in.`,
+}))
+
+const ALL_COLS = [...RETURN_COLS, ...RATIO_COLS, ...FACT_COLS]
+const SORTABLE_COLS = [...ALL_COLS, ...SIP_COLS]
 
 const GOOD_BG = 'rgba(52,211,153,0.14)'
 const BAD_BG  = 'rgba(248,113,113,0.14)'
@@ -133,12 +158,13 @@ export default function RiskReturns() {
 
   const { data, loading, error } = useRisk(activeSlug)
 
-  const cols = view === 'returns' ? RETURN_COLS : view === 'ratios' ? RATIO_COLS : ALL_COLS
+  const cols = view === 'returns' ? RETURN_COLS : view === 'ratios' ? [...RATIO_COLS, ...FACT_COLS]
+    : view === 'sip' ? SIP_COLS : ALL_COLS
 
   const funds = useMemo(() => {
     const q = query.trim().toLowerCase()
     const list = (data?.funds ?? []).filter(f => !q || f.scheme_name.toLowerCase().includes(q))
-    const col = ALL_COLS.find(c => c.key === sort.key)
+    const col = SORTABLE_COLS.find(c => c.key === sort.key)
     if (!col) return list
     // Blanks always sink to the bottom, whichever way the column is sorted.
     return [...list].sort((a, b) => {
@@ -154,7 +180,7 @@ export default function RiskReturns() {
   // so filtering never changes what "top quarter" means.
   const cuts = useMemo(() => {
     const out: Record<string, ReturnType<typeof cutoffs>> = {}
-    for (const c of ALL_COLS) {
+    for (const c of SORTABLE_COLS) {
       out[c.key] = cutoffs((data?.funds ?? [])
         .map(f => c.get(f)).filter((v): v is number => v != null))
     }
@@ -180,7 +206,7 @@ export default function RiskReturns() {
     const rows: SheetSpec['rows'] = []
     rows.push(row('Category average', data.category_average))
     for (const f of funds) rows.push(row(f.scheme_name, f))
-    if (data.benchmark) rows.push(row(`Benchmark: ${data.benchmark.name ?? ''}`, { returns: data.benchmark.returns }))
+    if (data.benchmark) rows.push(row(`Benchmark: ${data.benchmark.name ?? ''}`, { returns: data.benchmark.returns, sip: data.benchmark.sip }))
     return {
       sheet: 'Risk & Returns',
       title: `Risk & Returns - ${data.category_name}`,
@@ -190,7 +216,8 @@ export default function RiskReturns() {
         ['Data as of', data.as_of],
         ['Funds', String(funds.length)],
         ['Ratios', `${data.window}; risk-free rate ${(data.risk_free_rate * 100).toFixed(1)}% p.a.`],
-        ['Returns', '1D to 1Y absolute, 2Y and longer annualised (CAGR)'],
+        ['Returns', view === 'sip' ? 'Monthly SIP XIRR over 1Y, 3Y, 5Y, 10Y, valued at the latest NAV'
+                                   : '1D to 1Y absolute, 2Y and longer annualised (CAGR)'],
       ],
       columns,
       rows,
@@ -202,10 +229,15 @@ export default function RiskReturns() {
 
   const cell = (c: Col, r: Parameters<Col['get']>[0], coloured: boolean) => {
     const v = c.get(r)
-    const cls = c.group === 'returns' || c.key === 'alpha' ? retColor(v ?? null) : ''
+    const cls = c.group !== 'ratios' || c.key === 'alpha' ? retColor(v ?? null) : ''
     return (
       <td key={c.key} className={`ret-cell ${cls}`}
-          style={{ background: coloured ? tint(v, c.better, cuts[c.key]) : undefined }}>
+          title={c.key === 'ter' && v != null
+            ? [r.ter_base != null && `Base expense ratio (fee only): ${r.ter_base.toFixed(2)}%`,
+               r.ter_direct != null && `Direct plan total TER: ${r.ter_direct.toFixed(2)}%`].filter(Boolean).join(' · ')
+            : undefined}
+          style={{ background: coloured ? tint(v, c.better, cuts[c.key]) : undefined,
+                   borderLeft: c.key === 'ter' ? '1px solid var(--line)' : undefined }}>
         {c.show(v)}
       </td>
     )
@@ -250,6 +282,8 @@ export default function RiskReturns() {
         <div className="tab-bar shrink-0 flex items-center gap-2">
           <button onClick={() => setView('returns')} className={`tab-btn${view === 'returns' ? ' active accent' : ''}`}>Returns</button>
           <button onClick={() => setView('ratios')}  className={`tab-btn${view === 'ratios'  ? ' active accent' : ''}`}>Ratios</button>
+          <button onClick={() => { setView('sip'); if (!sort.key.startsWith('sip_')) setSort({ key: 'sip_3Y', dir: 'desc' }) }}
+                  className={`tab-btn${view === 'sip' ? ' active accent' : ''}`}>SIP Returns</button>
           <button onClick={() => setView('all')}     className={`tab-btn${view === 'all'     ? ' active accent' : ''}`}>All</button>
           <DownloadButton build={buildExport} disabledHint="No funds in this category yet" />
         </div>
@@ -331,7 +365,7 @@ Benchmark: ${f.benchmark_name}` : f.scheme_name}>
                         title={data.benchmark.name ?? ''}>
                       Benchmark · {data.benchmark.name}
                     </td>
-                    {cols.map(c => cell(c, { returns: data.benchmark!.returns }, false))}
+                    {cols.map(c => cell(c, { returns: data.benchmark!.returns, sip: data.benchmark!.sip }, false))}
                   </tr>
                 )}
               </tbody>
@@ -361,9 +395,12 @@ Benchmark: ${f.benchmark_name}` : f.scheme_name}>
           with a risk-free rate of {data ? `${(data.risk_free_rate * 100).toFixed(1)}%` : '6.5%'} a year.
           A fund needs about 30 months of history for ratios; younger funds show returns only.
           1D to 1Y returns are plain % changes; 2Y and longer are yearly averages (CAGR).
+          <b style={{ color: 'var(--text-hi)' }}> SIP Returns</b> show the annualised return (XIRR) of a fixed monthly SIP
+          over the last 1, 3, 5 and 10 years — one instalment a month, valued at the latest NAV; the benchmark row
+          applies the same SIP to the index. Blank = the fund is younger than the period.
         </p>
         <div className="grid gap-x-8 gap-y-2.5 md:grid-cols-2">
-          {RATIO_COLS.map(c => (
+          {[...RATIO_COLS, ...FACT_COLS].map(c => (
             <div key={c.key}>
               <b style={{ color: 'var(--text-hi)' }}>{c.label}</b>
               {c.better && (
@@ -378,8 +415,14 @@ Benchmark: ${f.benchmark_name}` : f.scheme_name}>
         <p className="mt-3">
           Shading: <span style={{ background: GOOD_BG, padding: '0 4px' }}>green</span> = best quarter of the
           category for that column, <span style={{ background: BAD_BG, padding: '0 4px' }}>red</span> = worst
-          quarter, allowing for direction (a low Std Dev is green). Beta is not shaded.
+          quarter, allowing for direction (a low Std Dev is green). Beta and AUM are not shaded.
         </p>
+        {data?.facts && (
+          <p className="mt-2">
+            TER and AUM are from AMFI: TER as disclosed up to {data.facts.ter_date ?? '—'}; AUM is the quarterly
+            average for {data.facts.aum_period ?? '—'}. They are for information and do not enter the Score.
+          </p>
+        )}
       </div>
     </section>
   )

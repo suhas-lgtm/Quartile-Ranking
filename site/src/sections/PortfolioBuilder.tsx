@@ -27,9 +27,9 @@ const STORE_KEY = 'pb_portfolio_v1'
 /** A purchase; null amount/date means "use the portfolio default". */
 interface Buy { amount: number | null; date: string | null }
 /** A monthly SIP: one instalment a month from start to end (defaults: portfolio dates). */
-interface Sip { amount: number; start: string | null; end: string | null }
+interface Sip { amount: number | null; start: string | null; end: string | null }
 interface Holding { code: string; buys: Buy[]; sip?: Sip | null }
-interface Portfolio { start: string; end: string; amount: number; sipAmount?: number; holdings: Holding[]
+interface Portfolio { start: string; end: string; amount: number | null; sipAmount?: number | null; holdings: Holding[]
                     /** Loaded with "Load demo": the report is watermarked DEMO. */
                     demo?: boolean }
 
@@ -45,13 +45,21 @@ const DEMO: Portfolio = {
   ],
 }
 
+/** Nothing preset: the user enters every amount and date. */
+/** An emptied box means "not entered", not ₹0. */
+const toAmount = (v: string) => (v.trim() === '' ? null : Math.max(0, parseFloat(v) || 0))
+
+const BLANK: Portfolio = { start: '', end: '', amount: null, sipAmount: null, holdings: [] }
+
 const inr = (v: number | null | undefined) =>
   v == null ? '—' : '₹' + v.toLocaleString('en-IN', { maximumFractionDigits: 0 })
 
 function loadPortfolio(): Portfolio | null {
   try {
     const raw = localStorage.getItem(STORE_KEY)
-    return raw ? JSON.parse(raw) : null
+    const saved: Portfolio | null = raw ? JSON.parse(raw) : null
+    // An empty saved portfolio only carries the old preset defaults: start blank.
+    return saved && saved.holdings?.length ? saved : null
   } catch {
     return null
   }
@@ -61,7 +69,7 @@ export default function PortfolioBuilder() {
   const { data: meta } = useMeta()
   const { data: index } = useJson<FundsIndex>('funds_index.json')
   const latest = meta?.as_of ?? ''
-  const [pf, setPf] = useState<Portfolio>(() => loadPortfolio() ?? { start: '2024-01-01', end: '', amount: 100000, holdings: [] })
+  const [pf, setPf] = useState<Portfolio>(() => loadPortfolio() ?? BLANK)
   const [pick, setPick] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
   const end = pf.end || latest
@@ -73,9 +81,10 @@ export default function PortfolioBuilder() {
   const codeByLabel = useMemo(() => new Map((index?.funds ?? []).map(f => [labelOf(f), f.c])), [index])
 
   const buyDate = (b: Buy) => b.date || pf.start
-  const buyAmount = (b: Buy) => (b.amount ?? pf.amount)
+  const buyAmount = (b: Buy) => (b.amount ?? pf.amount ?? 0)
+  const sipAmount = (h: Holding) => h.sip?.amount ?? pf.sipAmount ?? 0
   const sipDates = (h: Holding) => {
-    if (!h.sip || !end) return []
+    if (!h.sip || !end || !(h.sip.start || pf.start)) return []
     const to = h.sip.end && h.sip.end < end ? h.sip.end : end
     return monthlyDates(h.sip.start || pf.start, to, 120)
   }
@@ -83,7 +92,7 @@ export default function PortfolioBuilder() {
   const dates = useMemo(() => {
     const s = new Set<string>()
     for (const h of pf.holdings) {
-      for (const b of h.buys) s.add(buyDate(b))
+      for (const b of h.buys) if (buyDate(b)) s.add(buyDate(b))
       for (const d of sipDates(h)) s.add(d)
     }
     if (end) s.add(end)
@@ -100,8 +109,8 @@ export default function PortfolioBuilder() {
     const buys = h.buys.map(b => {
       const d = buyDate(b), amt = buyAmount(b)
       const nav = n?.at[d] ?? null
-      if (!n || !nav || !endNav || d > end || !(amt > 0)) {
-        const why = !n ? 'loading' : d > end ? 'after end date'
+      if (!d || !(amt > 0) || !n || !nav || !endNav || d > end) {
+        const why = !d ? 'enter a date' : !(amt > 0) ? 'enter an amount' : !n ? 'loading' : d > end ? 'after end date'
           : !nav ? (n.first_date && d < n.first_date ? `launched ${fmtDate(n.first_date)}` : 'no NAV') : 'no end NAV'
         return { d, amt, nav, units: null as number | null, val: null as number | null, why }
       }
@@ -114,16 +123,17 @@ export default function PortfolioBuilder() {
     // SIP instalments: each buys units at that day's NAV; instalments before the
     // fund launched (or with no NAV) are skipped and counted.
     const sip = { count: 0, skipped: 0, invested: 0, units: 0, value: 0 }
-    if (h.sip && n && endNav) {
+    const sipAmt = sipAmount(h)
+    if (h.sip && n && endNav && sipAmt > 0) {
       for (const d of sipDates(h)) {
         const nav = n.at[d]
-        if (!nav || !(h.sip.amount > 0)) { sip.skipped++; continue }
-        const units = h.sip.amount / nav.nav
+        if (!nav) { sip.skipped++; continue }
+        const units = sipAmt / nav.nav
         const val = units * endNav.nav * splitFactorBetween(n.splits, nav.date, endNav.date)
-        sip.count++; sip.invested += h.sip.amount; sip.value += val
+        sip.count++; sip.invested += sipAmt; sip.value += val
         sip.units += units * splitFactorBetween(n.splits, nav.date, endNav.date)
-        invested += h.sip.amount; value += val
-        flows.push({ date: d, amount: -h.sip.amount })
+        invested += sipAmt; value += val
+        flows.push({ date: d, amount: -sipAmt })
       }
     }
     if (value > 0) flows.push({ date: end, amount: value })
@@ -155,7 +165,7 @@ export default function PortfolioBuilder() {
   })
   const addBuy = (hi: number) => setPf({
     ...pf, holdings: pf.holdings.map((h, i) => i !== hi || h.buys.length >= MAX_BUYS ? h
-      : { ...h, buys: [...h.buys, { amount: pf.amount, date: end }] }),
+      : { ...h, buys: [...h.buys, { amount: null, date: null }] }),
   })
   const removeBuy = (hi: number, bi: number) => setPf({
     ...pf, holdings: pf.holdings.map((h, i) => i !== hi ? h : { ...h, buys: h.buys.filter((_, j) => j !== bi) }),
@@ -177,7 +187,7 @@ export default function PortfolioBuilder() {
         lines: [
           ...r.buys.map(b => ({ label: 'Lump sum', date: fmtDate(b.d), amount: b.amt, units: b.units, value: b.val })),
           ...(r.h.sip && r.sip.count ? [{
-            label: `SIP ₹${r.h.sip.amount.toLocaleString('en-IN')}/month × ${r.sip.count}`,
+            label: `SIP ₹${sipAmount(r.h).toLocaleString('en-IN')}/month × ${r.sip.count}`,
             date: `${fmtDate(r.h.sip.start || pf.start)} →`, amount: r.sip.invested, units: r.sip.units, value: r.sip.value,
           }] : []),
         ],
@@ -196,7 +206,7 @@ export default function PortfolioBuilder() {
       }))
       if (r.h.sip && r.sip.count) rows.push({ fund: '', date: `SIP x${r.sip.count}`, amount: r.sip.invested,
                                                 units: r.sip.units, value: r.sip.value,
-                                                note: `₹${r.h.sip.amount}/month` })
+                                                note: `₹${sipAmount(r.h)}/month` })
       rows.push({ fund: `  ${r.name} — total`, amount: r.invested, value: r.value, ret: r.ret, irr: r.irr })
     }
     rows.push({ fund: 'PORTFOLIO', amount: tot.invested, value: tot.value, ret: tot.ret, irr: tot.irr })
@@ -250,7 +260,7 @@ export default function PortfolioBuilder() {
 
       {/* ── Portfolio defaults ─────────────────────────────────── */}
       <div className="card p-4 mb-4 flex flex-wrap items-end gap-3 text-xs" style={{ color: 'var(--text-mid)' }}>
-        <label className="flex flex-col gap-1">Invest from (default)
+        <label className="flex flex-col gap-1">Invest from (optional default)
           <input type="date" value={pf.start} max={end} onChange={e => setPf({ ...pf, start: e.target.value })}
                  className="px-3 py-1.5 rounded-lg text-sm" style={inputStyle} />
         </label>
@@ -258,14 +268,14 @@ export default function PortfolioBuilder() {
           <input type="date" value={end} max={latest} onChange={e => setPf({ ...pf, end: e.target.value })}
                  className="px-3 py-1.5 rounded-lg text-sm" style={inputStyle} />
         </label>
-        <label className="flex flex-col gap-1">Amount per fund (default)
-          <input type="number" min={0} step={1000} value={pf.amount}
-                 onChange={e => setPf({ ...pf, amount: Math.max(0, parseFloat(e.target.value) || 0) })}
+        <label className="flex flex-col gap-1">Amount per fund (optional default)
+          <input type="number" min={0} step={1000} value={pf.amount ?? ''} placeholder="₹ amount"
+                 onChange={e => setPf({ ...pf, amount: toAmount(e.target.value) })}
                  className="px-3 py-1.5 rounded-lg text-sm w-36" style={inputStyle} />
         </label>
-        <label className="flex flex-col gap-1">SIP per month (default)
-          <input type="number" min={100} step={500} value={pf.sipAmount ?? 10000}
-                 onChange={e => setPf({ ...pf, sipAmount: Math.max(0, parseFloat(e.target.value) || 0) })}
+        <label className="flex flex-col gap-1">SIP per month (optional default)
+          <input type="number" min={100} step={500} value={pf.sipAmount ?? ''} placeholder="₹ per month"
+                 onChange={e => setPf({ ...pf, sipAmount: toAmount(e.target.value) })}
                  className="px-3 py-1.5 rounded-lg text-sm w-32" style={inputStyle} />
         </label>
         <div className="flex-1" />
@@ -306,8 +316,8 @@ export default function PortfolioBuilder() {
       <div className="card overflow-hidden mb-4">
         {pf.holdings.length === 0 ? (
           <div className="p-8 text-center text-sm" style={{ color: 'var(--text-mid)' }}>
-            Add up to {MAX_FUNDS} funds above. Each starts with one purchase of the default amount on the default date;
-            change it, add up to {MAX_BUYS} purchases per fund at different dates, or add a monthly SIP.
+            Add up to {MAX_FUNDS} funds above, then enter each purchase&apos;s amount and date (up to {MAX_BUYS} per
+            fund) or add a monthly SIP. The optional defaults above fill any purchase you leave blank.
           </div>
         ) : (
           <div className="table-scroll">
@@ -337,10 +347,10 @@ export default function PortfolioBuilder() {
                       <div className="flex flex-col gap-1">
                         {r.h.buys.map((b, bi) => (
                           <div key={bi} className="flex items-center gap-1 flex-wrap">
-                            <input type="number" min={0} step={1000} value={b.amount ?? pf.amount}
-                                   onChange={e => updateBuy(hi, bi, { amount: Math.max(0, parseFloat(e.target.value) || 0) })}
+                            <input type="number" min={0} step={1000} value={b.amount ?? pf.amount ?? ''} placeholder="₹ amount"
+                                   onChange={e => updateBuy(hi, bi, { amount: toAmount(e.target.value) })}
                                    className={`${small} w-28`} style={inputStyle} title="Amount (₹)" />
-                            <input type="date" value={b.date ?? pf.start} max={end}
+                            <input type="date" value={b.date ?? pf.start ?? ''} max={end}
                                    onChange={e => updateBuy(hi, bi, { date: e.target.value })}
                                    className={small} style={inputStyle} title="Purchase date" />
                             {r.buys[bi]?.why && r.buys[bi].why !== 'loading' && (
@@ -361,11 +371,11 @@ export default function PortfolioBuilder() {
                         {r.h.sip && (
                           <div className="flex items-center gap-1 flex-wrap mt-1 pt-1 border-t" style={{ borderColor: 'var(--line)' }}>
                             <span className="text-[11px] font-semibold" style={{ color: 'var(--accent-a)' }}>SIP ₹</span>
-                            <input type="number" min={100} step={500} value={r.h.sip.amount}
-                                   onChange={e => setSip(hi, { ...r.h.sip!, amount: Math.max(0, parseFloat(e.target.value) || 0) })}
+                            <input type="number" min={100} step={500} value={r.h.sip.amount ?? pf.sipAmount ?? ''} placeholder="₹"
+                                   onChange={e => setSip(hi, { ...r.h.sip!, amount: toAmount(e.target.value) })}
                                    className={`${small} w-24`} style={inputStyle} title="Monthly SIP amount (₹)" />
                             <span className="text-[11px]">/month from</span>
-                            <input type="date" value={r.h.sip.start ?? pf.start} max={end}
+                            <input type="date" value={r.h.sip.start ?? pf.start ?? ''} max={end}
                                    onChange={e => setSip(hi, { ...r.h.sip!, start: e.target.value })}
                                    className={small} style={inputStyle} title="First instalment" />
                             <span className="text-[11px]">to</span>
@@ -389,7 +399,7 @@ export default function PortfolioBuilder() {
                             </button>
                           )}
                           {!r.h.sip && (
-                            <button onClick={() => setSip(hi, { amount: pf.sipAmount ?? 10000, start: null, end: null })}
+                            <button onClick={() => setSip(hi, { amount: null, start: null, end: null })}
                                     className="text-[11px] self-start"
                                     style={{ color: 'var(--accent-a)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
                               + add SIP

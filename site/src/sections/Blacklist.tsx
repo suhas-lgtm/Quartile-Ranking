@@ -40,6 +40,10 @@ const RULES: { id: BlacklistRule; label: string; short: string; help: string }[]
     help: 'Multi Cap: bottom quartile on 3-month return.' },
   { id: 'high_beta', short: 'Beta 3Y', label: 'High beta (value)',
     help: 'Value / Contra and Dividend Yield: 3Y beta above 1.0 — a value fund that behaves like a momentum fund.' },
+  { id: 'high_ter', short: 'TER (Reg)', label: 'Expensive, no reward',
+    help: 'Regular-plan TER in the costliest quarter of the category AND 3Y return below the category median — paying more without getting more (AMFI TER data).' },
+  { id: 'aum_size', short: 'AUM', label: 'Size (AUM)',
+    help: 'Fund AUM (all plans) below ₹300 Cr — too small to be sustainable; or, for Small and Mid Cap, above ₹30,000 Cr — too big to stay nimble (AMFI quarterly average AUM).' },
 ]
 const WEIGHTS_KEY = 'bl_weights_v1'
 const MIN_KEY = 'bl_min_score_v1'
@@ -263,7 +267,7 @@ export default function Blacklist() {
             </div>
             <p className="mt-2 text-[11px]" style={{ color: 'var(--text-low)' }}>
               Thresholds are kept in <code>data/blacklist.json</code>. Not yet applied (need portfolio holdings or other
-              data): concentration, stock count, overlap, style drift, AUM, flows, expense ratio, turnover, manager
+              data): concentration, stock count, overlap, style drift, flows, turnover, manager
               changes and compliance events — the last few are for the team to record as manual entries above.
             </p>
           </div>

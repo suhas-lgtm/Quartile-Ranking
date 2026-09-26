@@ -16,8 +16,8 @@ import type { FundsIndex, RiskData, RiskFundRow } from '../types'
 
 const MAX = 5
 const PALETTE = ['#22D3EE', '#F472B6', '#34D399', '#F59E0B', '#A78BFA']
-type Range = '1Y' | '3Y' | '5Y' | '10Y' | 'Max'
-const RANGE_MONTHS: Record<Range, number | null> = { '1Y': 12, '3Y': 36, '5Y': 60, '10Y': 120, Max: null }
+type Range = '1M' | '6M' | '1Y' | '3Y' | '5Y' | '10Y' | 'Max'
+const RANGE_MONTHS: Record<Range, number | null> = { '1M': 1, '6M': 6, '1Y': 12, '3Y': 36, '5Y': 60, '10Y': 120, Max: null }
 const STORE_KEY = 'cmp_funds_v1'
 
 interface Series { points: [string, number][]; splits: { date: string; factor: number }[] }
@@ -226,6 +226,8 @@ export default function CompareFunds() {
                       </tr>
                     </>
                   )}
+                  {metric('1M return', r => r.returns['1M'], pct, true)}
+                  {metric('6M return', r => r.returns['6M'], pct, true)}
                   {metric('1Y return', r => r.returns['12M'], pct, true)}
                   {metric('3Y CAGR', r => r.returns['3Y'], pct, true)}
                   {metric('5Y CAGR', r => r.returns['5Y'], pct, true)}
@@ -237,6 +239,8 @@ export default function CompareFunds() {
                   {metric('Up Capture (3Y)', r => r.upside_capture, v => v.toFixed(1))}
                   {metric('Down Capture (3Y)', r => r.downside_capture, v => v.toFixed(1))}
                   {metric('Max Drawdown (all history)', r => r.max_drawdown, pct)}
+                  {metric('TER (Regular, total)', r => r.ter ?? null, v => v.toFixed(2) + '%')}
+                  {metric('AUM (₹ Cr, all plans)', r => r.aum_cr ?? null, v => Math.round(v).toLocaleString('en-IN'))}
                 </tbody>
               </table>
             </div>
