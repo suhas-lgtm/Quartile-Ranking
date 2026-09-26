@@ -24,10 +24,12 @@ name: Daily Data Update
 # GitHub may start a scheduled run a few minutes late under load.
 on:
   schedule:
-    # 23:45 IST = 18:15 UTC
-    - cron: '15 18 * * *'
-    # 08:00 IST = 02:30 UTC
-    - cron: '30 2 * * *'
+    # One run a day, 08:00 IST (02:30 UTC), Monday to Saturday. The 23:45 run and
+    # Sundays were dropped to stay inside Neon's free 5 GB monthly transfer: each
+    # run reads the whole NAV history. Saturday's run adds Friday's NAVs; there are
+    # no NAVs on weekends, so Sunday had nothing new. Run it by hand from the
+    # Actions tab (workflow_dispatch) whenever an extra refresh is needed.
+    - cron: '30 2 * * 1-6'
   workflow_dispatch:
     inputs:
       max_staleness:
@@ -162,7 +164,7 @@ jobs:
       # NAVs. Nothing is sent when no fund breaches a threshold. Mail trouble
       # must never fail the data run, hence continue-on-error.
       - name: Send Auto Mailing email (Brevo)
-        if: github.event.schedule == '30 2 * * *' || github.event.inputs.send_alerts == 'true'
+        if: github.event.schedule == '30 2 * * 1-6' || github.event.inputs.send_alerts == 'true'
         continue-on-error: true
         run: python scripts/send_alerts.py
         env:
