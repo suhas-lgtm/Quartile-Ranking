@@ -135,6 +135,13 @@ function weighted(scores: ScreenerFund['scores'], weights: Record<string, number
 }
 
 /** Rank bands from the sheet: 1–2 green, 3–5 yellow, 6–8 orange. */
+// Rank and Fund Name both stay pinned while the table scrolls sideways.
+const RANK_W = 56
+const RANK_COL = { left: 0, width: RANK_W, minWidth: RANK_W, maxWidth: RANK_W }
+/** A pinned cell must be opaque, or the columns scrolling under it show
+ *  through: paint the card colour, then the translucent band tint on top. */
+const solidTint = (bg?: string) => (bg ? { backgroundImage: `linear-gradient(${bg}, ${bg})` } : {})
+
 function band(rank: number): { bg: string; fg: string } | null {
   if (rank <= 2) return { bg: 'rgba(52,211,153,0.16)', fg: '#34D399' }
   if (rank <= 5) return { bg: 'rgba(245,158,11,0.14)', fg: '#F59E0B' }
@@ -425,8 +432,8 @@ export default function WhitelistScreener() {
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th style={{ textAlign: 'center', width: 48 }}>Rank</th>
-                      <th className="sticky-col text-left" style={{ minWidth: 240 }}>Fund Name</th>
+                      <th className="sticky-col" style={{ ...RANK_COL, textAlign: 'center', boxShadow: 'none' }}>Rank</th>
+                      <th className="sticky-col text-left" style={{ minWidth: 240, left: RANK_W }}>Fund Name</th>
                       <th style={{ textAlign: 'right' }} title={summaryHelp('score')}>Score</th>
                       {GROUPS.map(g => (
                         <th key={g.id} style={{ textAlign: 'right' }} title={summaryHelp(g.id)}>
@@ -446,8 +453,12 @@ export default function WhitelistScreener() {
                       const b = band(i + 1)
                       return (
                         <tr key={r.fund.scheme_code}>
-                          <td style={{ textAlign: 'center', background: b?.bg, color: b?.fg, fontWeight: 700 }}>{i + 1}</td>
-                          <td className="sticky-col text-xs font-medium truncate" style={{ maxWidth: 280, background: b?.bg }}
+                          <td className="sticky-col"
+                              style={{ ...RANK_COL, ...solidTint(b?.bg), textAlign: 'center', color: b?.fg, fontWeight: 700, boxShadow: 'none' }}>
+                            {i + 1}
+                          </td>
+                          <td className="sticky-col text-xs font-medium truncate"
+                              style={{ maxWidth: 280, left: RANK_W, ...solidTint(b?.bg) }}
                               title={r.fund.scheme_name}>
                             <FundLink code={r.fund.scheme_code} name={r.fund.scheme_name} />
                           </td>
