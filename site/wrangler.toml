@@ -1,0 +1,8 @@
+# Cloudflare Pages project for the dashboard (deployed with `npx wrangler pages deploy`).
+# Server routes live in functions/; secrets (DATABASE_URL, WHITELIST_PASSWORD) are
+# set on the project with `wrangler pages secret put`, never here.
+name = "armstrong-mf-dashboard"
+pages_build_output_dir = "dist"
+compatibility_date = "2025-09-01"
+# server/auth.ts uses node:crypto (HMAC for the login cookie) and Buffer.
+compatibility_flags = ["nodejs_compat"]

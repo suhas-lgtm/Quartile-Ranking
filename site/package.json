@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:cf": "npm run build && node scripts/clean-dist.mjs",
+    "deploy": "npm run build:cf && wrangler pages deploy dist --project-name armstrong-mf-dashboard --branch main"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
@@ -28,6 +30,7 @@
     "postcss": "^8.4.45",
     "tailwindcss": "^3.4.10",
     "typescript": "^5.5.3",
-    "vite": "^5.4.1"
+    "vite": "^5.4.1",
+    "wrangler": "^4.141.0"
   }
 }

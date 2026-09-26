@@ -40,7 +40,7 @@ if ROOT_DIR not in sys.path:
 log = logging.getLogger("send_alerts")
 
 BREVO_URL = "https://api.brevo.com/v3/smtp/email"
-DEFAULT_SITE = "https://beamish-starburst-5b0343.netlify.app"
+DEFAULT_SITE = "https://armstrong-mf-dashboard.pages.dev"
 PERIOD_NAMES = {"1D": "1 Day", "1W": "1 Week", "1M": "1 Month", "3M": "3 Months",
                 "6M": "6 Months", "12M": "1 Year"}
 _KEYS = ("BREVO_API_KEY", "BREVO_SENDER_EMAIL", "BREVO_SENDER_NAME", "ALERT_RECIPIENTS", "SITE_URL")
