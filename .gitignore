@@ -62,3 +62,6 @@ data/index_store.json.gz.part
 # Intermediate flat output from the pipeline (MF_OUTPUT_DIR). The published
 # layout is built from it into site/public/data; neither is committed.
 build/
+
+# Local database backups (scripts/backup_neon.py) - never committed
+backups/
