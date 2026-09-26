@@ -176,11 +176,11 @@ export interface RiskRatios {
   composite_score: number | null
   /** Average AUM in ₹ crore, all plans of the fund (AMFI, latest quarter). */
   aum_cr?: number | null
-  /** XIRR of a monthly SIP over the last 1/3/5/10 years, valued at the latest NAV. */
+  /** Monthly SIP valued at the latest NAV: absolute return up to 6M, XIRR from 1Y. */
   sip?: Partial<Record<SipPeriod, number | null>>
 }
 
-export type SipPeriod = '1Y' | '3Y' | '5Y' | '10Y'
+export type SipPeriod = '1W' | '1M' | '3M' | '6M' | '1Y' | '3Y' | '5Y' | '10Y'
 
 export interface RiskFundRow extends RiskRatios {
   scheme_code: string

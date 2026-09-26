@@ -21,7 +21,7 @@ import os
 import re
 import sys
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -724,7 +724,11 @@ def _facts(code) -> dict:
 
 # SIP returns: one instalment a month for the last N months, valued at the
 # latest NAV, as XIRR. Same method as the site's own SIP maths (navMath.indexSip).
-SIP_PERIODS = {"1Y": 12, "3Y": 36, "5Y": 60, "10Y": 120}
+SIP_PERIODS = {"1W": 0, "1M": 1, "3M": 3, "6M": 6, "1Y": 12, "3Y": 36, "5Y": 60, "10Y": 120}
+# Under a year the figure is the ABSOLUTE return (value / invested - 1), as the
+# trailing returns are: annualising a few instalments gives absurd numbers.
+# 1W is a single instalment a week ago (0 months = one buy 7 days back).
+SIP_ABSOLUTE = {"1W", "1M", "3M", "6M"}
 
 
 def _months_before(d: date, n: int) -> date:
@@ -773,17 +777,21 @@ def sip_returns(conn, code, as_of_d: date, is_index: bool = False) -> dict:
     end_d, end_v = date.fromisoformat(rows[-1][0]), rows[-1][1]
     out = {}
     for p, months in SIP_PERIODS.items():
-        first = _months_before(end_d, months)
-        if dates[0] > first.isoformat():
+        buys = ([end_d - timedelta(days=7)] if months == 0
+                else [_months_before(end_d, months - k) for k in range(months)])
+        if dates[0] > buys[0].isoformat():
             out[p] = None
             continue
         units, flows = 0.0, []
-        for k in range(months):
-            d = _months_before(end_d, months - k)
+        for d in buys:
             i = bisect.bisect_right(dates, d.isoformat()) - 1
             units += 1.0 / rows[i][1]
             flows.append((d, -1.0))
-        flows.append((end_d, units * end_v))
+        value = units * end_v
+        if p in SIP_ABSOLUTE:
+            out[p] = fmt(value / len(buys) - 1)
+            continue
+        flows.append((end_d, value))
         x = _xirr(flows)
         out[p] = fmt(x) if x is not None else None
     return out

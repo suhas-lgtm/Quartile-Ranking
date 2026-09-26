@@ -112,7 +112,8 @@ const FACT_COLS: Col[] = [
     help: 'Average assets under management of the whole fund (all plans and options together), in ₹ crore, for the latest quarter AMFI has published. 12.3k = ₹12,300 crore. Not shaded: neither very small nor very large is "good" by itself.' },
 ]
 
-const SIP_COLS: Col[] = (['1Y', '3Y', '5Y', '10Y'] as SipPeriod[]).map(p => ({
+const SIP_SHORT = ['1W', '1M', '3M', '6M']
+const SIP_COLS: Col[] = (['1W', '1M', '3M', '6M', '1Y', '3Y', '5Y', '10Y'] as SipPeriod[]).map(p => ({
   key: `sip_${p}`,
   label: `${p} SIP`,
   group: 'sip' as const,
@@ -120,7 +121,11 @@ const SIP_COLS: Col[] = (['1Y', '3Y', '5Y', '10Y'] as SipPeriod[]).map(p => ({
   show: pct,
   better: 'high' as const,
   exportType: 'percent' as const,
-  help: `XIRR of a fixed monthly SIP over the last ${p === '1Y' ? 'year' : p.replace('Y', ' years')}: one instalment a month, all valued at the latest NAV. Annualised, allowing for when each instalment went in.`,
+  help: p === '1W'
+    ? 'One instalment made a week ago, valued at the latest NAV: the same as the plain 1W return.'
+    : SIP_SHORT.includes(p)
+    ? `A fixed monthly SIP over the last ${p.replace('M', p === '1M' ? ' month' : ' months')} (${parseInt(p)} instalment${p === '1M' ? '' : 's'}), valued at the latest NAV. Absolute return: value ÷ amount invested − 1, not annualised.`
+    : `XIRR of a fixed monthly SIP over the last ${p === '1Y' ? 'year' : p.replace('Y', ' years')}: one instalment a month, all valued at the latest NAV. Annualised, allowing for when each instalment went in.`,
 }))
 
 const ALL_COLS = [...RETURN_COLS, ...SIP_COLS, ...RATIO_COLS, ...FACT_COLS]
@@ -235,7 +240,7 @@ export default function RiskReturns() {
         ['Data as of', data.as_of],
         ['Funds', String(funds.length)],
         ['Ratios', `${data.window}; risk-free rate ${(data.risk_free_rate * 100).toFixed(1)}% p.a.`],
-        ['Returns', view === 'sip' ? 'Monthly SIP XIRR over 1Y, 3Y, 5Y, 10Y, valued at the latest NAV'
+        ['Returns', view === 'sip' ? 'Monthly SIP valued at the latest NAV: 1W-6M absolute, 1Y+ XIRR'
                                    : '1D to 1Y absolute, 2Y and longer annualised (CAGR)'],
       ],
       columns,
@@ -359,7 +364,7 @@ export default function RiskReturns() {
                       <th key={c.key} title={c.help} onClick={() => onSort(c.key)}
                           style={{ textAlign: 'right', cursor: 'pointer', userSelect: 'none',
                                    color: on ? 'var(--accent-a)' : undefined,
-                                   borderLeft: (c.key === 'alpha' || c.key === 'sip_1Y') && view === 'all' ? '1px solid var(--line)' : undefined }}>
+                                   borderLeft: (c.key === 'alpha' || c.key === 'sip_1W') && view === 'all' ? '1px solid var(--line)' : undefined }}>
                         {c.label}{on ? (sort.dir === 'desc' ? ' ▼' : ' ▲') : ''}
                       </th>
                     )
@@ -438,9 +443,10 @@ Benchmark: ${f.benchmark_name}` : f.scheme_name}>
           with a risk-free rate of {data ? `${(data.risk_free_rate * 100).toFixed(1)}%` : '6.5%'} a year.
           A fund needs about 30 months of history for ratios; younger funds show returns only.
           1D to 1Y returns are plain % changes; 2Y and longer are yearly averages (CAGR).
-          <b style={{ color: 'var(--text-hi)' }}> SIP Returns</b> show the annualised return (XIRR) of a fixed monthly SIP
-          over the last 1, 3, 5 and 10 years — one instalment a month, valued at the latest NAV; the benchmark row
-          applies the same SIP to the index. Blank = the fund is younger than the period.
+          <b style={{ color: 'var(--text-hi)' }}> SIP Returns</b>: a fixed monthly SIP, one instalment a month, valued at
+          the latest NAV. 1W to 6M are absolute returns (value ÷ invested − 1; 1W and 1M are a single instalment, so they
+          match the plain return); 1Y and longer are annualised (XIRR). The benchmark row applies the same SIP to the
+          index. Blank = the fund is younger than the period.
         </p>
         <div className="grid gap-x-8 gap-y-2.5 md:grid-cols-2">
           {[...RATIO_COLS, ...FACT_COLS].map(c => (
