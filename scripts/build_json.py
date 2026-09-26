@@ -1327,7 +1327,12 @@ def build_blacklist(conn, categories, screener_cfg: dict):
     def res(fail, value, text=""):
         return {"fail": fail, "value": value, "text": text if fail else ""}
 
-    NA = {"fail": None, "value": None, "text": ""}
+    # A rule with no verdict says why, so the page can tell "not meant for this
+    # category" (OFF, shown as a faint dash) from a real gap in the data.
+    def na(reason):
+        return {"fail": None, "value": None, "text": "", "na": reason}
+
+    OFF = na("category")
     out_funds = []
     for _, slug, asset_class in categories:
         if asset_class not in ("Equity", "Hybrid"):
@@ -1361,6 +1366,17 @@ def build_blacklist(conn, categories, screener_cfg: dict):
             code = f["scheme_code"]
             r = ratios.get(code) or {}
             checks = {}
+            first = conn.execute("SELECT MIN(nav_date) FROM nav_history WHERE scheme_code=?",
+                                 (code,)).fetchone()[0]
+            yrs = (as_of_d - date.fromisoformat(first)).days / 365.25 if first else None
+
+            def gap(years=None, needs_bench=False):
+                """Why a rule could not be judged for this fund."""
+                if needs_bench and not bench_ok:
+                    return na("no benchmark")
+                if years and (yrs is None or yrs < years):
+                    return na(f"< {years}Y history")
+                return na("no data")
 
             # Persistent laggard
             qs = [quart[p].get(code) for p in rules["bottom_quartile_periods"]]
@@ -1369,22 +1385,27 @@ def build_blacklist(conn, categories, screener_cfg: dict):
                     all(q == 4 for q in qs), " · ".join(f"Q{q}" for q in qs),
                     "Bottom quartile on " + ", ".join(PERIOD_NAME.get(p, p) for p in rules["bottom_quartile_periods"]))
             else:
-                checks["bottom_quartile"] = NA
+                checks["bottom_quartile"] = gap(years=3)
 
-            # Negative alpha
-            alphas = [(r.get("alpha") or {}).get(h) for h in rules["negative_alpha_horizons"]]
-            if bench_ok and all(a is not None for a in alphas):
+            # Negative alpha: every horizon the fund has, and at least the shortest
+            # (a 3-5 year old fund is judged on 3Y alone, and says so).
+            hz = rules["negative_alpha_horizons"]
+            got_a = [(h, (r.get("alpha") or {}).get(h)) for h in hz]
+            got_a = [(h, a) for h, a in got_a if a is not None]
+            if bench_ok and got_a and got_a[0][0] == hz[0]:
+                partial = len(got_a) < len(hz)
                 checks["negative_alpha"] = res(
-                    all(a < 0 for a in alphas), " / ".join(f"{a * 100:.2f}" for a in alphas),
-                    "Negative alpha " + ", ".join(f"{h} {a * 100:.2f}"
-                                                  for h, a in zip(rules["negative_alpha_horizons"], alphas)))
+                    all(a < 0 for _, a in got_a),
+                    " / ".join(f"{a * 100:.2f}" for _, a in got_a) + (f" ({got_a[0][0]} only)" if partial else ""),
+                    "Negative alpha " + ", ".join(f"{h} {a * 100:.2f}" for h, a in got_a)
+                    + (" (too young for " + ", ".join(h for h in hz if h not in dict(got_a)) + ")" if partial else ""))
             else:
-                checks["negative_alpha"] = NA
+                checks["negative_alpha"] = gap(years=int(hz[0].rstrip("Y")), needs_bench=True)
 
             # Rolling consistency
             beat = (rolling_statistics(conn, code, bench_id, rules["rolling_window"], as_of_d)
                     .get("pct_beats_benchmark") if bench_ok else None)
-            checks["rolling_consistency"] = NA if beat is None else res(
+            checks["rolling_consistency"] = gap(years=2, needs_bench=True) if beat is None else res(
                 beat < rules["rolling_min_beat"], f"{beat * 100:.0f}%",
                 f"Beat benchmark in only {beat * 100:.0f}% of rolling {rules['rolling_window']} periods")
 
@@ -1399,7 +1420,7 @@ def build_blacklist(conn, categories, screener_cfg: dict):
                     "Downside capture " + ", ".join(f"{h} {v:.0f}" for h, v in over)
                     + f" (above {rules['downside_capture_max']})")
             else:
-                checks["downside_capture"] = NA
+                checks["downside_capture"] = gap(years=3, needs_bench=True)
 
             # Tracking error with negative alpha (large cap)
             a3 = (r.get("alpha") or {}).get("3Y")
@@ -1407,37 +1428,37 @@ def build_blacklist(conn, categories, screener_cfg: dict):
                 checks["tracking_error"] = res(
                     te[code] >= te_cut and a3 < 0, f"{te[code] * 100:.1f}%",
                     f"High tracking error {te[code] * 100:.1f}% with negative 3Y alpha")
+            elif slug not in rules["tracking_error_categories"]:
+                checks["tracking_error"] = OFF
             else:
-                checks["tracking_error"] = NA
+                checks["tracking_error"] = gap(years=3, needs_bench=True)
 
             # Short track record
             if slug in rules["track_record_exempt_categories"]:
-                checks["short_track_record"] = NA
+                checks["short_track_record"] = OFF
+            elif yrs is not None:
+                checks["short_track_record"] = res(
+                    yrs < rules["min_track_record_years"], f"{yrs:.1f}y",
+                    f"Short track record ({yrs:.1f} years)")
             else:
-                first = conn.execute("SELECT MIN(nav_date) FROM nav_history WHERE scheme_code=?",
-                                     (code,)).fetchone()[0]
-                if first:
-                    yrs = (as_of_d - date.fromisoformat(first)).days / 365.25
-                    checks["short_track_record"] = res(
-                        yrs < rules["min_track_record_years"], f"{yrs:.1f}y",
-                        f"Short track record ({yrs:.1f} years)")
-                else:
-                    checks["short_track_record"] = NA
+                checks["short_track_record"] = gap()
 
             # Multi cap: bottom of pack on 3M
             q3 = quart["3M"].get(code)
-            checks["bottom_3m"] = (res(q3 == 4, f"Q{q3}", "Bottom quartile on 3-month return")
-                                if slug in rules["bottom_3m_categories"] and q3 is not None else NA)
+            checks["bottom_3m"] = (OFF if slug not in rules["bottom_3m_categories"]
+                                else res(q3 == 4, f"Q{q3}", "Bottom quartile on 3-month return")
+                                if q3 is not None else gap())
 
             # Value / dividend yield: high beta
             b3 = (r.get("beta") or {}).get("3Y")
-            checks["high_beta"] = (res(b3 > rules["high_beta_max"], f"{b3:.2f}", f"High beta {b3:.2f} for a value mandate")
-                                if slug in rules["high_beta_categories"] and bench_ok and b3 is not None else NA)
+            checks["high_beta"] = (OFF if slug not in rules["high_beta_categories"]
+                                else res(b3 > rules["high_beta_max"], f"{b3:.2f}", f"High beta {b3:.2f} for a value mandate")
+                                if bench_ok and b3 is not None else gap(years=3, needs_bench=True))
 
             # Size
             aum = f.get("aum_cr")
             if aum is None:
-                checks["aum_size"] = NA
+                checks["aum_size"] = na("no AUM data")
             elif aum < rules["aum_min_cr"]:
                 checks["aum_size"] = res(True, f"₹{aum:,.0f} Cr",
                                          f"AUM ₹{aum:,.0f} Cr, below ₹{rules['aum_min_cr']:,} Cr")

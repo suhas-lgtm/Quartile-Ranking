@@ -83,6 +83,10 @@ export default function Blacklist() {
     .filter(f => f.score > 0 && f.score >= cutoff && (!catFilter || f.category_slug === catFilter))
     .sort((a, b) => b.score - a.score || a.scheme_name.localeCompare(b.scheme_name))
 
+  // Columns for rules that apply to none of the listed funds (e.g. the Large
+  // Cap tracking-error rule when no Large Cap fund is listed) are left out.
+  const visibleRules = RULES.filter(r => shown.some(f => f.rules[r.id] && f.rules[r.id].na !== 'category'))
+
   const buildExport = (): SheetSpec | null => {
     if (!data) return null
     const desk = currentDesk()
@@ -154,8 +158,10 @@ export default function Blacklist() {
           </div>
           <p className="text-[11px] mb-3" style={{ color: 'var(--text-low)' }}>
             Each fund’s <b>Blacklist Score</b> is the share of the rule weights (left) that it fails, 0–100. Funds at or
-            above the minimum score are listed, highest first. Red cells are the rules it fails; “n/a” means the rule does
-            not apply to that category or there is not enough data. Recomputed with every data refresh.
+            above the minimum score are listed, highest first. Red cells are the rules it fails. A faint “–” means the rule is
+            not meant for that fund’s category (e.g. tracking error is a Large Cap rule); a grey note such as “&lt; 5Y history”
+            or “no benchmark” means the fund could not be judged on it yet. A fund between 3 and 5 years old is judged on
+            3Y alpha alone (marked “3Y only”). Recomputed with every data refresh.
           </p>
 
           <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)] mb-4">
@@ -212,7 +218,7 @@ export default function Blacklist() {
                       <tr>
                         <th className="sticky-col text-left" style={{ minWidth: 240 }}>Fund</th>
                         <th style={{ textAlign: 'right' }} title="Share of the rule weights this fund fails">Score</th>
-                        {RULES.map(r => (
+                        {visibleRules.map(r => (
                           <th key={r.id} title={r.help} style={{ textAlign: 'center' }}>
                             <div>{r.short}</div>
                             <div style={{ fontWeight: 400, opacity: 0.7, fontSize: 10 }}>{w[r.id] ?? 0}%</div>
@@ -232,15 +238,22 @@ export default function Blacklist() {
                               <div className="text-[10px] truncate" style={{ color: colour }}>{f.category_name}</div>
                             </td>
                             <td className="ret-cell font-semibold" style={{ color: 'var(--loss)' }}>{f.score.toFixed(0)}</td>
-                            {RULES.map(r => {
+                            {visibleRules.map(r => {
                               const x = f.rules[r.id]
                               const fail = x?.fail === true
+                              const off = x?.fail == null && (!x?.na || x.na === 'category')
+                              const tip = fail ? x.text
+                                : off ? 'This rule is not applied to this category'
+                                : x?.fail == null ? `Not judged: ${x.na}` : undefined
                               return (
-                                <td key={r.id} className="text-center text-[11px]" title={fail ? x.text : undefined}
+                                <td key={r.id} className="text-center text-[11px]" title={tip}
                                     style={{ background: fail ? 'rgba(248,113,113,0.14)' : undefined,
                                              color: fail ? 'var(--loss)' : x?.fail == null ? 'var(--text-low)' : 'var(--text-mid)',
                                              fontWeight: fail ? 600 : 400 }}>
-                                  {x?.fail == null ? 'n/a' : x.value}
+                                  {x?.fail == null
+                                    ? (off ? <span style={{ opacity: 0.4 }}>–</span>
+                                           : <span className="italic text-[10px]">{x.na}</span>)
+                                    : x.value}
                                 </td>
                               )
                             })}

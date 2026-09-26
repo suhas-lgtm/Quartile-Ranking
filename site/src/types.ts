@@ -313,6 +313,9 @@ export interface BlacklistRuleResult {
   value: string | null
   /** The failure spelled out; empty when it passed. */
   text: string
+  /** When fail is null, why: "category" = the rule is not meant for this
+   *  category; otherwise the data gap ("< 5Y history", "no benchmark", ...). */
+  na?: string
 }
 
 /** blacklist.json — Blacklist tab. */
