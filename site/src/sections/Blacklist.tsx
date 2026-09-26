@@ -33,7 +33,7 @@ const RULES: { id: BlacklistRule; label: string; short: string; help: string }[]
   { id: 'downside_capture', short: 'Down capture', label: 'Falls more than index',
     help: 'Downside capture above 100 (3Y) — falls more than the benchmark in down months. For Small and Mid Cap, 1Y is checked too.' },
   { id: 'tracking_error', short: 'Tracking error', label: 'Active risk, no reward',
-    help: 'Large Cap: tracking error in the top quarter of the category together with negative 3Y alpha — taking active risk and losing.' },
+    help: 'Large Cap only. Tracking error = how far the fund’s returns wander from its benchmark (yearly standard deviation of the monthly gap between fund and index); ~1–3% hugs the index, 6%+ means big bets away from it. Flagged when it is in the top quarter of Large Cap funds AND 3Y alpha is negative — taking active risk and losing.' },
   { id: 'short_track_record', short: 'Track record', label: 'Short track record',
     help: 'Under 3 years of history in a category with established alternatives (not applied to Multi Cap).' },
   { id: 'bottom_3m', short: '3M quartile', label: 'Bottom of pack (3M)',
@@ -43,6 +43,10 @@ const RULES: { id: BlacklistRule; label: string; short: string; help: string }[]
   { id: 'aum_size', short: 'AUM', label: 'Size (AUM)',
     help: 'Fund AUM (all plans) below ₹300 Cr — too small to be sustainable; or, for Small and Mid Cap, above ₹30,000 Cr — too big to stay nimble (AMFI quarterly average AUM).' },
 ]
+/** Rules meant for one category each, and the tag shown in the shared column. */
+const CATEGORY_RULE_TAG: Partial<Record<BlacklistRule, string>> = {
+  tracking_error: 'TE ', bottom_3m: '3M ', high_beta: 'β ',
+}
 const WEIGHTS_KEY = 'bl_weights_v1'
 const MIN_KEY = 'bl_min_score_v1'
 
@@ -86,6 +90,31 @@ export default function Blacklist() {
   // Columns for rules that apply to none of the listed funds (e.g. the Large
   // Cap tracking-error rule when no Large Cap fund is listed) are left out.
   const visibleRules = RULES.filter(r => shown.some(f => f.rules[r.id] && f.rules[r.id].na !== 'category'))
+  // Rules written for one category each share a single "Category check"
+  // column, so the table is not mostly dashes when all categories are listed.
+  const tableRules = visibleRules.filter(r => !(r.id in CATEGORY_RULE_TAG))
+  const catRules = visibleRules.filter(r => r.id in CATEGORY_RULE_TAG)
+
+  const ruleCell = (f: (typeof shown)[number], r: (typeof RULES)[number], key: string, tag = '') => {
+    const x = f.rules[r.id]
+    const weighted = (w[r.id] ?? 0) > 0
+    const fail = x?.fail === true
+    const hot = fail && weighted            // only failures that move the score are red
+    const off = !x || (x.fail == null && (!x.na || x.na === 'category'))
+    const tip = fail ? `${r.label}: ${x.text}${weighted ? '' : ' (weight 0% — not counted in the score)'}`
+      : off ? 'This rule is not applied to this category'
+      : x.fail == null ? `${r.label} — not judged: ${x.na}` : `${r.label}: passed`
+    return (
+      <td key={key} className="text-center text-[11px]" title={tip}
+          style={{ background: hot ? 'rgba(248,113,113,0.14)' : undefined,
+                   color: hot ? 'var(--loss)' : fail ? '#F59E0B' : x?.fail == null ? 'var(--text-low)' : 'var(--text-mid)',
+                   fontWeight: fail ? 600 : 400 }}>
+        {off ? <span style={{ opacity: 0.4 }}>–</span>
+          : x.fail == null ? <span className="italic text-[10px]">{tag}{x.na}</span>
+          : <>{tag}{x.value}</>}
+      </td>
+    )
+  }
 
   const buildExport = (): SheetSpec | null => {
     if (!data) return null
@@ -158,8 +187,10 @@ export default function Blacklist() {
           </div>
           <p className="text-[11px] mb-3" style={{ color: 'var(--text-low)' }}>
             Each fund’s <b>Blacklist Score</b> is the share of the rule weights (left) that it fails, 0–100. Funds at or
-            above the minimum score are listed, highest first. Red cells are the rules it fails. A faint “–” means the rule is
-            not meant for that fund’s category (e.g. tracking error is a Large Cap rule); a grey note such as “&lt; 5Y history”
+            above the minimum score are listed, highest first. Red cells are the rules it fails; amber = fails a rule whose weight is 0%, so it does not count
+            in the score. <b>Category check</b> holds the three rules written for one category each — TE = tracking
+            error (Large Cap), 3M = bottom quartile on 3 months (Multi Cap), β = high beta (Value / Dividend Yield).
+            A faint “–” means no rule of that column applies to the fund’s category; a grey note such as “&lt; 5Y history”
             or “no benchmark” means the fund could not be judged on it yet. A fund between 3 and 5 years old is judged on
             3Y alpha alone (marked “3Y only”). Recomputed with every data refresh.
           </p>
@@ -218,12 +249,21 @@ export default function Blacklist() {
                       <tr>
                         <th className="sticky-col text-left" style={{ minWidth: 240 }}>Fund</th>
                         <th style={{ textAlign: 'right' }} title="Share of the rule weights this fund fails">Score</th>
-                        {visibleRules.map(r => (
+                        {tableRules.map(r => (
                           <th key={r.id} title={r.help} style={{ textAlign: 'center' }}>
                             <div>{r.short}</div>
                             <div style={{ fontWeight: 400, opacity: 0.7, fontSize: 10 }}>{w[r.id] ?? 0}%</div>
                           </th>
                         ))}
+                        {catRules.length > 0 && (
+                          <th style={{ textAlign: 'center' }}
+                              title={catRules.map(r => `${CATEGORY_RULE_TAG[r.id]!.trim()} = ${r.label} (${w[r.id] ?? 0}%): ${r.help}`).join(' | ')}>
+                            <div>Category check</div>
+                            <div style={{ fontWeight: 400, opacity: 0.7, fontSize: 10 }}>
+                              {catRules.map(r => `${CATEGORY_RULE_TAG[r.id]!.trim()} ${w[r.id] ?? 0}%`).join(' · ')}
+                            </div>
+                          </th>
+                        )}
                         <th style={{ textAlign: 'right' }}>1Y</th>
                         <th style={{ textAlign: 'right' }}>3Y</th>
                       </tr>
@@ -238,25 +278,13 @@ export default function Blacklist() {
                               <div className="text-[10px] truncate" style={{ color: colour }}>{f.category_name}</div>
                             </td>
                             <td className="ret-cell font-semibold" style={{ color: 'var(--loss)' }}>{f.score.toFixed(0)}</td>
-                            {visibleRules.map(r => {
-                              const x = f.rules[r.id]
-                              const fail = x?.fail === true
-                              const off = x?.fail == null && (!x?.na || x.na === 'category')
-                              const tip = fail ? x.text
-                                : off ? 'This rule is not applied to this category'
-                                : x?.fail == null ? `Not judged: ${x.na}` : undefined
-                              return (
-                                <td key={r.id} className="text-center text-[11px]" title={tip}
-                                    style={{ background: fail ? 'rgba(248,113,113,0.14)' : undefined,
-                                             color: fail ? 'var(--loss)' : x?.fail == null ? 'var(--text-low)' : 'var(--text-mid)',
-                                             fontWeight: fail ? 600 : 400 }}>
-                                  {x?.fail == null
-                                    ? (off ? <span style={{ opacity: 0.4 }}>–</span>
-                                           : <span className="italic text-[10px]">{x.na}</span>)
-                                    : x.value}
-                                </td>
-                              )
-                            })}
+                            {tableRules.map(r => ruleCell(f, r, r.id))}
+                            {catRules.length > 0 && (() => {
+                              const r = catRules.find(c => f.rules[c.id] && f.rules[c.id].na !== 'category')
+                              return r ? ruleCell(f, r, 'cat', CATEGORY_RULE_TAG[r.id])
+                                : <td key="cat" className="text-center text-[11px]" title="No category-specific rule for this category"
+                                      style={{ color: 'var(--text-low)' }}><span style={{ opacity: 0.4 }}>–</span></td>
+                            })()}
                             <td className={`ret-cell ${retColor(f.return_1y)}`}>{fmtPct(f.return_1y)}</td>
                             <td className={`ret-cell ${retColor(f.return_3y)}`}>{fmtPct(f.return_3y)}</td>
                           </tr>
