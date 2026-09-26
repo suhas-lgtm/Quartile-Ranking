@@ -410,6 +410,13 @@ def refresh_one(index_id: int, name: str, slug: str, ticker: str,
         points[d] = close
     points = drop_after(prune(points), cap)
 
+    # Yahoo lost most NSE sector histories in June 2026 and can drop days again;
+    # fill any missing trading day of an NSE index from NSE's own archive.
+    from scripts.nse_archive import fill_gaps
+    points, filled = fill_gaps(index_id, points, cap)
+    if filled:
+        log.info("  %-22s filled %d missing day(s) from the NSE archive", name, filled)
+
     # Strip source glitches before anything measures this series. Done here
     # rather than at read time so the bucket holds clean history: a corrupted
     # close that reaches the file is read by every consumer forever.

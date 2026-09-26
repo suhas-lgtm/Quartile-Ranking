@@ -97,14 +97,15 @@ export function useNavLookup(codes: string[], dates: string[]) {
 }
 
 /** Close on or before `date` from an index file's [date, close] history. */
-export function closeOnOrBefore(history: [string, number][] | undefined, date: string): NavPoint | null {
+export function closeOnOrBefore(history: [string, number][] | undefined, date: string,
+                                maxGapDays = 10): NavPoint | null {
   if (!history?.length) return null
   let found: [string, number] | null = null
   for (const h of history) {
     if (h[0] <= date) found = h
     else break
   }
-  if (!found || daysBetweenIso(found[0], date) > 10) return null
+  if (!found || daysBetweenIso(found[0], date) > maxGapDays) return null
   return { date: found[0], nav: found[1] }
 }
 
@@ -150,7 +151,9 @@ export function indexSip(history: [string, number][] | undefined, months: number
   const flows: { date: string; amount: number }[] = []
   let units = 0
   for (const d of monthlyDates(first, endDate).slice(0, months)) {
-    const p = closeOnOrBefore(history, d)
+    // 15 days, not 10: some markets close for over a week (China's Golden Week,
+    // New Year), and one such instalment date must not blank the whole SIP.
+    const p = closeOnOrBefore(history, d, 15)
     if (!p) return null
     units += amount / p.nav
     flows.push({ date: d, amount: -amount })
