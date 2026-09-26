@@ -181,6 +181,50 @@ export function useRisk(slug: string) {
     () => categoryPath(slug, 'risk.json'), slug ? `risk:${slug}` : '')
 }
 
+/**
+ * Every category's risk file at once, for Risk & Returns' "All Categories".
+ * Funds are tagged with their category; a category whose file fails is skipped
+ * rather than failing the whole view. Pass no slugs to fetch nothing.
+ */
+export function useRiskAll(slugs: string[]) {
+  type Row = import('../types').RiskFundRow
+  const [data, setData] = useState<{ as_of: string; funds: Row[]; facts: import('../types').RiskData['facts'];
+                                     risk_free_rate: number; window: string } | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const key = slugs.join(',')
+
+  useEffect(() => {
+    if (!key) { setData(null); return }
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    Promise.all(slugs.map(slug => categoryPath(slug, 'risk.json')
+      .then(p => fetch(`${dataBase()}/${p}`))
+      .then(r => (r.ok ? r.json() as Promise<import('../types').RiskData> : null))
+      .then(d => (d ? { slug, d } : null))
+      .catch(() => null)))
+      .then(files => {
+        if (cancelled) return
+        const got = files.filter((x): x is { slug: string; d: import('../types').RiskData } => !!x)
+        if (!got.length) { setError('No category data'); setLoading(false); return }
+        setData({
+          as_of: got.map(x => x.d.as_of).sort().reverse()[0],
+          risk_free_rate: got[0].d.risk_free_rate,
+          window: got[0].d.window,
+          facts: got.find(x => x.d.facts)?.d.facts ?? null,
+          funds: got.flatMap(({ slug, d }) =>
+            d.funds.map(f => ({ ...f, category_slug: slug, category_name: d.category_name }))),
+        })
+        setLoading(false)
+      })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key])
+
+  return { data, loading, error }
+}
+
 /** Whitelist Screener parameters and scores for one category. */
 export function useScreener(slug: string) {
   return useJson<import('../types').ScreenerData>(

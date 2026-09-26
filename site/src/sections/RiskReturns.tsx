@@ -6,7 +6,7 @@
 // filters and colours it; it never recalculates a figure.
 
 import { useMemo, useState } from 'react'
-import { useMeta, useRisk } from '../hooks/useData'
+import { useMeta, useRisk, useRiskAll } from '../hooks/useData'
 import ComingFunds from '../components/ComingFunds'
 import DownloadButton from '../components/DownloadButton'
 import { currentDesk } from '../config/products'
@@ -25,6 +25,11 @@ const MAIN_TAB_NAMES = [
 ]
 
 type View = 'returns' | 'ratios' | 'sip' | 'all'
+
+/** The "All Categories" choice in the category picker. */
+const ALL_CATS = '__all__'
+/** Rows drawn at a time in All Categories (about 2,000 funds in total). */
+const PAGE = 300
 type Better = 'high' | 'low' | null
 
 interface Col {
@@ -152,14 +157,24 @@ export default function RiskReturns() {
   const mainTabs  = eligibleCats.filter(c => MAIN_TAB_NAMES.includes(c.category_name))
   const otherCats = eligibleCats.filter(c => !MAIN_TAB_NAMES.includes(c.category_name))
 
-  const { data, loading, error } = useRisk(activeSlug)
+  const isAll = activeSlug === ALL_CATS
+  const single = useRisk(isAll ? '' : activeSlug)
+  const multi = useRiskAll(isAll ? eligibleCats.map(c => c.slug) : [])
+  const data = isAll ? multi.data : single.data
+  const loading = isAll ? multi.loading || !multi.data && !multi.error : single.loading
+  const error = isAll ? multi.error : single.error
+  /** Single-category files only: the category average and benchmark rows. */
+  const one = isAll ? null : single.data
+  const [limit, setLimit] = useState(PAGE)
+  const slugOf = (f: RiskFundRow) => f.category_slug ?? activeSlug
 
   const cols = view === 'returns' ? RETURN_COLS : view === 'ratios' ? [...RATIO_COLS, ...FACT_COLS]
     : view === 'sip' ? SIP_COLS : ALL_COLS
 
   const funds = useMemo(() => {
     const q = query.trim().toLowerCase()
-    const list = (data?.funds ?? []).filter(f => !q || f.scheme_name.toLowerCase().includes(q))
+    const list = (data?.funds ?? []).filter(f => !q || f.scheme_name.toLowerCase().includes(q)
+      || (f.category_name ?? '').toLowerCase().includes(q))
     const col = ALL_COLS.find(c => c.key === sort.key)
     if (!col) return list
     // Blanks always sink to the bottom, whichever way the column is sorted.
@@ -173,14 +188,20 @@ export default function RiskReturns() {
   }, [data, query, sort])
 
   // Colour against the whole category, not just the rows a search left visible,
-  // so filtering never changes what "top quarter" means.
+  // so filtering never changes what "top quarter" means. In All Categories each
+  // fund is still judged against its own category, never against the mix.
   const cuts = useMemo(() => {
-    const out: Record<string, ReturnType<typeof cutoffs>> = {}
-    for (const c of ALL_COLS) {
-      out[c.key] = cutoffs((data?.funds ?? [])
-        .map(f => c.get(f)).filter((v): v is number => v != null))
+    const byCat: Record<string, RiskFundRow[]> = {}
+    for (const f of data?.funds ?? []) (byCat[slugOf(f)] ??= []).push(f)
+    const out: Record<string, Record<string, ReturnType<typeof cutoffs>>> = {}
+    for (const [slug, rows] of Object.entries(byCat)) {
+      out[slug] = {}
+      for (const c of ALL_COLS) {
+        out[slug][c.key] = cutoffs(rows.map(f => c.get(f)).filter((v): v is number => v != null))
+      }
     }
     return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data])
 
   const onSort = (key: string) =>
@@ -189,8 +210,10 @@ export default function RiskReturns() {
   const buildExport = (): SheetSpec | null => {
     if (!data) return null
     const desk = currentDesk()
+    const catName = isAll ? 'All categories' : one?.category_name ?? ''
     const columns: SheetSpec['columns'] = [
       { key: 'fund', label: 'Fund Name', type: 'text', width: 46 },
+      ...(isAll ? [{ key: 'category', label: 'Category', type: 'text' as const, width: 24 }] : []),
       ...cols.map(c => ({ key: c.key, label: c.label, type: c.exportType })),
     ]
     const row = (name: string, r: Parameters<Col['get']>[0]) => {
@@ -200,15 +223,15 @@ export default function RiskReturns() {
       return out
     }
     const rows: SheetSpec['rows'] = []
-    rows.push(row('Category average', data.category_average))
-    for (const f of funds) rows.push(row(f.scheme_name, f))
-    if (data.benchmark) rows.push(row(`Benchmark: ${data.benchmark.name ?? ''}`, { returns: data.benchmark.returns, sip: data.benchmark.sip }))
+    if (one) rows.push(row('Category average', one.category_average))
+    for (const f of funds) rows.push({ ...row(f.scheme_name, f), ...(isAll ? { category: f.category_name ?? '' } : {}) })
+    if (one?.benchmark) rows.push(row(`Benchmark: ${one.benchmark.name ?? ''}`, { returns: one.benchmark.returns, sip: one.benchmark.sip }))
     return {
       sheet: 'Risk & Returns',
-      title: `Risk & Returns - ${data.category_name}`,
+      title: `Risk & Returns - ${catName}`,
       meta: [
         ['Desk', desk.name],
-        ['Category', data.category_name],
+        ['Category', catName],
         ['Data as of', data.as_of],
         ['Funds', String(funds.length)],
         ['Ratios', `${data.window}; risk-free rate ${(data.risk_free_rate * 100).toFixed(1)}% p.a.`],
@@ -217,18 +240,18 @@ export default function RiskReturns() {
       ],
       columns,
       rows,
-      fileName: `${desk.code} Risk & Returns - ${data.category_name} - ${data.as_of}`,
+      fileName: `${desk.code} Risk & Returns - ${catName} - ${data.as_of}`,
     }
   }
 
-  const colour = categoryColor(activeSlug)
+  const colour = isAll ? 'var(--accent-a)' : categoryColor(activeSlug)
 
-  const cell = (c: Col, r: Parameters<Col['get']>[0], coloured: boolean) => {
+  const cell = (c: Col, r: Parameters<Col['get']>[0], coloured: boolean, slug = activeSlug) => {
     const v = c.get(r)
     const cls = c.group !== 'ratios' || c.key === 'alpha' ? retColor(v ?? null) : ''
     return (
       <td key={c.key} className={`ret-cell ${cls}`}
-          style={{ background: coloured ? tint(v, c.better, cuts[c.key]) : undefined,
+          style={{ background: coloured ? tint(v, c.better, cuts[slug]?.[c.key]) : undefined,
                    borderLeft: c.key === 'aum_cr' ? '1px solid var(--line)' : undefined }}>
         {c.show(v)}
       </td>
@@ -245,6 +268,11 @@ export default function RiskReturns() {
       <div className="flex items-start justify-between mb-3 gap-3 flex-wrap">
         <div className="flex gap-2 flex-wrap items-center flex-1 min-w-0">
           <div className="tab-bar">
+            <button onClick={() => { setSlug(ALL_CATS); setLimit(PAGE) }}
+                    className={`tab-btn${isAll ? ' active accent' : ''}`}
+                    title="Every fund from every category in one table">
+              All Categories
+            </button>
             {mainTabs.map(c => {
               const col = categoryColor(c.slug, c.asset_class)
               const on = activeSlug === c.slug
@@ -259,11 +287,11 @@ export default function RiskReturns() {
           </div>
           {otherCats.length > 0 && (
             <select
-              value={mainTabs.some(c => c.slug === activeSlug) ? '' : activeSlug}
+              value={isAll || mainTabs.some(c => c.slug === activeSlug) ? '' : activeSlug}
               onChange={e => { if (e.target.value) setSlug(e.target.value) }}
               className="px-3 py-1.5 rounded-lg text-sm"
               style={{ background: 'var(--bg-raised)',
-                       border: `1px solid ${mainTabs.some(c => c.slug === activeSlug) ? 'var(--line)' : colour}`,
+                       border: `1px solid ${isAll || mainTabs.some(c => c.slug === activeSlug) ? 'var(--line)' : colour}`,
                        color: 'var(--text-hi)', outline: 'none' }}
             >
               <option value="" disabled>-- Other Categories --</option>
@@ -292,15 +320,24 @@ export default function RiskReturns() {
         />
         {data && (
           <span className="text-xs" style={{ color: 'var(--text-low)' }}>
-            {funds.length} of {data.funds.length} funds · click a column to sort · as of {data.as_of}
+            {funds.length} of {data.funds.length} funds{isAll ? ` across ${new Set(data.funds.map(slugOf)).size} categories` : ''}
+            {' '}· click a column to sort · as of {data.as_of}
           </span>
         )}
       </div>
 
-      {data?.benchmark?.stale && (
+      {isAll && (
+        <div className="card p-3 mb-3 text-xs" style={{ color: 'var(--text-mid)' }}>
+          All categories in one table. Green / red shading still compares each fund with <b>its own category</b>,
+          so a green 3Y return means top quarter among its peers, not across the whole list. Pick a single
+          category to see its average and benchmark rows.
+        </div>
+      )}
+
+      {one?.benchmark?.stale && (
         <div className="card p-3 mb-3 text-xs" style={{ borderColor: 'rgba(245,158,11,0.5)', color: 'var(--text-mid)' }}>
-          ⚠️ The benchmark <b style={{ color: 'var(--text-hi)' }}>{data.benchmark.name}</b> has no data
-          after {data.benchmark.last_date}, so Alpha, Beta and the Capture ratios are left blank for this
+          ⚠️ The benchmark <b style={{ color: 'var(--text-hi)' }}>{one.benchmark.name}</b> has no data
+          after {one.benchmark.last_date}, so Alpha, Beta and the Capture ratios are left blank for this
           category, and the benchmark row&apos;s returns end on that date. Std Dev, Sharpe, Sortino and Max DD
           do not use the benchmark and are unaffected.
         </div>
@@ -330,38 +367,52 @@ export default function RiskReturns() {
                 </tr>
               </thead>
               <tbody key={`${activeSlug}-${view}`} className="rows-enter">
-                <tr className="benchmark-row">
-                  <td className="sticky-col text-xs font-semibold" style={{ color: 'var(--text-mid)' }}>
-                    Category average
-                  </td>
-                  {cols.map(c => cell(c, data.category_average, false))}
-                </tr>
-                {funds.map((f: RiskFundRow) => (
+                {one && (
+                  <tr className="benchmark-row">
+                    <td className="sticky-col text-xs font-semibold" style={{ color: 'var(--text-mid)' }}>
+                      Category average
+                    </td>
+                    {cols.map(c => cell(c, one.category_average, false))}
+                  </tr>
+                )}
+                {(isAll ? funds.slice(0, limit) : funds).map((f: RiskFundRow) => (
                   <tr key={f.scheme_code}>
                     <td className="sticky-col text-xs font-medium truncate" style={{ maxWidth: 240 }}
                         title={f.benchmark_name ? `${f.scheme_name}
 Benchmark: ${f.benchmark_name}` : f.scheme_name}>
                       <FundLink code={f.scheme_code} name={f.scheme_name} />
+                      {isAll && f.category_name && (
+                        <div className="text-[10px] font-normal truncate" style={{ color: categoryColor(slugOf(f)) }}>
+                          {f.category_name}
+                        </div>
+                      )}
                       {f.benchmark_name && (
                         <div className="text-[10px] font-normal truncate" style={{ color: 'var(--text-low)' }}>
                           vs {f.benchmark_name}
                         </div>
                       )}
                     </td>
-                    {cols.map(c => cell(c, f, true))}
+                    {cols.map(c => cell(c, f, true, slugOf(f)))}
                   </tr>
                 ))}
-                {data.benchmark && (
+                {one?.benchmark && (
                   <tr className="benchmark-row">
                     <td className="sticky-col text-xs font-semibold truncate" style={{ maxWidth: 240, color: 'var(--accent-a)' }}
-                        title={data.benchmark.name ?? ''}>
-                      Benchmark · {data.benchmark.name}
+                        title={one.benchmark.name ?? ''}>
+                      Benchmark · {one.benchmark.name}
                     </td>
-                    {cols.map(c => cell(c, { returns: data.benchmark!.returns, sip: data.benchmark!.sip }, false))}
+                    {cols.map(c => cell(c, { returns: one.benchmark!.returns, sip: one.benchmark!.sip }, false))}
                   </tr>
                 )}
               </tbody>
             </table>
+            {isAll && funds.length > limit && (
+              <div className="p-3 text-center">
+                <button onClick={() => setLimit(l => l + PAGE)} className="tab-btn active accent">
+                  Show {Math.min(PAGE, funds.length - limit)} more ({funds.length - limit} not shown)
+                </button>
+              </div>
+            )}
             {funds.length === 0 && (
               <div className="p-6 text-center text-sm" style={{ color: 'var(--text-mid)' }}>
                 No fund matches “{query}”.
@@ -383,7 +434,7 @@ Benchmark: ${f.benchmark_name}` : f.scheme_name}>
         </div>
         <p className="mb-3">
           All ratios except Max DD use the <b style={{ color: 'var(--text-hi)' }}>last 3 years of monthly returns</b>
-          {data?.benchmark ? <> compared with the category benchmark, <b style={{ color: 'var(--text-hi)' }}>{data.benchmark.name}</b></> : null},
+          {one?.benchmark ? <> compared with the category benchmark, <b style={{ color: 'var(--text-hi)' }}>{one.benchmark.name}</b></> : <> compared with each category&apos;s benchmark</>},
           with a risk-free rate of {data ? `${(data.risk_free_rate * 100).toFixed(1)}%` : '6.5%'} a year.
           A fund needs about 30 months of history for ratios; younger funds show returns only.
           1D to 1Y returns are plain % changes; 2Y and longer are yearly averages (CAGR).

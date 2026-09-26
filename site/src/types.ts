@@ -185,6 +185,9 @@ export type SipPeriod = '1Y' | '3Y' | '5Y' | '10Y'
 export interface RiskFundRow extends RiskRatios {
   scheme_code: string
   scheme_name: string
+  /** Set only in Risk & Returns' "All Categories" view. */
+  category_slug?: string
+  category_name?: string
   /** Decimal; up to 12M absolute, beyond that CAGR. null = not enough history. */
   returns: Record<RiskPeriod, number | null>
   recovery_days: number | null
