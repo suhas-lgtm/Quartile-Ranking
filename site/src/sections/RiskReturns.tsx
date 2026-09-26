@@ -13,7 +13,7 @@ import { currentDesk } from '../config/products'
 import { categoryColor } from '../config/categoryColors'
 import { fmtPct, retColor } from '../utils/format'
 import type { SheetSpec } from '../utils/xlsx'
-import type { RiskFundRow, RiskPeriod, RiskRatios, SipPeriod } from '../types'
+import type { RiskFundRow, RiskPeriod, RiskRatios, RollingWindow, SipPeriod } from '../types'
 import FundLink from '../components/FundLink'
 import { fuzzyMatcher } from '../utils/fuzzy'
 
@@ -25,7 +25,7 @@ const MAIN_TAB_NAMES = [
   'Flexi Cap', 'Balanced Advantage', 'Multi Asset Allocation',
 ]
 
-type View = 'returns' | 'ratios' | 'sip' | 'all'
+type View = 'returns' | 'ratios' | 'sip' | 'rolling' | 'all'
 
 /** The "All Categories" choice in the category picker. */
 const ALL_CATS = '__all__'
@@ -36,7 +36,7 @@ type Better = 'high' | 'low' | null
 interface Col {
   key: string
   label: string
-  group: 'returns' | 'ratios' | 'sip'
+  group: 'returns' | 'ratios' | 'sip' | 'rolling'
   /** Value from a fund row, the category average or the benchmark. */
   get: (r: { returns?: Partial<Record<RiskPeriod, number | null>> } & Partial<RiskRatios>) => number | null | undefined
   show: (v: number | null | undefined) => string
@@ -129,7 +129,30 @@ const SIP_COLS: Col[] = (['1W', '1M', '3M', '6M', '1Y', '3Y', '5Y', '10Y'] as Si
     : `XIRR of a fixed monthly SIP over the last ${p === '1Y' ? 'year' : p.replace('Y', ' years')}: one instalment a month, all valued at the latest NAV. Annualised, allowing for when each instalment went in.`,
 }))
 
-const ALL_COLS = [...RETURN_COLS, ...SIP_COLS, ...RATIO_COLS, ...FACT_COLS]
+const pct0 = (v: number | null | undefined) => (v == null ? '—' : `${Math.round(v * 100)}%`)
+
+// Rolling returns: every window of this length in the fund's history (one ending
+// on each NAV date). Average and worst say what to expect; % positive and
+// % beat benchmark say how consistently.
+const ROLL_COLS: Col[] = (['1Y', '3Y', '5Y'] as RollingWindow[]).flatMap(w => {
+  const per = w === '1Y' ? 'absolute' : 'annualised (CAGR)'
+  return [
+    { key: `roll_${w}_avg`, label: `${w} roll avg`, group: 'rolling' as const,
+      get: (r: Parameters<Col['get']>[0]) => r.rolling?.[w]?.avg, show: pct, better: 'high' as const, exportType: 'percent' as const,
+      help: `Average of all rolling ${w} returns in the fund's history (${per}). What a typical ${w} holding period returned.` },
+    { key: `roll_${w}_min`, label: `${w} worst`, group: 'rolling' as const,
+      get: (r: Parameters<Col['get']>[0]) => r.rolling?.[w]?.min, show: pct, better: 'high' as const, exportType: 'percent' as const,
+      help: `The worst rolling ${w} return in the fund's history (${per}): what the unluckiest investor who held ${w} got.` },
+    { key: `roll_${w}_pos`, label: `${w} % positive`, group: 'rolling' as const,
+      get: (r: Parameters<Col['get']>[0]) => r.rolling?.[w]?.pct_positive, show: pct0, better: 'high' as const, exportType: 'percent' as const,
+      help: `Share of all rolling ${w} periods that ended with a gain.` },
+    { key: `roll_${w}_beat`, label: `${w} % beat bench`, group: 'rolling' as const,
+      get: (r: Parameters<Col['get']>[0]) => r.rolling?.[w]?.pct_beat, show: pct0, better: 'high' as const, exportType: 'percent' as const,
+      help: `Share of all rolling ${w} periods in which the fund beat its benchmark. Consistency: 80% means it beat the index in 4 of every 5 ${w} windows.` },
+  ]
+})
+
+const ALL_COLS = [...RETURN_COLS, ...SIP_COLS, ...ROLL_COLS, ...RATIO_COLS, ...FACT_COLS]
 
 const GOOD_BG = 'rgba(52,211,153,0.14)'
 const BAD_BG  = 'rgba(248,113,113,0.14)'
@@ -175,7 +198,7 @@ export default function RiskReturns() {
   const slugOf = (f: RiskFundRow) => f.category_slug ?? activeSlug
 
   const cols = view === 'returns' ? RETURN_COLS : view === 'ratios' ? [...RATIO_COLS, ...FACT_COLS]
-    : view === 'sip' ? SIP_COLS : ALL_COLS
+    : view === 'sip' ? SIP_COLS : view === 'rolling' ? ROLL_COLS : ALL_COLS
 
   const funds = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -255,7 +278,8 @@ export default function RiskReturns() {
 
   const cell = (c: Col, r: Parameters<Col['get']>[0], coloured: boolean, slug = activeSlug) => {
     const v = c.get(r)
-    const cls = c.group !== 'ratios' || c.key === 'alpha' ? retColor(v ?? null) : ''
+    const cls = c.group === 'returns' || c.group === 'sip' || c.key === 'alpha' || /^roll_.*_(avg|min)$/.test(c.key)
+      ? retColor(v ?? null) : ''
     return (
       <td key={c.key} className={`ret-cell ${cls}`}
           style={{ background: coloured ? tint(v, c.better, cuts[slug]?.[c.key]) : undefined,
@@ -311,6 +335,8 @@ export default function RiskReturns() {
           <button onClick={() => setView('ratios')}  className={`tab-btn${view === 'ratios'  ? ' active accent' : ''}`}>Ratios</button>
           <button onClick={() => { setView('sip'); if (!sort.key.startsWith('sip_')) setSort({ key: 'sip_3Y', dir: 'desc' }) }}
                   className={`tab-btn${view === 'sip' ? ' active accent' : ''}`}>SIP Returns</button>
+          <button onClick={() => { setView('rolling'); if (!sort.key.startsWith('roll_')) setSort({ key: 'roll_3Y_beat', dir: 'desc' }) }}
+                  className={`tab-btn${view === 'rolling' ? ' active accent' : ''}`}>Rolling</button>
           <button onClick={() => setView('all')}     className={`tab-btn${view === 'all'     ? ' active accent' : ''}`}>All</button>
           <DownloadButton build={buildExport} disabledHint="No funds in this category yet" />
         </div>
@@ -366,7 +392,7 @@ export default function RiskReturns() {
                       <th key={c.key} title={c.help} onClick={() => onSort(c.key)}
                           style={{ textAlign: 'right', cursor: 'pointer', userSelect: 'none',
                                    color: on ? 'var(--accent-a)' : undefined,
-                                   borderLeft: (c.key === 'alpha' || c.key === 'sip_1W') && view === 'all' ? '1px solid var(--line)' : undefined }}>
+                                   borderLeft: (c.key === 'alpha' || c.key === 'sip_1W' || c.key === 'roll_1Y_avg') && view === 'all' ? '1px solid var(--line)' : undefined }}>
                         {c.label}{on ? (sort.dir === 'desc' ? ' ▼' : ' ▲') : ''}
                       </th>
                     )
@@ -449,6 +475,10 @@ Benchmark: ${f.benchmark_name}` : f.scheme_name}>
           the latest NAV. 1W to 6M are absolute returns (value ÷ invested − 1; 1W and 1M are a single instalment, so they
           match the plain return); 1Y and longer are annualised (XIRR). The benchmark row applies the same SIP to the
           index. Blank = the fund is younger than the period.
+          <b style={{ color: 'var(--text-hi)' }}> Rolling</b>: every 1Y / 3Y / 5Y window in the fund&apos;s history, one ending
+          on each NAV date — the average, the worst, the share that made money and the share that beat the benchmark.
+          Point-to-point returns depend on the two dates chosen; rolling returns show how the fund did for anyone,
+          whenever they invested. 1Y is absolute; 3Y and 5Y are annualised.
         </p>
         <div className="grid gap-x-8 gap-y-2.5 md:grid-cols-2">
           {[...RATIO_COLS, ...FACT_COLS].map(c => (

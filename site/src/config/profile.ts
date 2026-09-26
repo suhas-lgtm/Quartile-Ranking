@@ -7,16 +7,21 @@
 // The tab list below is the single source of truth. Adding a section means
 // adding it to SectionId and ALL_TABS, and rendering it in App.tsx.
 
-export type SectionId = 'market-pulse' | 'quartile' | 'risk' | 'p2p' | 'portfolio' | 'compare' | 'watchlist' | 'whitelist' | 'blacklist' | 'alerts'
+export type SectionId = 'market-pulse' | 'quartile' | 'risk' | 'calendar' | 'p2p' | 'portfolio' | 'compare'
+  | 'aum' | 'industry' | 'nfo' | 'watchlist' | 'whitelist' | 'blacklist' | 'alerts'
 
 /** In the order they appear in the header. */
 const ALL_TABS: ReadonlyArray<{ id: SectionId; label: string }> = [
   { id: 'market-pulse', label: 'Market Pulse' },
   { id: 'quartile',     label: 'Quartile Ranking' },
   { id: 'risk',         label: 'Risk & Returns' },
+  { id: 'calendar',     label: 'Calendar Returns' },
   { id: 'p2p',          label: 'Point to Point' },
   { id: 'portfolio',    label: 'Portfolio Builder' },
   { id: 'compare',      label: 'Compare Funds' },
+  { id: 'aum',          label: 'AUM & Flows' },
+  { id: 'industry',     label: 'Industry Flows' },
+  { id: 'nfo',          label: 'NFOs' },
   { id: 'watchlist',    label: 'Fund Signals' },
   { id: 'whitelist',    label: 'Whitelist Screener' },
   { id: 'blacklist',    label: 'Blacklist' },

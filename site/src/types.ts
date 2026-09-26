@@ -176,6 +176,8 @@ export interface RiskRatios {
   composite_score: number | null
   /** Average AUM in ₹ crore, all plans of the fund (AMFI, latest quarter). */
   aum_cr?: number | null
+  /** Rolling returns by window; null when the fund is younger than the window. */
+  rolling?: Partial<Record<RollingWindow, RollingStats | null>>
   /** Monthly SIP valued at the latest NAV: absolute return up to 6M, XIRR from 1Y. */
   sip?: Partial<Record<SipPeriod, number | null>>
 }
@@ -307,7 +309,7 @@ export interface FundsIndex {
 
 export type BlacklistRule =
   | 'bottom_quartile' | 'negative_alpha' | 'rolling_consistency' | 'downside_capture'
-  | 'tracking_error' | 'short_track_record' | 'bottom_3m' | 'high_beta' | 'aum_size'
+  | 'tracking_error' | 'short_track_record' | 'bottom_3m' | 'high_beta' | 'aum_size' | 'outflows'
 
 /** One rule's result for one fund. fail is null when the rule does not apply. */
 export interface BlacklistRuleResult {
@@ -380,3 +382,104 @@ export interface NavSeries {
 
 export type ViewType = 'trailing' | 'monthly' | 'quarterly' | 'annual'
 export type AssetClass = 'Equity' | 'Hybrid' | 'Debt' | 'Other'
+
+/** One rolling window's statistics (Risk & Returns "Rolling" view). */
+export interface RollingStats {
+  avg: number | null
+  min: number | null
+  max: number | null
+  /** Share of windows with a positive return, 0–1. */
+  pct_positive: number | null
+  /** Share of windows that beat the benchmark, 0–1; null without a benchmark. */
+  pct_beat: number | null
+}
+export type RollingWindow = '1Y' | '3Y' | '5Y'
+
+/** aum.json — AUM & Flows tab. */
+export interface AumData {
+  as_of: string
+  /** Quarters, newest first; `mid` is the date NAVs are taken at for flows. */
+  periods: { label: string; mid: string | null }[]
+  funds: {
+    scheme_code: string
+    scheme_name: string
+    category_name: string
+    category_slug: string
+    asset_class: string
+    /** Average AUM, ₹ crore, latest quarter. */
+    aum: number
+    /** One value per period (newest first), ₹ crore. */
+    history: (number | null)[]
+    chg_1q: number | null
+    chg_1y: number | null
+    chg_3y: number | null
+    /** Estimated net flow over the last 4 quarters as a share of AUM a year ago. */
+    flow_1y: number | null
+  }[]
+  categories: { category_slug: string; category_name: string; asset_class: string; funds: number;
+                aum: number; history: number[]; chg_1y: number | null }[]
+}
+
+/** calendar_{slug}.json — Calendar Returns tab. */
+export interface CalendarData {
+  as_of: string
+  category_name: string
+  /** Oldest first; the last is the current year, to date. */
+  years: string[]
+  ytd_year: string
+  benchmark: { name: string | null; returns: Record<string, number | null> } | null
+  category_average: Record<string, number | null>
+  funds: { scheme_code: string; scheme_name: string; returns: Record<string, number | null> }[]
+}
+
+/** One category line of AMFI's monthly report (₹ crore; counts as numbers). */
+export interface IndustryRow {
+  name?: string
+  schemes: number | null
+  folios: number | null
+  mobilised: number | null
+  redeemed: number | null
+  net_flow: number | null
+  aum: number | null
+  avg_aum: number | null
+  sip_inflow: number | null
+  sip_accounts_start: number | null
+  sip_registered: number | null
+  sip_matured: number | null
+  sip_stopped: number | null
+  sip_accounts: number | null
+}
+
+/** industry.json — Industry Flows tab. */
+export interface IndustryData {
+  fetched: string
+  /** Newest first. */
+  months: {
+    month: string
+    label: string
+    groups: { group: string; section: string; categories: (IndustryRow & { name: string })[]; total: IndustryRow | null }[]
+    total: IndustryRow
+    fof_domestic: IndustryRow | null
+  }[]
+}
+
+/** nfo.json — New Fund Offers tab. */
+export interface NfoData {
+  fetched: string
+  offers: {
+    id: string
+    amc: string | null
+    name: string | null
+    type: string | null
+    category: string | null
+    objective: string | null
+    opens: string | null
+    closes: string | null
+    earliest_close: string | null
+    price: string | null
+    min_amount: string | null
+    load: string | null
+    website: string | null
+    document: string | null
+  }[]
+}

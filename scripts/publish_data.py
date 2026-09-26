@@ -61,7 +61,7 @@ DATA_DIR = os.environ.get("MF_OUTPUT_DIR") or os.path.join(
 
 # Files that are not category-scoped and stay at the bucket root.
 GLOBAL_FILES = re.compile(
-    r"^(meta|indices|funds_index|whitelist|blacklist|alerts|glance_[a-z]+|watchlist_[a-z]+)\.json$")
+    r"^(meta|indices|funds_index|whitelist|blacklist|alerts|aum|industry|nfo|glance_[a-z]+|watchlist_[a-z]+)\.json$")
 
 # Defined in init_db, beside the asset classes it maps, so the publisher and
 # nav_store cannot disagree about where a file lives.
@@ -129,7 +129,7 @@ def remote_path(rel: str, slug_ac: dict[str, str],
                 return scoped(slug, tail.format(view))
 
     for prefix, tail in (("rolling_", "rolling.json"), ("risk_", "risk.json"),
-                         ("screener_", "screener.json")):
+                         ("screener_", "screener.json"), ("calendar_", "calendar.json")):
         if name.startswith(prefix):
             slug = stem[len(prefix):]
             if slug in slug_ac:

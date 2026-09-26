@@ -797,6 +797,23 @@ def sip_returns(conn, code, as_of_d: date, is_index: bool = False) -> dict:
     return out
 
 
+# Rolling returns shown in Risk & Returns: every window of this length in the
+# fund's history, ending on each NAV date (engine.rolling_statistics).
+ROLLING_WINDOWS = ["1Y", "3Y", "5Y"]
+
+
+def _rolling(conn, code, bench_id, bench_ok: bool, as_of_d: date) -> dict:
+    out = {}
+    for w in ROLLING_WINDOWS:
+        r = rolling_statistics(conn, code, bench_id if bench_ok else None, w, as_of_d)
+        out[w] = None if r.get("avg") is None else {
+            "avg": r["avg"], "min": r["min"], "max": r["max"],
+            "pct_positive": r["pct_positive"],
+            "pct_beat": r.get("pct_beats_benchmark") if bench_ok else None,
+        }
+    return out
+
+
 def build_risk(conn, cat_slug: str):
     """
     Trailing returns and the full ratio set for every fund in one category.
@@ -867,6 +884,8 @@ def build_risk(conn, cat_slug: str):
             m["scheme_name"] = name
             m["returns"] = rets
             m["sip"] = sip_returns(conn, sc, as_of_d)
+            m["rolling"] = _rolling(conn, sc, fb_id, bool(lc) and (as_of_d - date.fromisoformat(lc)).days
+                                    <= BENCHMARK_MAX_LAG_DAYS, as_of_d)
             rows.append(m)
             continue
         # With no benchmark the index query simply finds nothing, so the
@@ -879,6 +898,7 @@ def build_risk(conn, cat_slug: str):
         m["scheme_name"] = name
         m["returns"] = rets
         m["sip"] = sip_returns(conn, sc, as_of_d)
+        m["rolling"] = _rolling(conn, sc, bench_id, bench_id is not None and not bench_stale, as_of_d)
         rows.append(m)
 
     composite_risk_score(rows)
@@ -892,6 +912,7 @@ def build_risk(conn, cat_slug: str):
         "scheme_name": r["scheme_name"],
         "returns":     {p: fmt(r["returns"][p]) for p in RISK_RETURN_PERIODS},
         "sip":         r["sip"],
+        "rolling":     r["rolling"],
         **{k: r.get(k) for k in RISK_RATIO_KEYS},
         "recovery_days": r.get("recovery_days"),
         **_facts(r["scheme_code"]),
@@ -922,6 +943,9 @@ def build_risk(conn, cat_slug: str):
             "returns": {p: avg([f["returns"][p] for f in fund_rows])
                         for p in RISK_RETURN_PERIODS},
             "sip":     {p: avg([f["sip"][p] for f in fund_rows]) for p in SIP_PERIODS},
+            "rolling": {w: {k: avg([(f["rolling"].get(w) or {}).get(k) for f in fund_rows])
+                            for k in ("avg", "min", "max", "pct_positive", "pct_beat")}
+                        for w in ROLLING_WINDOWS},
             **{k: avg([f[k] for f in fund_rows]) for k in RISK_RATIO_KEYS},
             "aum_cr": avg([f["aum_cr"] for f in fund_rows]),
         },
@@ -1218,6 +1242,145 @@ def build_whitelist(conn):
 
 # ── Fund list (funds_index.json) ────────────────────────────────────────────
 
+def _nav_on_or_before(conn, code, day: str):
+    r = conn.execute("SELECT nav FROM nav_history WHERE scheme_code=? AND nav_date<=? "
+                     "ORDER BY nav_date DESC LIMIT 1", (code, day)).fetchone()
+    return r[0] if r else None
+
+
+AUM_FLOW_MIN_CR = 50     # a year-ago AUM below this gives no flow estimate
+
+
+def build_aum(conn):
+    """
+    aum.json — AUM & Flows tab: every fund's average AUM for the last quarters
+    (AMFI, all plans together), its change, and the ESTIMATED net flow.
+
+    AUM moves for two reasons: the NAV (market) and money in or out. Over the
+    last four quarters, flow_1y = AUM now / AUM a year ago - NAV now / NAV a year
+    ago (NAVs at the middle of each quarter, as AMFI's figure is a quarterly
+    average). +20% = investors added a fifth of the fund's size beyond what the
+    market did; -20% = they took a fifth out. An estimate: splits between the two
+    are approximate for funds that changed size fast within a quarter.
+    """
+    from scripts import amfi_facts
+    periods = amfi_facts.PERIODS
+    if not FUND_FACTS or not periods:
+        log.warning("aum.json skipped: no AUM history this run")
+        return
+    rows = conn.execute("""
+        SELECT s.scheme_code, s.scheme_name, c.category_name, c.slug, c.asset_class
+        FROM schemes s JOIN categories c ON c.category_id = s.category_id
+        WHERE s.is_active = 1 AND s.last_nav_date IS NOT NULL""").fetchall()
+    funds, by_cat = [], {}
+    for code, name, cat, slug, ac in rows:
+        h = (FUND_FACTS.get(str(code)) or {}).get("aum_history")
+        if not h or h[0] is None:
+            continue
+
+        def chg(i):
+            return h[0] / h[i] - 1 if len(h) > i and h[i] else None
+
+        # Not estimated from a tiny base: a fund launched a year ago would show
+        # thousands of per cent. Capped at -100% (all the money out).
+        flow = None
+        if len(h) > 4 and (h[4] or 0) >= AUM_FLOW_MIN_CR and periods[0]["mid"] and periods[4]["mid"]:
+            n0 = _nav_on_or_before(conn, code, periods[0]["mid"])
+            n4 = _nav_on_or_before(conn, code, periods[4]["mid"])
+            if n0 and n4:
+                flow = max(-1.0, h[0] / h[4] - n0 / n4)
+        funds.append({
+            "scheme_code": str(code), "scheme_name": name, "category_name": cat, "category_slug": slug,
+            "asset_class": ac, "aum": h[0], "history": h,
+            "chg_1q": fmt(chg(1)), "chg_1y": fmt(chg(4)), "chg_3y": fmt(chg(len(h) - 1) if len(h) >= 12 else None),
+            "flow_1y": fmt(flow),
+        })
+        c = by_cat.setdefault(slug, {"category_slug": slug, "category_name": cat, "asset_class": ac,
+                                     "funds": 0, "history": [0.0] * len(periods)})
+        c["funds"] += 1
+        for i, v in enumerate(h):
+            if v:
+                c["history"][i] += v
+    for c in by_cat.values():
+        c["history"] = [round(v, 2) for v in c["history"]]
+        c["aum"] = c["history"][0]
+        c["chg_1y"] = fmt(c["history"][0] / c["history"][4] - 1) if len(c["history"]) > 4 and c["history"][4] else None
+    funds.sort(key=lambda f: -(f["aum"] or 0))
+    write_json(out("aum.json"), {
+        "as_of": get_as_of(conn),
+        "periods": periods,
+        "funds": funds,
+        "categories": sorted(by_cat.values(), key=lambda c: -c["aum"]),
+    })
+    log.info("✓ aum.json (%d funds, %d quarters)", len(funds), len(periods))
+
+
+def build_calendar(conn, cat_slug: str):
+    """
+    calendar_{slug}.json — Calendar Returns tab: each fund's return in each
+    calendar year (1 Jan - 31 Dec; this year to date), with the category average
+    and benchmark. engine.annual_return / annual_return_index.
+    """
+    row = conn.execute("SELECT category_id, category_name, asset_class, benchmark_id FROM categories "
+                       "WHERE slug=?", (cat_slug,)).fetchone()
+    if not row:
+        return
+    cat_id, cat_name, asset_class, bench_id = row
+    as_of_d = date.fromisoformat(get_as_of(conn))
+    years = list(range(as_of_d.year - CALENDAR_YEARS, as_of_d.year + 1))
+    funds = []
+    for sc, name in conn.execute("SELECT scheme_code, scheme_name FROM schemes WHERE category_id=? "
+                                 "AND is_active=1 ORDER BY scheme_name", (cat_id,)).fetchall():
+        rets = {str(y): fmt(annual_return(conn, sc, y, as_of_d)) for y in years}
+        if any(v is not None for v in rets.values()):
+            funds.append({"scheme_code": str(sc), "scheme_name": name, "returns": rets})
+    if not funds:
+        return
+    bench = None
+    if bench_id is not None:
+        name = conn.execute("SELECT index_name FROM benchmarks WHERE index_id=?", (bench_id,)).fetchone()
+        bench = {"name": name[0] if name else None,
+                 "returns": {str(y): fmt(annual_return_index(conn, bench_id, y, as_of_d)) for y in years}}
+    avg = {str(y): category_average([f["returns"][str(y)] for f in funds]) for y in years}
+    write_json(out(f"calendar_{cat_slug}.json"), {
+        "as_of": as_of_d.isoformat(),
+        "category_name": cat_name,
+        "years": [str(y) for y in years],
+        "ytd_year": str(as_of_d.year),
+        "benchmark": bench,
+        "category_average": {k: fmt(v) for k, v in avg.items()},
+        "funds": funds,
+    })
+    log.info("✓ calendar_%s.json (%d funds)", cat_slug, len(funds))
+
+
+CALENDAR_YEARS = 10
+
+
+def build_amfi_extras():
+    """industry.json and nfo.json, straight from AMFI (scripts/amfi_industry)."""
+    try:
+        from scripts import amfi_industry
+    except Exception as exc:
+        log.warning("industry/NFO skipped (%s)", exc)
+        return
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    try:
+        ind = amfi_industry.fetch_industry()
+        if ind:
+            write_json(out("industry.json"), {"fetched": now, **ind})
+            log.info("✓ industry.json (%d months)", len(ind["months"]))
+    except Exception as exc:
+        log.warning("industry.json skipped (%s)", exc)
+    try:
+        nfo = amfi_industry.fetch_nfo()
+        if nfo is not None:
+            write_json(out("nfo.json"), {"fetched": now, "offers": nfo})
+            log.info("✓ nfo.json (%d offers)", len(nfo))
+    except Exception as exc:
+        log.warning("nfo.json skipped (%s)", exc)
+
+
 def build_funds_index(conn):
     """
     Every active fund with its category, for pickers (the Blacklist "Add fund"
@@ -1283,6 +1446,9 @@ BLACKLIST_RULE_DEFAULTS = {
     "aum_min_cr": 300,
     "aum_max_cr": 30000,
     "aum_max_categories": ["small-cap", "mid-cap"],
+    # Flows: estimated net money out over the last 4 quarters, as a share of AUM
+    # (AUM change minus what the NAV alone would explain; see build_aum).
+    "outflow_max_pct": 15,
 }
 PERIOD_NAME = {"12M": "1Y"}
 
@@ -1292,7 +1458,7 @@ BLACKLIST_WEIGHT_DEFAULTS = {
     "downside_capture": 15, "high_beta": 10, "tracking_error": 10,
     "short_track_record": 5, "bottom_3m": 5,
     # New with AMFI's AUM data; 0 until the team chooses a weight.
-    "aum_size": 0,
+    "aum_size": 0, "outflows": 0,
 }
 
 
@@ -1339,6 +1505,10 @@ def build_blacklist(conn, categories, screener_cfg: dict):
     # category" (OFF, shown as a faint dash) from a real gap in the data.
     def na(reason):
         return {"fail": None, "value": None, "text": "", "na": reason}
+
+    aum_file = _read_out("aum.json") or {}
+    aum_flows = {f["scheme_code"]: f.get("flow_1y") for f in aum_file.get("funds", [])
+                 if f.get("flow_1y") is not None}
 
     OFF = na("category")
     out_funds = []
@@ -1410,9 +1580,13 @@ def build_blacklist(conn, categories, screener_cfg: dict):
             else:
                 checks["negative_alpha"] = gap(years=int(hz[0].rstrip("Y")), needs_bench=True)
 
-            # Rolling consistency
-            beat = (rolling_statistics(conn, code, bench_id, rules["rolling_window"], as_of_d)
-                    .get("pct_beats_benchmark") if bench_ok else None)
+            # Rolling consistency (already worked out for Risk & Returns when the window matches)
+            roll = (f.get("rolling") or {}).get(rules["rolling_window"], "missing")
+            if roll == "missing":
+                beat = (rolling_statistics(conn, code, bench_id, rules["rolling_window"], as_of_d)
+                        .get("pct_beats_benchmark") if bench_ok else None)
+            else:
+                beat = (roll or {}).get("pct_beat") if bench_ok else None
             checks["rolling_consistency"] = gap(years=2, needs_bench=True) if beat is None else res(
                 beat < rules["rolling_min_beat"], f"{beat * 100:.0f}%",
                 f"Beat benchmark in only {beat * 100:.0f}% of rolling {rules['rolling_window']} periods")
@@ -1462,6 +1636,15 @@ def build_blacklist(conn, categories, screener_cfg: dict):
             checks["high_beta"] = (OFF if slug not in rules["high_beta_categories"]
                                 else res(b3 > rules["high_beta_max"], f"{b3:.2f}", f"High beta {b3:.2f} for a value mandate")
                                 if bench_ok and b3 is not None else gap(years=3, needs_bench=True))
+
+            # Flows (from aum.json, written earlier in this build)
+            fl = aum_flows.get(code)
+            if fl is None:
+                checks["outflows"] = na("no AUM history")
+            else:
+                checks["outflows"] = res(fl * 100 < -rules["outflow_max_pct"], f"{fl * 100:+.0f}%",
+                                         f"Estimated net outflow {fl * 100:.0f}% of AUM over the last year "
+                                         f"(beyond {rules['outflow_max_pct']}%)")
 
             # Size
             aum = f.get("aum_cr")
@@ -1663,9 +1846,14 @@ def main():
         if asset_class in ("Equity", "Hybrid"):
             build_screener(conn, slug, screener_cfg)
     build_whitelist(conn)
+    build_aum(conn)                       # before the blacklist, which reads its flows
     build_blacklist(conn, categories, screener_cfg)
     build_alerts(conn, categories)
     build_funds_index(conn)
+    for _, slug, asset_class in categories:
+        if asset_class in ("Equity", "Hybrid") or slug in PASSIVE_SLUGS:
+            build_calendar(conn, slug)
+    build_amfi_extras()
 
     build_index_series(conn)
 

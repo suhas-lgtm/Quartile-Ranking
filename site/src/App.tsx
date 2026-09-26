@@ -19,6 +19,10 @@ import PointToPoint    from './sections/PointToPoint'
 import PortfolioBuilder from './sections/PortfolioBuilder'
 import FundDetail      from './components/FundDetail'
 import CompareFunds    from './sections/CompareFunds'
+import CalendarReturns from './sections/CalendarReturns'
+import AumFlows        from './sections/AumFlows'
+import IndustryFlows   from './sections/IndustryFlows'
+import NewFundOffers   from './sections/NewFundOffers'
 import { useMeta }     from './hooks/useData'
 import { defaultTab, tabAllowed } from './config/profile'
 import { currentDesk } from './config/products'
@@ -169,6 +173,14 @@ export default function App() {
         {activeTab === 'portfolio' && <PortfolioBuilder />}
 
         {activeTab === 'compare' && <CompareFunds />}
+
+        {activeTab === 'calendar' && <CalendarReturns />}
+
+        {activeTab === 'aum' && <AumFlows />}
+
+        {activeTab === 'industry' && <IndustryFlows />}
+
+        {activeTab === 'nfo' && <NewFundOffers />}
       </main>
 
       {/* The fund page, opened by clicking any fund name (components/FundLink). */}

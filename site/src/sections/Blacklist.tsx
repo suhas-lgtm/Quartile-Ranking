@@ -50,6 +50,9 @@ const RULES: { id: BlacklistRule; label: string; short: string; help: string; sh
   { id: 'high_beta', short: 'Beta 3Y', label: 'High beta (value)',
     help: 'Value / Contra and Dividend Yield: 3Y beta above 1.0 — a value fund that behaves like a momentum fund.',
     shows: 'In Category check as “β 1.12”: its 3Y beta (1.00 = moves in line with the benchmark; above 1 = swings more).' },
+  { id: 'outflows', short: 'Outflows', label: 'Investors leaving',
+    help: 'Estimated net outflow of more than 15% of the fund’s AUM over the last year — investors taking money out beyond what the market explains (see the AUM & Flows tab).',
+    shows: 'Estimated net flow over the last 4 quarters as a share of AUM (e.g. -22% = a fifth of the fund withdrawn, net).' },
   { id: 'aum_size', short: 'AUM', label: 'Size (AUM)',
     help: 'Fund AUM (all plans) below ₹300 Cr — too small to be sustainable; or, for Small and Mid Cap, above ₹30,000 Cr — too big to stay nimble (AMFI quarterly average AUM).',
     shows: 'Fund size in ₹ crore, all plans together (AMFI quarterly average).' },
@@ -364,7 +367,7 @@ export default function Blacklist() {
             <p className="mt-2">Hover any cell for the exact reason it passed or failed.</p>
             <p className="mt-2 text-[11px]" style={{ color: 'var(--text-low)' }}>
               Thresholds are kept in <code>data/blacklist.json</code>. Not yet applied (need portfolio holdings or other
-              data): concentration, stock count, overlap, style drift, flows, expense ratio, turnover, manager
+              data): concentration, stock count, overlap, style drift, expense ratio, turnover, manager
               changes and compliance events — the last few are for the team to record as manual entries above.
             </p>
           </div>

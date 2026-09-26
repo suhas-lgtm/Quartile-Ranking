@@ -9,7 +9,8 @@
     "tracking_error": 10,
     "short_track_record": 5,
     "bottom_3m": 5,
-    "aum_size": 0
+    "aum_size": 0,
+    "outflows": 0
   },
   "min_score": 20,
   "rules": {
