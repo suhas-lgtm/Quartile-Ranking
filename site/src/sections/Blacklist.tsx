@@ -23,25 +23,34 @@ import FundLink from '../components/FundLink'
 const num = (v: number | null | undefined, d = 2) => (v == null ? '—' : v.toFixed(d))
 
 /** The automatic rules, in the order the team listed them, with what each means. */
-const RULES: { id: BlacklistRule; label: string; short: string; help: string }[] = [
+const RULES: { id: BlacklistRule; label: string; short: string; help: string; shows: string }[] = [
   { id: 'bottom_quartile', short: 'Laggard (3M·1Y·3Y)', label: 'Persistent laggard',
-    help: 'Bottom quartile of its category on 3-month AND 1-year AND 3-year returns at the same time — not a temporary dip.' },
+    help: 'Bottom quartile of its category on 3-month AND 1-year AND 3-year returns at the same time — not a temporary dip.',
+    shows: 'Its quartile on 3M · 1Y · 3Y (Q1 = top 25% of the category, Q4 = bottom 25%). Sectoral funds are ranked within their own sector.' },
   { id: 'negative_alpha', short: 'Alpha 3Y / 5Y', label: 'Negative alpha',
-    help: 'Negative alpha over both 3 and 5 years against the category benchmark — failing the core job.' },
+    help: 'Negative alpha over both 3 and 5 years against the category benchmark — failing the core job. A fund 3-5 years old is judged on 3Y alpha alone.',
+    shows: '3Y / 5Y alpha in percentage points a year (e.g. -1.20 = 1.2% a year worse than its Beta predicts). “3Y only” = the fund is 3-5 years old and is judged on 3Y alone.' },
   { id: 'rolling_consistency', short: 'Rolling beat %', label: 'Inconsistent',
-    help: 'Beat its benchmark in under 40% of rolling 1-year periods over its history. Point-to-point can flatter a fund; rolling exposes it.' },
+    help: 'Beat its benchmark in under 40% of rolling 1-year periods over its history. Point-to-point can flatter a fund; rolling exposes it.',
+    shows: 'The share of all 1-year windows in its history in which it beat the benchmark (e.g. 34% = beat it in about one window in three).' },
   { id: 'downside_capture', short: 'Down capture', label: 'Falls more than index',
-    help: 'Downside capture above 100 (3Y) — falls more than the benchmark in down months. For Small and Mid Cap, 1Y is checked too.' },
+    help: 'Downside capture above 100 (3Y) — falls more than the benchmark in down months. For Small and Mid Cap, 1Y is checked too.',
+    shows: 'Down capture by horizon (e.g. “3Y 119” = in the benchmark’s falling months it fell 19% more than the index; 80 = only 80% as much).' },
   { id: 'tracking_error', short: 'Tracking error', label: 'Active risk, no reward',
-    help: 'Large Cap only. Tracking error = how far the fund’s returns wander from its benchmark (yearly standard deviation of the monthly gap between fund and index); ~1–3% hugs the index, 6%+ means big bets away from it. Flagged when it is in the top quarter of Large Cap funds AND 3Y alpha is negative — taking active risk and losing.' },
+    help: 'Large Cap only. Tracking error = how far the fund’s returns wander from its benchmark (yearly standard deviation of the monthly gap between fund and index); ~1–3% hugs the index, 6%+ means big bets away from it. Flagged when it is in the top quarter of Large Cap funds AND 3Y alpha is negative — taking active risk and losing.',
+    shows: 'In Category check as “TE 6.1%”: the fund’s tracking error.' },
   { id: 'short_track_record', short: 'Track record', label: 'Short track record',
-    help: 'Under 3 years of history in a category with established alternatives (not applied to Multi Cap).' },
+    help: 'Under 3 years of history in a category with established alternatives (not applied to Multi Cap).',
+    shows: 'Years of NAV history held (e.g. 4.5y).' },
   { id: 'bottom_3m', short: '3M quartile', label: 'Bottom of pack (3M)',
-    help: 'Multi Cap: bottom quartile on 3-month return.' },
+    help: 'Multi Cap: bottom quartile on 3-month return.',
+    shows: 'In Category check as “3M Q4”: its quartile on 3-month return.' },
   { id: 'high_beta', short: 'Beta 3Y', label: 'High beta (value)',
-    help: 'Value / Contra and Dividend Yield: 3Y beta above 1.0 — a value fund that behaves like a momentum fund.' },
+    help: 'Value / Contra and Dividend Yield: 3Y beta above 1.0 — a value fund that behaves like a momentum fund.',
+    shows: 'In Category check as “β 1.12”: its 3Y beta (1.00 = moves in line with the benchmark; above 1 = swings more).' },
   { id: 'aum_size', short: 'AUM', label: 'Size (AUM)',
-    help: 'Fund AUM (all plans) below ₹300 Cr — too small to be sustainable; or, for Small and Mid Cap, above ₹30,000 Cr — too big to stay nimble (AMFI quarterly average AUM).' },
+    help: 'Fund AUM (all plans) below ₹300 Cr — too small to be sustainable; or, for Small and Mid Cap, above ₹30,000 Cr — too big to stay nimble (AMFI quarterly average AUM).',
+    shows: 'Fund size in ₹ crore, all plans together (AMFI quarterly average).' },
 ]
 /** Rules meant for one category each, and the tag shown in the shared column. */
 const CATEGORY_RULE_TAG: Partial<Record<BlacklistRule, string>> = {
@@ -298,12 +307,54 @@ export default function Blacklist() {
           </div>
 
           <div className="card p-4 text-xs leading-relaxed" style={{ color: 'var(--text-mid)' }}>
-            <div className="font-display font-bold text-sm mb-2" style={{ color: 'var(--text-hi)' }}>The rules</div>
-            <div className="grid gap-x-8 gap-y-1.5 md:grid-cols-2">
-              {RULES.map(r => (
-                <div key={r.id}><b style={{ color: 'var(--text-hi)' }}>{r.label}:</b> {r.help}</div>
-              ))}
+            <div className="font-display font-bold text-sm mb-2" style={{ color: 'var(--text-hi)' }}>
+              What every column and mark means
             </div>
+            <div className="grid gap-x-8 gap-y-2 md:grid-cols-2 mb-3">
+              <div><b style={{ color: 'var(--text-hi)' }}>Fund</b> — the fund, with its category underneath. Click it to open the fund page.</div>
+              <div><b style={{ color: 'var(--text-hi)' }}>Score</b> — Blacklist Score, 0–100: the share of all rule weights the fund
+                fails. E.g. failing Rolling beat (15%) and Down capture (15%) = 30. Funds at or above the
+                “Minimum score to list” appear; change the weights or the minimum on the left.</div>
+              <div><b style={{ color: 'var(--text-hi)' }}>% under each heading</b> — that rule’s weight in the Score (editable on the left).</div>
+              <div><b style={{ color: 'var(--text-hi)' }}>1Y / 3Y</b> — the fund’s 1-year return and 3-year return a year (CAGR), for context; not part of the Score.</div>
+            </div>
+
+            <div className="font-semibold mb-1.5" style={{ color: 'var(--text-hi)' }}>The rule columns</div>
+            <div className="grid gap-x-8 gap-y-2.5 md:grid-cols-2 mb-3">
+              {RULES.filter(r => !(r.id in CATEGORY_RULE_TAG)).map(r => (
+                <div key={r.id}>
+                  <b style={{ color: 'var(--text-hi)' }}>{r.short}</b> <span style={{ color: 'var(--text-low)' }}>({r.label}, weight {w[r.id] ?? 0}%)</span>
+                  <div>Fails when: {r.help}</div>
+                  <div style={{ color: 'var(--text-low)' }}>Cell shows: {r.shows}</div>
+                </div>
+              ))}
+              <div>
+                <b style={{ color: 'var(--text-hi)' }}>Category check</b>
+                <div>Three rules the team wrote for one category each share this column, so each fund shows only the
+                  one that applies to it; funds in other categories show “–”.</div>
+                {RULES.filter(r => r.id in CATEGORY_RULE_TAG).map(r => (
+                  <div key={r.id} className="mt-1.5 pl-3" style={{ borderLeft: '2px solid var(--line)' }}>
+                    <b style={{ color: 'var(--text-hi)' }}>{CATEGORY_RULE_TAG[r.id]!.trim()}</b> = {r.label}{' '}
+                    <span style={{ color: 'var(--text-low)' }}>(weight {w[r.id] ?? 0}%)</span>
+                    <div>Fails when: {r.help}</div>
+                    <div style={{ color: 'var(--text-low)' }}>Cell shows: {r.shows}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="font-semibold mb-1.5" style={{ color: 'var(--text-hi)' }}>Colours and notes in the cells</div>
+            <div className="grid gap-x-8 gap-y-1.5 md:grid-cols-2">
+              <div><span style={{ background: 'rgba(248,113,113,0.14)', color: 'var(--loss)', padding: '0 4px', fontWeight: 600 }}>Red</span> — fails the rule, and the rule counts in the Score.</div>
+              <div><span style={{ color: '#F59E0B', fontWeight: 600 }}>Amber</span> — fails the rule, but its weight is 0%, so it does not count.</div>
+              <div><span style={{ color: 'var(--text-mid)' }}>Grey value</span> — passes the rule.</div>
+              <div><span style={{ opacity: 0.5 }}>–</span> — the rule is not meant for this fund’s category.</div>
+              <div><i>&lt; 3Y history / &lt; 5Y history</i> — the fund is too young to be judged on this rule yet.</div>
+              <div><i>no benchmark</i> — the category has no benchmark to compare with (e.g. Arbitrage).</div>
+              <div><i>no AUM data</i> — AMFI has not published this fund’s AUM.</div>
+              <div><i>no data</i> — the figure could not be calculated from the NAVs held.</div>
+            </div>
+            <p className="mt-2">Hover any cell for the exact reason it passed or failed.</p>
             <p className="mt-2 text-[11px]" style={{ color: 'var(--text-low)' }}>
               Thresholds are kept in <code>data/blacklist.json</code>. Not yet applied (need portfolio holdings or other
               data): concentration, stock count, overlap, style drift, flows, expense ratio, turnover, manager
