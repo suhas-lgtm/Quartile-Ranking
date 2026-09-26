@@ -222,7 +222,7 @@ function FundPanel({ code, onClose }: { code: string; onClose: () => void }) {
                   ['Up Capture', num(fundRisk?.upside_capture, 1), null],
                   ['Down Capture', num(fundRisk?.downside_capture, 1), null],
                   ['Score (0–100)', num(fundRisk?.composite_score, 1), null],
-                  ['AUM (all plans)', fundRisk?.aum_cr == null ? '—'
+                  ['AUM (quarterly avg, all plans)', fundRisk?.aum_cr == null ? '—'
                     : `₹${Math.round(fundRisk.aum_cr).toLocaleString('en-IN')} Cr`, null],
                 ].map(([l, v, sign]) => (
                   <div key={l as string} className="rounded-lg p-2" style={{ background: 'var(--bg-raised)' }}>

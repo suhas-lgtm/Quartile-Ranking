@@ -9,6 +9,7 @@
 // Open to everyone.
 
 import { useEffect, useMemo, useState } from 'react'
+import AumRange, { describeAumRange, type AumRangeValue } from '../components/AumRange'
 import TableSearch from '../components/TableSearch'
 import { fuzzyMatcher } from '../utils/fuzzy'
 import { useJson } from '../hooks/useData'
@@ -54,8 +55,8 @@ const RULES: { id: BlacklistRule; label: string; short: string; help: string; sh
     help: 'Estimated net outflow of more than 15% of the fund’s AUM over the last year — investors taking money out beyond what the market explains (see the AUM & Flows tab).',
     shows: 'Estimated net flow over the last 4 quarters as a share of AUM (e.g. -22% = a fifth of the fund withdrawn, net).' },
   { id: 'aum_size', short: 'AUM', label: 'Size (AUM)',
-    help: 'Fund AUM (all plans) below ₹300 Cr — too small to be sustainable; or, for Small and Mid Cap, above ₹30,000 Cr — too big to stay nimble (AMFI quarterly average AUM).',
-    shows: 'Fund size in ₹ crore, all plans together (AMFI quarterly average).' },
+    help: 'Fund AUM (all plans, AMFI quarterly average) outside the range set on the left — by default below ₹300 Cr, too small to be sustainable. Add a maximum to also flag funds too big to stay nimble (e.g. Small Cap above ₹30,000 Cr).',
+    shows: 'Fund size in ₹ crore, all plans together (AMFI quarterly average, not month-end).' },
 ]
 /** Rules meant for one category each, and the tag shown in the shared column. */
 const CATEGORY_RULE_TAG: Partial<Record<BlacklistRule, string>> = {
@@ -63,6 +64,7 @@ const CATEGORY_RULE_TAG: Partial<Record<BlacklistRule, string>> = {
 }
 const WEIGHTS_KEY = 'bl_weights_v1'
 const MIN_KEY = 'bl_min_score_v1'
+const AUM_KEY = 'bl_aum_range_v1'
 
 function loadStored<T>(key: string): T | null {
   try {
@@ -81,21 +83,34 @@ export default function Blacklist() {
   const [catFilter, setCatFilter] = useState('')
   const [weights, setWeights] = useState<Record<string, number> | null>(() => loadStored(WEIGHTS_KEY))
   const [minScore, setMinScore] = useState<number | null>(() => loadStored(MIN_KEY))
+  const [aumRangeSet, setAumRangeSet] = useState<AumRangeValue | null>(() => loadStored(AUM_KEY))
+  const aumRange: AumRangeValue = aumRangeSet ?? data?.default_aum_range ?? { min: 300, max: null }
   const w: Record<string, number> = weights ?? data?.default_weights ?? {}
   const cutoff = minScore ?? data?.default_min_score ?? 20
   useEffect(() => {
     try {
       if (weights) localStorage.setItem(WEIGHTS_KEY, JSON.stringify(weights)); else localStorage.removeItem(WEIGHTS_KEY)
       if (minScore != null) localStorage.setItem(MIN_KEY, JSON.stringify(minScore)); else localStorage.removeItem(MIN_KEY)
+      if (aumRangeSet) localStorage.setItem(AUM_KEY, JSON.stringify(aumRangeSet)); else localStorage.removeItem(AUM_KEY)
     } catch { /* storage unavailable: settings last for the visit */ }
-  }, [weights, minScore])
+  }, [weights, minScore, aumRangeSet])
   const totalWeight = RULES.reduce((t, r) => t + (w[r.id] ?? 0), 0)
 
   // Blacklist Score: the share of all rule weight that the fund fails, 0-100.
-  const scored = useMemo(() => all.map(f => {
+  const scored = useMemo(() => all.map(f0 => {
+    // The Size (AUM) rule follows the range set on the page.
+    const aum = f0.aum_cr
+    const lo = aumRange.min, hi = aumRange.max
+    const cr = (v: number) => `₹${Math.round(v).toLocaleString('en-IN')} Cr`
+    const size = aum == null ? { fail: null, value: null, text: '', na: 'no AUM data' }
+      : lo == null && hi == null ? { fail: null, value: null, text: '', na: 'no range set' }
+      : lo != null && aum < lo ? { fail: true, value: cr(aum), text: `AUM ${cr(aum)}, below ${cr(lo)}` }
+      : hi != null && aum > hi ? { fail: true, value: cr(aum), text: `AUM ${cr(aum)}, above ${cr(hi)}` }
+      : { fail: false, value: cr(aum), text: '' }
+    const f = { ...f0, rules: { ...f0.rules, aum_size: size } }
     const failedW = RULES.reduce((t, r) => t + (f.rules[r.id]?.fail ? (w[r.id] ?? 0) : 0), 0)
     return { ...f, score: totalWeight ? (failedW / totalWeight) * 100 : 0 }
-  }), [all, w, totalWeight])
+  }), [all, w, totalWeight, aumRange.min, aumRange.max])
   const cats = [...new Map(all.map(f => [f.category_slug, f.category_name])).entries()]
   const [query, setQuery] = useState('')
   const hit = fuzzyMatcher(query)
@@ -215,7 +230,7 @@ export default function Blacklist() {
             <aside className="card p-4 self-start">
               <div className="flex items-center justify-between mb-3">
                 <div className="font-display font-bold text-sm" style={{ color: 'var(--text-hi)' }}>Rule weights</div>
-                <button onClick={() => { setWeights(null); setMinScore(null) }} className="text-[11px]"
+                <button onClick={() => { setWeights(null); setMinScore(null); setAumRangeSet(null) }} className="text-[11px]"
                         style={{ color: 'var(--accent-a)', background: 'none', border: 'none', cursor: 'pointer' }}>
                   Reset
                 </button>
@@ -247,6 +262,8 @@ export default function Blacklist() {
                   <span style={{ color: 'var(--text-low)' }}>%</span>
                 </span>
               </label>
+              <AumRange value={aumRange} onChange={setAumRangeSet} period={data?.aum_period}
+                        title="Size (AUM) rule: fund AUM should be" />
               <p className="text-[10px] mt-2 leading-relaxed" style={{ color: 'var(--text-low)' }}>
                 The list changes as soon as a weight or the minimum changes. Settings are remembered in this browser.
                 Set a rule to 0% to ignore it.

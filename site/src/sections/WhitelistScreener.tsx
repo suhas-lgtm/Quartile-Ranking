@@ -7,6 +7,7 @@
 // page and a change has to re-rank instantly.
 
 import { useEffect, useMemo, useState } from 'react'
+import AumRange, { inAumRange, describeAumRange, type AumRangeValue } from '../components/AumRange'
 import TableSearch from '../components/TableSearch'
 import { fuzzyMatcher } from '../utils/fuzzy'
 import { useMeta, useScreener } from '../hooks/useData'
@@ -27,6 +28,7 @@ const MAIN_TAB_NAMES = [
 // Bumped when the default weights change, so every browser picks up the new
 // defaults instead of an older saved set (v2: Active Share 8% -> 0%).
 const WEIGHTS_KEY = 'wl_screener_weights_v2'
+const AUM_KEY = 'wl_aum_range_v1'
 
 type Group = 'risk' | 'performance' | 'drawdown'
 const GROUPS: { id: Group; label: string }[] = [
@@ -239,6 +241,9 @@ export default function WhitelistScreener() {
   const [showRaw, setShowRaw] = useState(true)
   const [showUnranked, setShowUnranked] = useState(false)
   const [weights, setWeights] = useState<Record<string, number> | null>(loadWeights)
+  const [aumRangeSet, setAumRangeSet] = useState<AumRangeValue | null>(() => {
+    try { const r = localStorage.getItem(AUM_KEY); return r ? JSON.parse(r) : null } catch { return null }
+  })
 
   const eligibleCats = (meta?.categories ?? []).filter(c => EQUITY_HYBRID_CLASSES.includes(c.asset_class))
   const activeSlug = slug || (eligibleCats[0]?.slug ?? '')
@@ -250,6 +255,11 @@ export default function WhitelistScreener() {
 
   const defaults = data?.default_weights
   const w: Record<string, number> = weights ?? defaults ?? {}
+  const aumRange: AumRangeValue = aumRangeSet ?? data?.default_aum_range ?? { min: null, max: null }
+  useEffect(() => {
+    try { if (aumRangeSet) localStorage.setItem(AUM_KEY, JSON.stringify(aumRangeSet)); else localStorage.removeItem(AUM_KEY) }
+    catch { /* optional */ }
+  }, [aumRangeSet])
 
   useEffect(() => {
     try {
@@ -268,7 +278,7 @@ export default function WhitelistScreener() {
   const hit = useMemo(() => fuzzyMatcher(query), [query])
   const ranked = useMemo(() => {
     const all = PARAMS.map(p => p.key)
-    const rows = (data?.funds ?? []).filter(f => f.eligible && f.scores).map(f => ({
+    const rows = (data?.funds ?? []).filter(f => f.eligible && f.scores && inAumRange(f.aum_cr, aumRange)).map(f => ({
       fund: f,
       score: weighted(f.scores, w, all),
       groups: Object.fromEntries(GROUPS.map(g => [g.id,
@@ -276,7 +286,10 @@ export default function WhitelistScreener() {
     }))
     rows.sort((a, b) => (b.score ?? -1) - (a.score ?? -1))
     return rows
-  }, [data, w])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, w, aumRange.min, aumRange.max])
+  /** Old enough to rank, but outside the AUM range: listed under the table. */
+  const outOfRange = (data?.funds ?? []).filter(f => f.eligible && f.scores && !inAumRange(f.aum_cr, aumRange))
 
   const unranked = (data?.funds ?? []).filter(f => !f.eligible)
   const asCount = ranked.filter(r => r.fund.active_share).length
@@ -287,13 +300,14 @@ export default function WhitelistScreener() {
     const columns: SheetSpec['columns'] = [
       { key: 'rank', label: 'Rank', type: 'int', width: 6 },
       { key: 'fund', label: 'Fund Name', type: 'text', width: 46 },
+      { key: 'aum', label: 'AUM ₹ Cr (quarterly avg)', type: 'number' },
       { key: 'score', label: 'Score', type: 'number' },
       ...GROUPS.map(g => ({ key: g.id, label: g.label, type: 'number' as const })),
       ...PARAMS.map(p => ({ key: `s_${p.key}`, label: `${p.label} (score)`, type: 'number' as const })),
       ...PARAMS.map(p => ({ key: `r_${p.key}`, label: `${p.label} (value)`, type: 'text' as const, width: 14 })),
     ]
     const rows: SheetSpec['rows'] = ranked.map((r, i) => {
-      const row: SheetSpec['rows'][number] = { rank: i + 1, fund: r.fund.scheme_name, score: r.score }
+      const row: SheetSpec['rows'][number] = { rank: i + 1, fund: r.fund.scheme_name, aum: r.fund.aum_cr ?? null, score: r.score }
       for (const g of GROUPS) row[g.id] = r.groups[g.id]
       for (const p of PARAMS) {
         row[`s_${p.key}`] = r.fund.scores?.[p.key] ?? null
@@ -375,7 +389,7 @@ export default function WhitelistScreener() {
         <aside className="card p-4 self-start">
           <div className="flex items-center justify-between mb-3">
             <div className="font-display font-bold text-sm" style={{ color: 'var(--text-hi)' }}>Weights</div>
-            <button onClick={() => setWeights(null)} className="text-[11px]"
+            <button onClick={() => { setWeights(null); setAumRangeSet(null) }} className="text-[11px]"
                     style={{ color: 'var(--accent-a)', background: 'none', border: 'none', cursor: 'pointer' }}
                     title="Back to the defaults in data/screener_config.json">
               Reset
@@ -406,6 +420,8 @@ export default function WhitelistScreener() {
             <span>Total</span>
             <span style={{ color: grandTotal === 100 ? 'var(--text-hi)' : '#F59E0B' }}>{grandTotal}%</span>
           </div>
+          <AumRange value={aumRange} onChange={setAumRangeSet} period={data?.aum_period}
+                    title="Only rank funds with AUM" />
           <p className="text-[10px] mt-2 leading-relaxed" style={{ color: 'var(--text-low)' }}>
             The Score and ranking depend on these weights: change any parameter’s weight and every fund’s
             Score is recalculated and every category re-ranked instantly. Your weights are remembered in this browser.
@@ -440,6 +456,10 @@ export default function WhitelistScreener() {
                     <tr>
                       <th className="sticky-col" style={{ ...RANK_COL, textAlign: 'center', boxShadow: 'none' }}>Rank</th>
                       <th className="sticky-col text-left" style={{ minWidth: 240, left: RANK_W }}>Fund Name</th>
+                      <th style={{ textAlign: 'right' }}
+                          title={`AMFI quarterly average AUM${data?.aum_period ? ` for ${data.aum_period}` : ''}, all plans of the fund, ₹ crore`}>
+                        AUM ₹ Cr<div style={{ fontWeight: 400, opacity: 0.7, fontSize: 10 }}>qtr avg</div>
+                      </th>
                       <th style={{ textAlign: 'right' }} title={summaryHelp('score')}>Score</th>
                       {GROUPS.map(g => (
                         <th key={g.id} style={{ textAlign: 'right' }} title={summaryHelp(g.id)}>
@@ -468,6 +488,9 @@ export default function WhitelistScreener() {
                               style={{ maxWidth: 280, left: RANK_W, ...solidTint(b?.bg) }}
                               title={r.fund.scheme_name}>
                             <FundLink code={r.fund.scheme_code} name={r.fund.scheme_name} />
+                          </td>
+                          <td className="ret-cell" style={{ color: 'var(--text-mid)' }}>
+                            {r.fund.aum_cr == null ? '—' : Math.round(r.fund.aum_cr).toLocaleString('en-IN')}
                           </td>
                           <td className="ret-cell font-semibold" style={{ color: 'var(--accent-a)' }}>{scoreCell(r.score)}</td>
                           {GROUPS.map(g => <td key={g.id} className="ret-cell">{scoreCell(r.groups[g.id])}</td>)}
@@ -501,6 +524,13 @@ export default function WhitelistScreener() {
                 {' '}<span style={{ color: '#F59E0B' }}>■</span> 3–5
                 {' '}<span style={{ color: '#FB923C' }}>■</span> 6–8
               </span>
+              {outOfRange.length > 0 && (
+                <div className="w-full text-[11px] mt-1" style={{ color: 'var(--text-low)' }}
+                     title={outOfRange.map(f => `${f.scheme_name}: ₹${Math.round(f.aum_cr ?? 0).toLocaleString('en-IN')} Cr`).join('\n')}>
+                  {outOfRange.length} fund{outOfRange.length === 1 ? '' : 's'} left out by the AUM range ({describeAumRange(aumRange)}):{' '}
+                  {outOfRange.map(f => `${f.scheme_name} (₹${Math.round(f.aum_cr ?? 0).toLocaleString('en-IN')} Cr)`).join(' · ')}
+                </div>
+              )}
               {unranked.length > 0 && (
                 <button onClick={() => setShowUnranked(v => !v)}
                         style={{ color: 'var(--accent-a)', background: 'none', border: 'none', cursor: 'pointer' }}>

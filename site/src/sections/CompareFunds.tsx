@@ -240,7 +240,7 @@ export default function CompareFunds() {
                   {metric('Up Capture (3Y)', r => r.upside_capture, v => v.toFixed(1))}
                   {metric('Down Capture (3Y)', r => r.downside_capture, v => v.toFixed(1))}
                   {metric('Max Drawdown (all history)', r => r.max_drawdown, pct)}
-                  {metric('AUM (₹ Cr, all plans)', r => r.aum_cr ?? null, v => Math.round(v).toLocaleString('en-IN'))}
+                  {metric('AUM (₹ Cr, quarterly avg, all plans)', r => r.aum_cr ?? null, v => Math.round(v).toLocaleString('en-IN'))}
                 </tbody>
               </table>
             </div>

@@ -142,7 +142,7 @@ export default function AumFlows() {
                     <thead>
                       <tr>
                         <th className="sticky-col text-left" style={{ minWidth: 260 }}>Fund</th>
-                        {th('aum', 'AUM (₹ Cr)', `Average AUM for ${latest}, all plans of the fund`)}
+                        {th('aum', 'AUM ₹ Cr (qtr avg)', `Average AUM for ${latest}, all plans of the fund`)}
                         {th('chg_1q', 'Change 1Q', 'AUM change from the previous quarter')}
                         {th('chg_1y', 'Change 1Y', `AUM change from ${yearAgo}`)}
                         {th('chg_3y', 'Change 3Y', `AUM change from ${q[q.length - 1]?.label ?? ''}`)}

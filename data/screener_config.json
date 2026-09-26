@@ -72,5 +72,6 @@
       "start": "2026-01-02",
       "end": "2026-03-30"
     }
-  ]
+  ],
+  "aum_range": {"min": null, "max": null}
 }

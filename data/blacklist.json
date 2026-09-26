@@ -47,5 +47,6 @@
     ],
     "high_beta_max": 1.0
   },
-  "funds": []
+  "funds": [],
+  "aum_range": {"min": 300, "max": null}
 }

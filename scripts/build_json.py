@@ -1094,6 +1094,8 @@ def build_screener(conn, cat_slug: str, cfg: dict):
                 {**active_share_stats(holdings[str(sc)]["holdings"], reference),
                  "month": holdings[str(sc)]["month"]}
                 if str(sc) in holdings and reference else None),
+            # AMFI quarterly average AUM, all plans (used by the AUM range filter).
+            "aum_cr": (FUND_FACTS.get(str(sc)) or {}).get("aum_cr"),
         })
 
     eligible = [f for f in funds if f["eligible"]]
@@ -1124,6 +1126,8 @@ def build_screener(conn, cat_slug: str, cfg: dict):
         "periods":         periods,
         "bear_periods":    bears,
         "min_history":     min_hist,
+        "aum_period":      (_facts_meta() or {}).get("aum_period"),
+        "default_aum_range": cfg.get("aum_range") or {"min": None, "max": None},
         "scoring":         method,
         "default_weights": cfg.get("weights") or {},
         "funds":           funds,
@@ -1506,6 +1510,7 @@ def build_blacklist(conn, categories, screener_cfg: dict):
     def na(reason):
         return {"fail": None, "value": None, "text": "", "na": reason}
 
+    aum_range = cfg.get("aum_range") or {"min": rules["aum_min_cr"], "max": None}
     aum_file = _read_out("aum.json") or {}
     aum_flows = {f["scheme_code"]: f.get("flow_1y") for f in aum_file.get("funds", [])
                  if f.get("flow_1y") is not None}
@@ -1646,16 +1651,18 @@ def build_blacklist(conn, categories, screener_cfg: dict):
                                          f"Estimated net outflow {fl * 100:.0f}% of AUM over the last year "
                                          f"(beyond {rules['outflow_max_pct']}%)")
 
-            # Size
+            # Size: outside the AUM range (data/blacklist.json "aum_range"; either end
+            # may be blank). The page lets each viewer change the range.
             aum = f.get("aum_cr")
+            lo, hi = aum_range.get("min"), aum_range.get("max")
             if aum is None:
                 checks["aum_size"] = na("no AUM data")
-            elif aum < rules["aum_min_cr"]:
-                checks["aum_size"] = res(True, f"₹{aum:,.0f} Cr",
-                                         f"AUM ₹{aum:,.0f} Cr, below ₹{rules['aum_min_cr']:,} Cr")
-            elif slug in rules["aum_max_categories"] and aum > rules["aum_max_cr"]:
-                checks["aum_size"] = res(True, f"₹{aum:,.0f} Cr",
-                                         f"AUM ₹{aum:,.0f} Cr, above ₹{rules['aum_max_cr']:,} Cr for this category")
+            elif lo is None and hi is None:
+                checks["aum_size"] = na("no range set")
+            elif lo is not None and aum < lo:
+                checks["aum_size"] = res(True, f"₹{aum:,.0f} Cr", f"AUM ₹{aum:,.0f} Cr, below ₹{lo:,.0f} Cr")
+            elif hi is not None and aum > hi:
+                checks["aum_size"] = res(True, f"₹{aum:,.0f} Cr", f"AUM ₹{aum:,.0f} Cr, above ₹{hi:,.0f} Cr")
             else:
                 checks["aum_size"] = res(False, f"₹{aum:,.0f} Cr")
 
@@ -1666,6 +1673,7 @@ def build_blacklist(conn, categories, screener_cfg: dict):
                 "category_slug": slug,
                 "asset_class":   asset_class,
                 "rules":         checks,
+                "aum_cr":        f.get("aum_cr"),
                 "return_1y":     f["returns"].get("12M"),
                 "return_3y":     f["returns"].get("3Y"),
             })
@@ -1675,6 +1683,9 @@ def build_blacklist(conn, categories, screener_cfg: dict):
         "rules":           rules,
         "default_weights": {**BLACKLIST_WEIGHT_DEFAULTS, **(cfg.get("weights") or {})},
         "default_min_score": cfg.get("min_score", 20),
+        # Size (AUM) rule: the range a fund should be inside; either end may be blank.
+        "default_aum_range": cfg.get("aum_range") or {"min": rules["aum_min_cr"], "max": None},
+        "aum_period":      (_facts_meta() or {}).get("aum_period"),
         "manual":          manual,
         "missing":         missing,
         "funds":           out_funds,

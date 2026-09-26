@@ -108,7 +108,7 @@ const crore = (v: number | null | undefined) =>
 
 // Fund size, from AMFI. Shown with the ratios, but left out of the Score.
 const FACT_COLS: Col[] = [
-  { key: 'aum_cr', label: 'AUM (₹ Cr)', group: 'ratios', get: r => r.aum_cr, better: null, exportType: 'number',
+  { key: 'aum_cr', label: 'AUM ₹ Cr (qtr avg)', group: 'ratios', get: r => r.aum_cr, better: null, exportType: 'number',
     show: crore,
     help: 'Average assets under management of the whole fund (all plans and options together), in ₹ crore, for the latest quarter AMFI has published. 12.3k = ₹12,300 crore. Not shaded: neither very small nor very large is "good" by itself.' },
 ]

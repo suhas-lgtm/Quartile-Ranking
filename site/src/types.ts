@@ -242,6 +242,8 @@ export interface ScreenerFund {
   scheme_code: string
   scheme_name: string
   /** Has min_history of NAVs; younger funds are "newly launched" and unranked. */
+  /** AMFI quarterly average AUM, ₹ crore, all plans. */
+  aum_cr?: number | null
   eligible: boolean
   returns: Record<string, number | null>
   /** {ratio: {horizon: value}}; alpha and relative_return are decimals. */
@@ -269,6 +271,10 @@ export interface ScreenerData {
   bear_periods: { label: string; start: string; end: string }[]
   min_history: string
   scoring: 'minmax' | 'percentile'
+  /** AMFI quarter the fund AUMs are for, e.g. "April - June 2026". */
+  aum_period?: string | null
+  /** Default AUM range (₹ crore) for ranking; either end may be null. */
+  default_aum_range?: { min: number | null; max: number | null }
   default_weights: Record<ScreenerParam, number>
   funds: ScreenerFund[]
 }
@@ -329,12 +335,15 @@ export interface BlacklistData {
   /** The thresholds the rules were evaluated with. */
   rules: Record<string, unknown>
   default_weights: Record<BlacklistRule, number>
+  default_aum_range?: { min: number | null; max: number | null }
+  aum_period?: string | null
   default_min_score: number
   manual: ListedFund[]
   missing: string[]
   funds: {
     scheme_code: string
     scheme_name: string
+    aum_cr?: number | null
     category_name: string
     category_slug: string
     asset_class: string
