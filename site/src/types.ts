@@ -174,12 +174,6 @@ export interface RiskRatios {
   upside_capture: number | null
   downside_capture: number | null
   composite_score: number | null
-  /** Total expense ratio, % a year, Regular plan (AMFI). */
-  ter?: number | null
-  /** Same for the Direct plan. */
-  ter_direct?: number | null
-  /** Regular plan Base Expense Ratio: the fee alone, before brokerage, trading costs and levies. */
-  ter_base?: number | null
   /** Average AUM in ₹ crore, all plans of the fund (AMFI, latest quarter). */
   aum_cr?: number | null
   /** XIRR of a monthly SIP over the last 1/3/5/10 years, valued at the latest NAV. */
@@ -216,8 +210,8 @@ export interface RiskData {
     stale?: boolean
   } | null
   category_average: RiskRatios & { returns: Record<RiskPeriod, number | null> }
-  /** When the TER and AUM figures were published by AMFI; null if not fetched. */
-  facts?: { aum_period: string | null; ter_date: string | null } | null
+  /** The AMFI quarter the AUM figures are for; null if not fetched. */
+  facts?: { aum_period: string | null } | null
   funds: RiskFundRow[]
 }
 
@@ -310,7 +304,7 @@ export interface FundsIndex {
 
 export type BlacklistRule =
   | 'bottom_quartile' | 'negative_alpha' | 'rolling_consistency' | 'downside_capture'
-  | 'tracking_error' | 'short_track_record' | 'bottom_3m' | 'high_beta' | 'high_ter' | 'aum_size'
+  | 'tracking_error' | 'short_track_record' | 'bottom_3m' | 'high_beta' | 'aum_size'
 
 /** One rule's result for one fund. fail is null when the rule does not apply. */
 export interface BlacklistRuleResult {

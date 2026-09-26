@@ -100,11 +100,8 @@ const RATIO_COLS: Col[] = [
 const crore = (v: number | null | undefined) =>
   v == null ? '—' : v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(0)
 
-// Cost and size, from AMFI. Shown with the ratios, but left out of the Score.
+// Fund size, from AMFI. Shown with the ratios, but left out of the Score.
 const FACT_COLS: Col[] = [
-  { key: 'ter', label: 'TER (Reg)', group: 'ratios', get: r => r.ter, better: 'low', exportType: 'number',
-    show: v => (v == null ? '—' : `${v.toFixed(2)}%`),
-    help: 'Total Expense Ratio of the Regular plan (% a year), as disclosed to AMFI: the fund’s fee (Base Expense Ratio) plus brokerage, trading costs and statutory levies such as GST, STT and stamp duty — everything taken out of the NAV. High-turnover funds (e.g. arbitrage) show higher totals. Hover a fund for its base fee and Direct plan TER. Lower is better.' },
   { key: 'aum_cr', label: 'AUM (₹ Cr)', group: 'ratios', get: r => r.aum_cr, better: null, exportType: 'number',
     show: crore,
     help: 'Average assets under management of the whole fund (all plans and options together), in ₹ crore, for the latest quarter AMFI has published. 12.3k = ₹12,300 crore. Not shaded: neither very small nor very large is "good" by itself.' },
@@ -232,12 +229,8 @@ export default function RiskReturns() {
     const cls = c.group !== 'ratios' || c.key === 'alpha' ? retColor(v ?? null) : ''
     return (
       <td key={c.key} className={`ret-cell ${cls}`}
-          title={c.key === 'ter' && v != null
-            ? [r.ter_base != null && `Base expense ratio (fee only): ${r.ter_base.toFixed(2)}%`,
-               r.ter_direct != null && `Direct plan total TER: ${r.ter_direct.toFixed(2)}%`].filter(Boolean).join(' · ')
-            : undefined}
           style={{ background: coloured ? tint(v, c.better, cuts[c.key]) : undefined,
-                   borderLeft: c.key === 'ter' ? '1px solid var(--line)' : undefined }}>
+                   borderLeft: c.key === 'aum_cr' ? '1px solid var(--line)' : undefined }}>
         {c.show(v)}
       </td>
     )
@@ -419,8 +412,8 @@ Benchmark: ${f.benchmark_name}` : f.scheme_name}>
         </p>
         {data?.facts && (
           <p className="mt-2">
-            TER and AUM are from AMFI: TER as disclosed up to {data.facts.ter_date ?? '—'}; AUM is the quarterly
-            average for {data.facts.aum_period ?? '—'}. They are for information and do not enter the Score.
+            AUM is from AMFI: the quarterly average for {data.facts.aum_period ?? '—'}, all plans of the fund
+            together. It is for information and does not enter the Score.
           </p>
         )}
       </div>

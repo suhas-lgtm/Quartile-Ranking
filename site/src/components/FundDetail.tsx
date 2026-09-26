@@ -222,8 +222,6 @@ function FundPanel({ code, onClose }: { code: string; onClose: () => void }) {
                   ['Up Capture', num(fundRisk?.upside_capture, 1), null],
                   ['Down Capture', num(fundRisk?.downside_capture, 1), null],
                   ['Score (0–100)', num(fundRisk?.composite_score, 1), null],
-                  ['TER Regular / Direct', fundRisk?.ter == null ? '—'
-                    : `${fundRisk.ter.toFixed(2)}% / ${fundRisk.ter_direct == null ? '—' : fundRisk.ter_direct.toFixed(2) + '%'}`, null],
                   ['AUM (all plans)', fundRisk?.aum_cr == null ? '—'
                     : `₹${Math.round(fundRisk.aum_cr).toLocaleString('en-IN')} Cr`, null],
                 ].map(([l, v, sign]) => (

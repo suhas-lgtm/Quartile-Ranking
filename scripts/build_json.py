@@ -712,15 +712,14 @@ def _passive_benchmarks(conn, slug: str, codes: list[str]) -> dict[str, tuple[in
     return out
 
 
-# TER and AUM per scheme code, fetched from AMFI once per build (main()).
+# Fund AUM per scheme code, fetched from AMFI once per build (main()).
 # Empty when AMFI is unreachable; the columns then show blank.
 FUND_FACTS: dict[str, dict] = {}
 
 
 def _facts(code) -> dict:
     f = FUND_FACTS.get(str(code)) or {}
-    return {"ter": f.get("ter_regular"), "ter_direct": f.get("ter_direct"),
-            "ter_base": f.get("ter_base"), "aum_cr": f.get("aum_cr")}
+    return {"aum_cr": f.get("aum_cr")}
 
 
 # SIP returns: one instalment a month for the last N months, valued at the
@@ -916,7 +915,6 @@ def build_risk(conn, cat_slug: str):
                         for p in RISK_RETURN_PERIODS},
             "sip":     {p: avg([f["sip"][p] for f in fund_rows]) for p in SIP_PERIODS},
             **{k: avg([f[k] for f in fund_rows]) for k in RISK_RATIO_KEYS},
-            "ter":    avg([f["ter"] for f in fund_rows]),
             "aum_cr": avg([f["aum_cr"] for f in fund_rows]),
         },
         "facts": _facts_meta(),
@@ -1272,9 +1270,6 @@ BLACKLIST_RULE_DEFAULTS = {
     "bottom_3m_categories": ["multi-cap"],
     "high_beta_categories": ["value-contra", "dividend-yield"],
     "high_beta_max": 1.0,
-    # Cost: TER in the costliest share of the category AND 3Y return below the
-    # category median — paying more without getting more.
-    "high_ter_top_share": 0.25,
     # Size: too small to be sustainable anywhere; too big to stay nimble in
     # the cap-constrained categories. Rupees crore, all plans.
     "aum_min_cr": 300,
@@ -1288,8 +1283,8 @@ BLACKLIST_WEIGHT_DEFAULTS = {
     "bottom_quartile": 20, "negative_alpha": 20, "rolling_consistency": 15,
     "downside_capture": 15, "high_beta": 10, "tracking_error": 10,
     "short_track_record": 5, "bottom_3m": 5,
-    # New with AMFI's TER/AUM data; 0 until the team chooses a weight.
-    "high_ter": 0, "aum_size": 0,
+    # New with AMFI's AUM data; 0 until the team chooses a weight.
+    "aum_size": 0,
 }
 
 
@@ -1361,11 +1356,6 @@ def build_blacklist(conn, categories, screener_cfg: dict):
             vals = sorted(v for v in te.values() if v is not None)
             if len(vals) >= 4:
                 te_cut = vals[int(len(vals) * (1 - rules["tracking_error_top_share"]))]
-
-        ters = sorted(f["ter"] for f in funds if f.get("ter") is not None)
-        ter_cut = ters[int(len(ters) * (1 - rules["high_ter_top_share"]))] if len(ters) >= 4 else None
-        r3 = sorted(f["returns"]["3Y"] for f in funds if f["returns"].get("3Y") is not None)
-        r3_median = r3[len(r3) // 2] if r3 else None
 
         for f in funds:
             code = f["scheme_code"]
@@ -1443,13 +1433,6 @@ def build_blacklist(conn, categories, screener_cfg: dict):
             b3 = (r.get("beta") or {}).get("3Y")
             checks["high_beta"] = (res(b3 > rules["high_beta_max"], f"{b3:.2f}", f"High beta {b3:.2f} for a value mandate")
                                 if slug in rules["high_beta_categories"] and bench_ok and b3 is not None else NA)
-
-            # Expensive without the returns
-            ter, ret3 = f.get("ter"), f["returns"].get("3Y")
-            checks["high_ter"] = (res(ter >= ter_cut and ret3 < r3_median, f"{ter:.2f}%",
-                                      f"TER {ter:.2f}% among the costliest in the category, "
-                                      f"3Y return below the category median")
-                                  if None not in (ter, ter_cut, ret3, r3_median) else NA)
 
             # Size
             aum = f.get("aum_cr")
@@ -1599,11 +1582,8 @@ def build_index_series(conn):
 # ── Main orchestrator ─────────────────────────────────────────────────────────
 
 def _facts_meta() -> dict | None:
-    for v in FUND_FACTS.values():
-        if v.get("aum_period") or v.get("ter_date"):
-            return {"aum_period": next((x.get("aum_period") for x in FUND_FACTS.values() if x.get("aum_period")), None),
-                    "ter_date": max((x.get("ter_date") or "" for x in FUND_FACTS.values()), default="") or None}
-    return None
+    period = next((v["aum_period"] for v in FUND_FACTS.values() if v.get("aum_period")), None)
+    return {"aum_period": period} if period else None
 
 
 def main():
@@ -1612,7 +1592,7 @@ def main():
         from scripts.amfi_facts import facts_for_catalogue
         FUND_FACTS.update(facts_for_catalogue())
     except Exception as exc:                       # never let this stop the build
-        log.warning("TER/AUM unavailable (%s) — columns left blank", exc)
+        log.warning("AUM unavailable (%s) — column left blank", exc)
     as_of = get_as_of(conn)
     log.info("Building JSON outputs. Data as of: %s", as_of)
 
