@@ -15,6 +15,7 @@ import { fmtPct, retColor } from '../utils/format'
 import type { SheetSpec } from '../utils/xlsx'
 import type { RiskFundRow, RiskPeriod, RiskRatios, SipPeriod } from '../types'
 import FundLink from '../components/FundLink'
+import { fuzzyMatcher } from '../utils/fuzzy'
 
 const EQUITY_HYBRID_CLASSES = ['Equity', 'Hybrid']
 // Index funds, ETFs and FoFs have returns and risk too, but no category benchmark.
@@ -178,8 +179,9 @@ export default function RiskReturns() {
 
   const funds = useMemo(() => {
     const q = query.trim().toLowerCase()
-    const list = (data?.funds ?? []).filter(f => !q || f.scheme_name.toLowerCase().includes(q)
-      || (f.category_name ?? '').toLowerCase().includes(q))
+    // Forgiving match (typos, "midcap" for "Mid Cap", PPFAS...); the table's own sort still applies.
+    const hit = fuzzyMatcher(q)
+    const list = (data?.funds ?? []).filter(f => hit(f.scheme_name) || (isAll && hit(f.category_name ?? '')))
     const col = ALL_COLS.find(c => c.key === sort.key)
     if (!col) return list
     // Blanks always sink to the bottom, whichever way the column is sorted.
@@ -319,7 +321,7 @@ export default function RiskReturns() {
           type="search"
           value={query}
           onChange={e => setQuery(e.target.value)}
-          placeholder="Search fund…"
+          placeholder="Search fund (spelling need not be exact)…"
           className="px-3 py-1.5 rounded-lg text-sm w-full sm:w-72"
           style={{ background: 'var(--bg-raised)', border: '1px solid var(--line)', color: 'var(--text-hi)', outline: 'none' }}
         />

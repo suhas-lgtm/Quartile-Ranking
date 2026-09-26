@@ -6,6 +6,7 @@
 // ratios from each fund's risk_{slug}.json.
 
 import { useEffect, useMemo, useState } from 'react'
+import FundPicker, { bestFund } from '../components/FundPicker'
 import ReactECharts from 'echarts-for-react'
 import { useJson, useMeta } from '../hooks/useData'
 import { categoryPath } from '../config/dataPaths'
@@ -73,11 +74,12 @@ export default function CompareFunds() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [codes, byCode])
 
-  const add = () => {
-    const c = codeByLabel.get(pick)
+  const addCode = (c: string | undefined) => {
     if (c && !codes.includes(c) && codes.length < MAX) setCodes([...codes, c])
     setPick('')
   }
+  // Add without picking a suggestion: take the closest name to what was typed.
+  const add = () => addCode(codeByLabel.get(pick) ?? bestFund(index?.funds ?? [], pick)?.c)
 
   const view = useMemo(() => {
     const adj = codes.filter(c => series[c]?.points.length).map(c => ({ c, pts: adjust(series[c]) }))
@@ -149,13 +151,12 @@ export default function CompareFunds() {
       <div className="card p-4 mb-4 flex flex-wrap items-end gap-3 text-xs" style={{ color: 'var(--text-mid)' }}>
         <label className="flex flex-col gap-1 min-w-[320px] flex-1">Add a fund ({codes.length}/{MAX})
           <div className="flex gap-2">
-            <input list="cmp-fund-list" value={pick} onChange={e => setPick(e.target.value)}
-                   onKeyDown={e => { if (e.key === 'Enter') add() }}
-                   placeholder={index ? 'Start typing a fund name…' : 'Loading…'}
-                   className="px-3 py-1.5 rounded-lg text-sm flex-1" style={inputStyle} />
+            <FundPicker funds={index?.funds ?? []} value={pick} onChange={setPick} exclude={codes}
+                        onPick={f => addCode(f.c)}
+                        placeholder={index ? 'Type any part of a fund name, spelling need not be exact…' : 'Loading…'}
+                        style={inputStyle} />
             <button onClick={add} disabled={!pick || codes.length >= MAX} className="tab-btn active accent">Add</button>
           </div>
-          <datalist id="cmp-fund-list">{(index?.funds ?? []).map(f => <option key={f.c} value={labelOf(f)} />)}</datalist>
         </label>
         <div className="tab-bar flex gap-1">
           {(Object.keys(RANGE_MONTHS) as Range[]).map(r => (

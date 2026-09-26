@@ -9,6 +9,8 @@
 // Open to everyone.
 
 import { useEffect, useMemo, useState } from 'react'
+import TableSearch from '../components/TableSearch'
+import { fuzzyMatcher } from '../utils/fuzzy'
 import { useJson } from '../hooks/useData'
 import DownloadButton from '../components/DownloadButton'
 import TeamBlacklist from '../components/TeamBlacklist'
@@ -92,8 +94,10 @@ export default function Blacklist() {
     return { ...f, score: totalWeight ? (failedW / totalWeight) * 100 : 0 }
   }), [all, w, totalWeight])
   const cats = [...new Map(all.map(f => [f.category_slug, f.category_name])).entries()]
+  const [query, setQuery] = useState('')
+  const hit = fuzzyMatcher(query)
   const shown = scored
-    .filter(f => f.score > 0 && f.score >= cutoff && (!catFilter || f.category_slug === catFilter))
+    .filter(f => f.score > 0 && f.score >= cutoff && (!catFilter || f.category_slug === catFilter) && hit(f.scheme_name))
     .sort((a, b) => b.score - a.score || a.scheme_name.localeCompare(b.scheme_name))
 
   // Columns for rules that apply to none of the listed funds (e.g. the Large
@@ -246,10 +250,12 @@ export default function Blacklist() {
               </p>
             </aside>
 
+            <div className="min-w-0">
+            <TableSearch value={query} onChange={setQuery} />
             <div className="card overflow-hidden min-w-0">
               {shown.length === 0 ? (
                 <div className="p-6 text-center text-xs" style={{ color: 'var(--text-mid)' }}>
-                  No fund scores {cutoff}% or more with these weights.
+                  {query.trim() ? `No listed fund looks like “${query}”.` : `No fund scores ${cutoff}% or more with these weights.`}
                 </div>
               ) : (
                 <div className="table-scroll">
@@ -303,6 +309,7 @@ export default function Blacklist() {
                   </table>
                 </div>
               )}
+            </div>
             </div>
           </div>
 

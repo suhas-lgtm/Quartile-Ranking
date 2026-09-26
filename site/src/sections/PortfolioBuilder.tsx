@@ -9,6 +9,7 @@
 // /api/nav (server/navLookup.ts). Saved in this browser.
 
 import { useEffect, useMemo, useState } from 'react'
+import FundPicker, { bestFund } from '../components/FundPicker'
 import { useJson, useMeta } from '../hooks/useData'
 import DownloadButton from '../components/DownloadButton'
 import { currentDesk } from '../config/products'
@@ -151,9 +152,9 @@ export default function PortfolioBuilder() {
              irr: flows.length > 1 ? xirr(flows) : null }
   }, [results, end])
 
-  const addFund = () => {
-    const code = codeByLabel.get(pick)
-    if (!code) { setMsg('Pick a fund from the list.'); return }
+  const addFund = (picked?: string) => {
+    const code = picked ?? codeByLabel.get(pick) ?? bestFund(index?.funds ?? [], pick)?.c
+    if (!code) { setMsg('No fund looks like that name. Try fewer letters.'); return }
     if (pf.holdings.some(h => h.code === code)) { setMsg('That fund is already in the portfolio.'); return }
     if (pf.holdings.length >= MAX_FUNDS) { setMsg(`Up to ${MAX_FUNDS} funds.`); return }
     setPf({ ...pf, holdings: [...pf.holdings, { code, buys: [{ amount: null, date: null }] }] })
@@ -281,15 +282,12 @@ export default function PortfolioBuilder() {
         <div className="flex-1" />
         <label className="flex flex-col gap-1 min-w-[280px]">Add a fund ({pf.holdings.length}/{MAX_FUNDS})
           <div className="flex gap-2">
-            <input list="pb-fund-list" value={pick} onChange={e => setPick(e.target.value)}
-                   onKeyDown={e => { if (e.key === 'Enter') addFund() }}
-                   placeholder={index ? 'Start typing a fund name…' : 'Loading…'}
-                   className="px-3 py-1.5 rounded-lg text-sm flex-1" style={inputStyle} />
-            <button onClick={addFund} disabled={!pick || pf.holdings.length >= MAX_FUNDS} className="tab-btn active accent">Add</button>
+            <FundPicker funds={index?.funds ?? []} value={pick} onChange={setPick}
+                        exclude={pf.holdings.map(h => h.code)} onPick={f => addFund(f.c)}
+                        placeholder={index ? 'Type any part of a fund name, spelling need not be exact…' : 'Loading…'}
+                        style={inputStyle} />
+            <button onClick={() => addFund()} disabled={!pick || pf.holdings.length >= MAX_FUNDS} className="tab-btn active accent">Add</button>
           </div>
-          <datalist id="pb-fund-list">
-            {(index?.funds ?? []).map(f => <option key={f.c} value={labelOf(f)} />)}
-          </datalist>
         </label>
         {msg && <div className="w-full" style={{ color: 'var(--loss)' }}>{msg}</div>}
       </div>

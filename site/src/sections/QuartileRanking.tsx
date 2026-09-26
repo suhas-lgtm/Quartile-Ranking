@@ -1,6 +1,8 @@
 // src/sections/QuartileRanking.tsx — Section 6: Quartile Ranking — Full Professional Suite
 
 import { useState, useMemo, useEffect } from 'react'
+import TableSearch from '../components/TableSearch'
+import { fuzzyMatcher } from '../utils/fuzzy'
 import ReactECharts from 'echarts-for-react'
 import { useMeta, useQuartiles } from '../hooks/useData'
 import CategoryPicker from '../components/CategoryPicker'
@@ -191,6 +193,10 @@ export default function QuartileRanking() {
     if (!isSectoral || activeSector === ALL_SECTORS) return all
     return all.filter(f => sectorOf(f) === activeSector)
   }, [data, isSectoral, activeSector])
+
+  const [query, setQuery] = useState('')
+  const shownFunds = useMemo(() => { const hit = fuzzyMatcher(query); return funds.filter(f => hit(f.scheme_name)) },
+                             [funds, query])
 
   const reversedPeriodLabels = data ? [...data.period_labels].reverse() : []
 
@@ -602,6 +608,8 @@ export default function QuartileRanking() {
         </div>
       )}
 
+      <TableSearch value={query} onChange={setQuery} count={shownFunds.length} total={funds.length} />
+
       {/* ── Legend ───────────────────────────────────────────────── */}
       <div className="flex gap-4 mb-4 flex-wrap">
         {[
@@ -653,7 +661,7 @@ export default function QuartileRanking() {
               {/* Keyed on category + mode + sector so the rows fade in whenever
                   any of them changes, instead of the grid swapping instantly. */}
               <tbody key={`${activeSlug}-${mode}-${activeSector}`} className="rows-enter">
-                {funds.map(fund => (
+                {shownFunds.map(fund => (
                   <tr key={fund.scheme_code}>
                     <td className="sticky-col text-xs font-medium truncate" style={{ maxWidth: 240 }}>
                       <FundLink code={fund.scheme_code} name={fund.scheme_name} />

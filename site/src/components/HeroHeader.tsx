@@ -3,6 +3,7 @@
 import { fmtDate } from '../utils/format'
 import { visibleTabs } from '../config/profile'
 import { currentDesk } from '../config/products'
+import HeaderFundSearch from './HeaderFundSearch'
 
 interface Props {
   asOf: string | null
@@ -62,6 +63,7 @@ export default function HeroHeader({
 
         {/* Right: Data badge + Theme toggle + Internal badge */}
         <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+          <HeaderFundSearch />
           {asOf && (
             <div
               className="text-[10px] sm:text-xs flex items-center gap-1 px-2 py-1 rounded-full text-white"

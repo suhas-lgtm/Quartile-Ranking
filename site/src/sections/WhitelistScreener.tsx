@@ -7,6 +7,8 @@
 // page and a change has to re-rank instantly.
 
 import { useEffect, useMemo, useState } from 'react'
+import TableSearch from '../components/TableSearch'
+import { fuzzyMatcher } from '../utils/fuzzy'
 import { useMeta, useScreener } from '../hooks/useData'
 import ComingFunds from '../components/ComingFunds'
 import DownloadButton from '../components/DownloadButton'
@@ -262,6 +264,8 @@ export default function WhitelistScreener() {
   const groupTotal = (g: Group) => PARAMS.filter(p => p.group === g).reduce((a, p) => a + (w[p.key] ?? 0), 0)
   const grandTotal = GROUPS.reduce((a, g) => a + groupTotal(g.id), 0)
 
+  const [query, setQuery] = useState('')
+  const hit = useMemo(() => fuzzyMatcher(query), [query])
   const ranked = useMemo(() => {
     const all = PARAMS.map(p => p.key)
     const rows = (data?.funds ?? []).filter(f => f.eligible && f.scores).map(f => ({
@@ -422,6 +426,8 @@ export default function WhitelistScreener() {
               Alpha, Beta and the Capture ratios are blank for this category and funds are ranked on the rest.
             </div>
           )}
+          <TableSearch value={query} onChange={setQuery}
+                       count={ranked.filter(r => hit(r.fund.scheme_name)).length} total={ranked.length} />
           <div className="card overflow-hidden mb-4">
             {loading ? (
               <div className="p-6 space-y-2">{Array.from({ length: 6 }).map((_, i) => <div key={i} className="skeleton h-8 w-full" />)}</div>
@@ -450,6 +456,7 @@ export default function WhitelistScreener() {
                   </thead>
                   <tbody key={`${activeSlug}-${showRaw}`} className="rows-enter">
                     {ranked.map((r, i) => {
+                      if (!hit(r.fund.scheme_name)) return null     // searched out; ranks stay the full-list ranks
                       const b = band(i + 1)
                       return (
                         <tr key={r.fund.scheme_code}>

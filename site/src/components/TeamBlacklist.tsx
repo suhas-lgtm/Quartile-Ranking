@@ -8,6 +8,7 @@
 // Viewing is public; adding or removing needs the team password.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import FundPicker, { bestFund } from './FundPicker'
 import { useJson } from '../hooks/useData'
 import { categoryColor } from '../config/categoryColors'
 import { fmtDate, fmtPct, quartilePillClass, retColor } from '../utils/format'
@@ -66,8 +67,8 @@ export default function TeamBlacklist({ built, mode, onModeChange }: {
   const openAdd = async () => { setAdding(true); setMsg(null); if (auth !== 'in') await checkSession() }
 
   const add = async () => {
-    const code = codeByLabel.get(pick)
-    if (!code) { setMsg('Pick a fund from the list.'); return }
+    const code = codeByLabel.get(pick) ?? bestFund(index?.funds ?? [], pick)?.c
+    if (!code) { setMsg('No fund looks like that name. Try fewer letters.'); return }
     setBusy(true); setMsg(null)
     try { localStorage.setItem(NAME_KEY, by) } catch { /* not essential */ }
     const r = await fetch('/api/blacklist', { method: 'POST', headers: { 'content-type': 'application/json' },
@@ -123,12 +124,10 @@ export default function TeamBlacklist({ built, mode, onModeChange }: {
             <form onSubmit={e => { e.preventDefault(); add() }} className="grid gap-2 md:grid-cols-[minmax(0,2fr)_minmax(0,2fr)_minmax(0,1fr)_auto] items-end">
               <label className="flex flex-col gap-1">
                 <span>Fund</span>
-                <input list="bl-fund-list" value={pick} onChange={e => setPick(e.target.value)} autoFocus
-                       placeholder={index ? 'Start typing a fund name…' : 'Loading fund list…'}
-                       className="px-3 py-1.5 rounded-lg text-sm" style={inputStyle} />
-                <datalist id="bl-fund-list">
-                  {(index?.funds ?? []).map(f => <option key={f.c} value={labelOf(f)} />)}
-                </datalist>
+                <FundPicker funds={index?.funds ?? []} value={pick} onChange={setPick} autoFocus
+                            onPick={f => setPick(labelOf(f))}
+                            placeholder={index ? 'Type any part of a fund name, spelling need not be exact…' : 'Loading fund list…'}
+                            style={inputStyle} />
               </label>
               <label className="flex flex-col gap-1">
                 <span>Reason</span>

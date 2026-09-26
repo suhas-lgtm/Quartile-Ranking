@@ -7,6 +7,8 @@
 // Nothing is calculated here.
 
 import { useState } from 'react'
+import TableSearch from '../components/TableSearch'
+import { fuzzyMatcher } from '../utils/fuzzy'
 import { useJson } from '../hooks/useData'
 import DownloadButton from '../components/DownloadButton'
 import { currentDesk } from '../config/products'
@@ -27,8 +29,10 @@ export default function AutoMailing() {
   const periods = data?.periods ?? []
   const funds = data?.funds ?? []
   const cats = [...new Map(funds.map(f => [f.category_slug, f.category_name])).entries()]
+  const [query, setQuery] = useState('')
+  const hit = fuzzyMatcher(query)
   const shown = funds.filter(f =>
-    (!period || f.breaches.includes(period)) && (!catFilter || f.category_slug === catFilter))
+    (!period || f.breaches.includes(period)) && (!catFilter || f.category_slug === catFilter) && hit(f.scheme_name))
   const countFor = (p: string) => funds.filter(f => f.breaches.includes(p)).length
 
   const buildExport = (): SheetSpec | null => {
@@ -91,6 +95,8 @@ export default function AutoMailing() {
           </select>
         </div>
       )}
+
+      <TableSearch value={query} onChange={setQuery} />
 
       <div className="card overflow-hidden mb-4">
         {loading ? (
