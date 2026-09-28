@@ -11,6 +11,7 @@ import { periodLabelParts } from '../utils/periods'
 import DownloadButton from '../components/DownloadButton'
 import { currentDesk } from '../config/products'
 import type { SheetSpec } from '../utils/xlsx'
+import type { QuartileFundRow } from '../types'
 import { categoryColor } from '../config/categoryColors'
 import { quartilePillClass, fmtPct, shortFundName } from '../utils/format'
 import { ALL_SECTORS, SECTORAL_THEMATIC_SLUG, sectorOf, sectorOptions } from '../utils/sectors'
@@ -195,8 +196,27 @@ export default function QuartileRanking() {
   }, [data, isSectoral, activeSector])
 
   const [query, setQuery] = useState('')
-  const shownFunds = useMemo(() => { const hit = fuzzyMatcher(query); return funds.filter(f => hit(f.scheme_name)) },
-                             [funds, query])
+  // Periods spent in Q1 / Q2, out of the periods the fund was ranked in.
+  const [countSort, setCountSort] = useState<'q1' | 'q2' | 'top' | null>(null)
+  const counts = (f: QuartileFundRow) => {
+    const ranked = f.quartiles.filter(q => q != null).length
+    const q1 = f.quartiles.filter(q => q === 1).length
+    const q2 = f.quartiles.filter(q => q === 2).length
+    return { ranked, q1, q2, top: q1 + q2 }
+  }
+  const shownFunds = useMemo(() => {
+    const hit = fuzzyMatcher(query)
+    const list = funds.filter(f => hit(f.scheme_name))
+    if (!countSort) return list
+    // More periods first; among equals, the higher share of ranked periods.
+    return [...list].sort((a, b) => {
+      const ca = counts(a), cb = counts(b)
+      return cb[countSort] - ca[countSort]
+        || cb[countSort] / (cb.ranked || 1) - ca[countSort] / (ca.ranked || 1)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [funds, query, countSort])
+  const unitPlural = mode === 'monthly' ? 'Months' : mode === 'annual' ? 'Years' : 'Quarters'
 
   const reversedPeriodLabels = data ? [...data.period_labels].reverse() : []
 
@@ -218,6 +238,10 @@ export default function QuartileRanking() {
       // declare. One source for one fact.
       ...(isSectoral
         ? [{ key: 'sector', label: 'Sector', type: 'text' as const, width: 22 }] : []),
+      { key: 'n_q1', label: `${unitPlural} in Q1`, type: 'int', width: 10 },
+      { key: 'n_q2', label: `${unitPlural} in Q2`, type: 'int', width: 10 },
+      { key: 'n_top', label: `${unitPlural} in Q1+Q2`, type: 'int', width: 12 },
+      { key: 'n_ranked', label: `${unitPlural} ranked`, type: 'int', width: 10 },
     ]
     for (const i of order) {
       const { main, sub } = periodLabelParts(data.period_labels[i])
@@ -227,7 +251,8 @@ export default function QuartileRanking() {
     }
     // Exports the funds the sector filter has left visible, not the raw payload.
     const rows: SheetSpec['rows'] = funds.map(f => {
-      const row: SheetSpec['rows'][number] = { fund: f.scheme_name }
+      const c = counts(f)
+      const row: SheetSpec['rows'][number] = { fund: f.scheme_name, n_q1: c.q1, n_q2: c.q2, n_top: c.top, n_ranked: c.ranked }
       if (isSectoral) row.sector = f.sector ?? ''
       for (const i of order) {
         row[`q${i}`] = f.quartiles[i] ?? null
@@ -627,7 +652,7 @@ export default function QuartileRanking() {
           </div>
         ))}
         <div className="ml-auto text-xs" style={{ color: 'var(--text-low)', alignSelf: 'center' }}>
-          Columns sorted latest → oldest
+          Q1 / Q2 / Q1+Q2 = {unitPlural.toLowerCase()} spent there · click to sort · columns latest → oldest
         </div>
       </div>
 
@@ -641,6 +666,19 @@ export default function QuartileRanking() {
               <thead>
                 <tr>
                   <th className="sticky-col text-left" style={{ minWidth: 240 }}>Fund</th>
+                  {([
+                    ['q1', 'Q1', `${unitPlural} in Q1 (top 25% of the category), out of the ${periodWord}s the fund was ranked`],
+                    ['q2', 'Q2', `${unitPlural} in Q2 (25–50%), out of the ${periodWord}s the fund was ranked`],
+                    ['top', 'Q1 + Q2', `${unitPlural} in the top half (Q1 or Q2), and that as a share of the ${periodWord}s ranked`],
+                  ] as const).map(([k, label, help], i) => (
+                    <th key={k} onClick={() => setCountSort(s => (s === k ? null : k))} title={`${help}. Click to sort.`}
+                        style={{ textAlign: 'center', cursor: 'pointer', userSelect: 'none', fontSize: 11, minWidth: k === 'top' ? 92 : 60,
+                                 color: countSort === k ? 'var(--accent-a)' : undefined,
+                                 borderRight: i === 2 ? '1px solid var(--line)' : undefined }}>
+                      <div>{label}{countSort === k ? ' ▼' : ''}</div>
+                      <div style={{ fontWeight: 400, opacity: 0.7, fontSize: 10 }}>{unitPlural.toLowerCase()}</div>
+                    </th>
+                  ))}
                   {reversedPeriodLabels.map(p => {
                     const { main, sub } = periodLabelParts(p)
                     return (
@@ -666,6 +704,28 @@ export default function QuartileRanking() {
                     <td className="sticky-col text-xs font-medium truncate" style={{ maxWidth: 240 }}>
                       <FundLink code={fund.scheme_code} name={fund.scheme_name} />
                     </td>
+                    {(() => {
+                      const c = counts(fund)
+                      const share = c.ranked ? c.top / c.ranked : null
+                      return (
+                        <>
+                          <td className="text-center text-xs font-semibold" style={{ color: '#34D399' }}
+                              title={`${c.q1} of ${c.ranked} ${periodWord}s in Q1`}>{c.q1}</td>
+                          <td className="text-center text-xs font-semibold" style={{ color: '#60A5FA' }}
+                              title={`${c.q2} of ${c.ranked} ${periodWord}s in Q2`}>{c.q2}</td>
+                          <td className="text-center text-xs" style={{ borderRight: '1px solid var(--line)' }}
+                              title={`${c.top} of ${c.ranked} ranked ${periodWord}s in the top half`}>
+                            <b style={{ color: 'var(--text-hi)' }}>{c.top}</b>
+                            <span style={{ color: 'var(--text-low)' }}>/{c.ranked}</span>
+                            {share != null && (
+                              <div className="text-[10px]" style={{ color: share >= 0.75 ? '#34D399' : share < 0.5 ? '#F87171' : 'var(--text-mid)' }}>
+                                {Math.round(share * 100)}%
+                              </div>
+                            )}
+                          </td>
+                        </>
+                      )
+                    })()}
                     {/* Each cell carries the return it was ranked on. Without it
                         the grid looks wrong whenever a fund is strong over 1Y and
                         weak in one quarter — the quartile is per period, and the
