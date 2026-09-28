@@ -1,10 +1,10 @@
 // src/components/CorrelationMatrix.tsx — how closely a set of funds move together.
 //
-// Pearson correlation of MONTHLY returns (month-end NAV to month-end NAV,
-// split-adjusted) over the last `months` months both funds have. Monthly rather
-// than daily: daily NAVs of funds holding the same market are dominated by that
-// day's market move and read as ~0.9 for almost any pair, which hides the
-// differences that matter for diversification.
+// Pearson correlation of daily, weekly or monthly returns (last NAV of each
+// period to the next, split-adjusted) over the last `months` months both funds
+// have. Monthly is the default: daily NAVs of funds holding the same market are
+// dominated by that day's market move and read as ~0.9 for almost any pair,
+// which hides the differences that matter for diversification.
 
 import { useMemo, useState } from 'react'
 
@@ -17,22 +17,37 @@ export function adjustSplits(s: NavSeries): [string, number][] {
   return s.points.map(([d, v]) => [d, v / splits.filter(x => x.date > d).reduce((p, x) => p * x.factor, 1)])
 }
 
-/** {'YYYY-MM': return} from the last NAV of each month to the next month's. */
-function monthlyReturns(points: [string, number][]): Map<string, number> {
+export type Freq = 'daily' | 'weekly' | 'monthly'
+
+/** The bucket a date falls in: the day itself, its week (by Monday), or its month. */
+function bucket(d: string, f: Freq): string {
+  if (f === 'daily') return d
+  if (f === 'monthly') return d.slice(0, 7)
+  const t = new Date(d + 'T00:00:00Z')
+  t.setUTCDate(t.getUTCDate() - ((t.getUTCDay() + 6) % 7))      // back to Monday
+  return t.toISOString().slice(0, 10)
+}
+
+/** {bucket: return} from the last NAV of each day / week / month to the next one's. */
+function periodReturns(points: [string, number][], f: Freq): Map<string, number> {
   const last = new Map<string, number>()
-  for (const [d, v] of points) last.set(d.slice(0, 7), v)       // points are ascending
-  const months = [...last.keys()].sort()
+  for (const [d, v] of points) last.set(bucket(d, f), v)         // points are ascending
+  const keys = [...last.keys()].sort()
   const out = new Map<string, number>()
-  for (let i = 1; i < months.length; i++) {
-    const a = last.get(months[i - 1])!, b = last.get(months[i])!
-    if (a > 0) out.set(months[i], b / a - 1)
+  for (let i = 1; i < keys.length; i++) {
+    const a = last.get(keys[i - 1])!, b = last.get(keys[i])!
+    if (a > 0) out.set(keys[i], b / a - 1)
   }
   return out
 }
 
-function pearson(xs: number[], ys: number[]): number | null {
+/** Returns per month at each frequency, and the fewest that make a correlation. */
+const PER_MONTH: Record<Freq, number> = { daily: 21, weekly: 4.33, monthly: 1 }
+const MIN_POINTS: Record<Freq, number> = { daily: 40, weekly: 12, monthly: 12 }
+
+function pearson(xs: number[], ys: number[], min = 12): number | null {
   const n = xs.length
-  if (n < 12) return null
+  if (n < min) return null
   const mx = xs.reduce((s, x) => s + x, 0) / n, my = ys.reduce((s, y) => s + y, 0) / n
   let sxy = 0, sxx = 0, syy = 0
   for (let i = 0; i < n; i++) {
@@ -42,10 +57,10 @@ function pearson(xs: number[], ys: number[]): number | null {
   return sxx && syy ? sxy / Math.sqrt(sxx * syy) : null
 }
 
-/** Correlation and the number of common months, over the latest `months` both have. */
-export function correlation(a: Map<string, number>, b: Map<string, number>, months: number) {
-  const common = [...a.keys()].filter(k => b.has(k)).sort().slice(-months)
-  return { r: pearson(common.map(k => a.get(k)!), common.map(k => b.get(k)!)), n: common.length }
+/** Correlation and the number of common returns, over the latest `months` of both. */
+export function correlation(a: Map<string, number>, b: Map<string, number>, months: number, f: Freq = 'monthly') {
+  const common = [...a.keys()].filter(k => b.has(k)).sort().slice(-Math.round(months * PER_MONTH[f]))
+  return { r: pearson(common.map(k => a.get(k)!), common.map(k => b.get(k)!), MIN_POINTS[f]), n: common.length }
 }
 
 function colour(r: number | null): string {
@@ -58,26 +73,32 @@ function colour(r: number | null): string {
   return 'rgba(52,211,153,0.35)'
 }
 
-const WINDOWS: [string, number][] = [['1Y', 12], ['3Y', 36], ['5Y', 60]]
+const WINDOWS: [string, number][] = [['3M', 3], ['6M', 6], ['1Y', 12], ['3Y', 36], ['5Y', 60]]
+const FREQ_LABEL: Record<Freq, [string, string]> = {
+  daily: ['Daily', 'daily'], weekly: ['Weekly', 'weekly'], monthly: ['Monthly', 'monthly'],
+}
+/** Windows too short for a frequency (fewer returns than MIN_POINTS). */
+const tooShort = (months: number, f: Freq) => months * PER_MONTH[f] < MIN_POINTS[f]
 
 export default function CorrelationMatrix({ funds }: {
   /** In display order; a fund whose series has not loaded yet is shown as pending. */
   funds: { code: string; name: string; series?: NavSeries | null }[]
 }) {
   const [months, setMonths] = useState(36)
+  const [freq, setFreq] = useState<Freq>('monthly')
   const rets = useMemo(() => new Map(funds.filter(f => f.series?.points?.length)
-    .map(f => [f.code, monthlyReturns(adjustSplits(f.series!))])), [funds])
+    .map(f => [f.code, periodReturns(adjustSplits(f.series!), freq)])), [funds, freq])
 
   const pairs = useMemo(() => {
     const out: { a: string; b: string; r: number }[] = []
     for (let i = 0; i < funds.length; i++) for (let j = i + 1; j < funds.length; j++) {
       const ra = rets.get(funds[i].code), rb = rets.get(funds[j].code)
       if (!ra || !rb) continue
-      const { r } = correlation(ra, rb, months)
+      const { r } = correlation(ra, rb, months, freq)
       if (r != null) out.push({ a: funds[i].name, b: funds[j].name, r })
     }
     return out
-  }, [funds, rets, months])
+  }, [funds, rets, months, freq])
 
   if (funds.length < 2) return null
   const avg = pairs.length ? pairs.reduce((s, p) => s + p.r, 0) / pairs.length : null
@@ -89,10 +110,21 @@ export default function CorrelationMatrix({ funds }: {
     <div className="card p-4 mb-4">
       <div className="flex items-center gap-3 flex-wrap mb-2">
         <div className="font-display font-bold text-sm" style={{ color: 'var(--text-hi)' }}>Correlation between funds</div>
-        <div className="tab-bar flex gap-1">
-          {WINDOWS.map(([l, m]) => (
-            <button key={l} onClick={() => setMonths(m)} className={`tab-btn${months === m ? ' active accent' : ''}`}>{l}</button>
+        <div className="tab-bar flex gap-1" title="Which returns are compared">
+          {(Object.keys(FREQ_LABEL) as Freq[]).map(f => (
+            <button key={f} onClick={() => { setFreq(f); if (tooShort(months, f)) setMonths(12) }}
+                    className={`tab-btn${freq === f ? ' active accent' : ''}`}>{FREQ_LABEL[f][0]}</button>
           ))}
+        </div>
+        <div className="tab-bar flex gap-1" title="Over how long">
+          {WINDOWS.map(([l, m]) => {
+            const off = tooShort(m, freq)
+            return (
+              <button key={l} onClick={() => { if (!off) setMonths(m) }} disabled={off}
+                      title={off ? `Too few ${FREQ_LABEL[freq][1]} returns in ${l} — pick Daily or Weekly` : undefined}
+                      className={`tab-btn${months === m ? ' active accent' : ''}`} style={off ? { opacity: 0.35 } : undefined}>{l}</button>
+            )
+          })}
         </div>
         {avg != null && (
           <span className="text-xs ml-auto" style={{ color: 'var(--text-mid)' }}>
@@ -122,12 +154,14 @@ export default function CorrelationMatrix({ funds }: {
                   if (i === j) return <td key={fb.code} className="text-center text-xs" style={{ color: 'var(--text-low)' }}>1.00</td>
                   const ra = rets.get(fa.code), rb = rets.get(fb.code)
                   if (!ra || !rb) return <td key={fb.code} className="text-center text-xs" style={{ color: 'var(--text-low)' }}>…</td>
-                  const { r, n } = correlation(ra, rb, months)
+                  const { r, n } = correlation(ra, rb, months, freq)
                   return (
                     <td key={fb.code} className="text-center text-xs font-semibold"
                         style={{ background: colour(r), color: 'var(--text-hi)' }}
-                        title={r == null ? `Under 12 common months (${n}) — not enough to measure`
-                          : `${fa.name}\n${fb.name}\n${r.toFixed(2)} over ${n} months`}>
+                        title={r == null ? `Only ${n} common ${FREQ_LABEL[freq][1]} returns — not enough to measure`
+                          : `${fa.name}
+${fb.name}
+${r.toFixed(2)} over ${n} ${FREQ_LABEL[freq][1]} returns`}>
                       {r == null ? '—' : r.toFixed(2)}
                     </td>
                   )
@@ -145,13 +179,15 @@ export default function CorrelationMatrix({ funds }: {
         </div>
       )}
       <p className="text-[11px] mt-2 leading-relaxed" style={{ color: 'var(--text-low)' }}>
-        How closely two funds&apos; <b>monthly</b> returns moved together over the last {months / 12} year{months > 12 ? 's' : ''} they
-        both existed: <b>1.00</b> = in step every month, <b>0</b> = unrelated, below 0 = opposite. Above ~0.90 two funds are
+        How closely two funds&apos; <b>{FREQ_LABEL[freq][1]}</b> returns moved together over the last{' '}
+        {months < 12 ? `${months} months` : `${months / 12} year${months > 12 ? 's' : ''}`} they both existed: <b>1.00</b> = in step every month, <b>0</b> = unrelated, below 0 = opposite. Above ~0.90 two funds are
         largely the same bet and holding both adds little diversification; below ~0.70 they behave differently.
         <span style={{ background: 'rgba(248,113,113,0.3)', padding: '0 4px', marginLeft: 4 }}>red</span> high,
         <span style={{ background: 'rgba(245,158,11,0.22)', padding: '0 4px', marginLeft: 4 }}>amber</span> moderate,
         <span style={{ background: 'rgba(52,211,153,0.3)', padding: '0 4px', marginLeft: 4 }}>green</span> low.
-        Needs at least 12 common months. Hover a cell for the fund names.
+        Daily returns read higher for almost any pair (the whole market moves together day to day); monthly shows the
+        real difference and is the default. Needs at least {MIN_POINTS[freq]} common {FREQ_LABEL[freq][1]} returns.
+        Hover a cell for the fund names.
       </p>
     </div>
   )
