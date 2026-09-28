@@ -239,8 +239,11 @@ export default function QuartileRanking() {
       ...(isSectoral
         ? [{ key: 'sector', label: 'Sector', type: 'text' as const, width: 22 }] : []),
       { key: 'n_q1', label: `${unitPlural} in Q1`, type: 'int', width: 10 },
+      { key: 'p_q1', label: 'Q1 share', type: 'percent' },
       { key: 'n_q2', label: `${unitPlural} in Q2`, type: 'int', width: 10 },
+      { key: 'p_q2', label: 'Q2 share', type: 'percent' },
       { key: 'n_top', label: `${unitPlural} in Q1+Q2`, type: 'int', width: 12 },
+      { key: 'p_top', label: 'Q1+Q2 share', type: 'percent' },
       { key: 'n_ranked', label: `${unitPlural} ranked`, type: 'int', width: 10 },
     ]
     for (const i of order) {
@@ -252,7 +255,9 @@ export default function QuartileRanking() {
     // Exports the funds the sector filter has left visible, not the raw payload.
     const rows: SheetSpec['rows'] = funds.map(f => {
       const c = counts(f)
-      const row: SheetSpec['rows'][number] = { fund: f.scheme_name, n_q1: c.q1, n_q2: c.q2, n_top: c.top, n_ranked: c.ranked }
+      const share = (x: number) => (c.ranked ? x / c.ranked : null)
+      const row: SheetSpec['rows'][number] = { fund: f.scheme_name, n_q1: c.q1, p_q1: share(c.q1), n_q2: c.q2, p_q2: share(c.q2),
+                                               n_top: c.top, p_top: share(c.top), n_ranked: c.ranked }
       if (isSectoral) row.sector = f.sector ?? ''
       for (const i of order) {
         row[`q${i}`] = f.quartiles[i] ?? null
@@ -672,7 +677,7 @@ export default function QuartileRanking() {
                     ['top', 'Q1 + Q2', `${unitPlural} in the top half (Q1 or Q2), and that as a share of the ${periodWord}s ranked`],
                   ] as const).map(([k, label, help], i) => (
                     <th key={k} onClick={() => setCountSort(s => (s === k ? null : k))} title={`${help}. Click to sort.`}
-                        style={{ textAlign: 'center', cursor: 'pointer', userSelect: 'none', fontSize: 11, minWidth: k === 'top' ? 92 : 60,
+                        style={{ textAlign: 'center', cursor: 'pointer', userSelect: 'none', fontSize: 11, minWidth: k === 'top' ? 92 : 72,
                                  color: countSort === k ? 'var(--accent-a)' : undefined,
                                  borderRight: i === 2 ? '1px solid var(--line)' : undefined }}>
                       <div>{label}{countSort === k ? ' ▼' : ''}</div>
@@ -709,10 +714,18 @@ export default function QuartileRanking() {
                       const share = c.ranked ? c.top / c.ranked : null
                       return (
                         <>
-                          <td className="text-center text-xs font-semibold" style={{ color: '#34D399' }}
-                              title={`${c.q1} of ${c.ranked} ${periodWord}s in Q1`}>{c.q1}</td>
-                          <td className="text-center text-xs font-semibold" style={{ color: '#60A5FA' }}
-                              title={`${c.q2} of ${c.ranked} ${periodWord}s in Q2`}>{c.q2}</td>
+                          {([['q1', '#34D399'], ['q2', '#60A5FA']] as const).map(([k, col]) => (
+                            <td key={k} className="text-center text-xs"
+                                title={`${c[k]} of ${c.ranked} ranked ${periodWord}s in ${k.toUpperCase()}`}>
+                              <b style={{ color: col }}>{c[k]}</b>
+                              <span style={{ color: 'var(--text-low)' }}>/{c.ranked}</span>
+                              {c.ranked > 0 && (
+                                <div className="text-[10px]" style={{ color: 'var(--text-mid)' }}>
+                                  {Math.round((c[k] / c.ranked) * 100)}%
+                                </div>
+                              )}
+                            </td>
+                          ))}
                           <td className="text-center text-xs" style={{ borderRight: '1px solid var(--line)' }}
                               title={`${c.top} of ${c.ranked} ranked ${periodWord}s in the top half`}>
                             <b style={{ color: 'var(--text-hi)' }}>{c.top}</b>
