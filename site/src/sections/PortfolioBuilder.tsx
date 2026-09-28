@@ -9,6 +9,7 @@
 // /api/nav (server/navLookup.ts). Saved in this browser.
 
 import { useEffect, useMemo, useState } from 'react'
+import CorrelationMatrix, { type NavSeries } from '../components/CorrelationMatrix'
 import FundPicker, { bestFund } from '../components/FundPicker'
 import { useJson, useMeta } from '../hooks/useData'
 import DownloadButton from '../components/DownloadButton'
@@ -101,6 +102,19 @@ export default function PortfolioBuilder() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pf, end])
   const { data: navs, loading, error } = useNavLookup(end ? codes : [], dates)
+
+  // Full NAV history per holding, for the correlation table (fetched once each).
+  const [series, setSeries] = useState<Record<string, NavSeries | null>>({})
+  useEffect(() => {
+    for (const c of codes) {
+      if (c in series) continue
+      setSeries(s => ({ ...s, [c]: null }))
+      fetch(`/api/series?code=${c}`).then(r => (r.ok ? r.json() : null))
+        .then(d => d && setSeries(s => ({ ...s, [c]: d })))
+        .catch(() => { /* table shows it as pending */ })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [codes])
 
   const results = useMemo(() => pf.holdings.map(h => {
     const n = navs?.[h.code]
@@ -423,6 +437,8 @@ export default function PortfolioBuilder() {
         )}
         {error && <div className="p-3 text-xs" style={{ color: 'var(--loss)' }}>Could not load NAVs ({error}).</div>}
       </div>
+
+      <CorrelationMatrix funds={pf.holdings.map(h => ({ code: h.code, name: fundByCode.get(h.code)?.n ?? h.code, series: series[h.code] }))} />
       <p className="text-[11px]" style={{ color: 'var(--text-low)' }}>
         A SIP buys once a month on the same day, from its start date up to the “Value as of” date (at most 10 years).
         Units bought = amount ÷ NAV on or before the purchase date. Value = units × NAV on or before the “Value as of”

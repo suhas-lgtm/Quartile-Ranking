@@ -6,6 +6,7 @@
 // ratios from each fund's risk_{slug}.json.
 
 import { useEffect, useMemo, useState } from 'react'
+import CorrelationMatrix from '../components/CorrelationMatrix'
 import FundPicker, { bestFund } from '../components/FundPicker'
 import ReactECharts from 'echarts-for-react'
 import { useJson, useMeta } from '../hooks/useData'
@@ -192,6 +193,8 @@ export default function CompareFunds() {
             <div className="text-xs font-semibold mt-2" style={{ color: 'var(--text-mid)' }}>Drawdown (below previous peak)</div>
             {ddOption ? <ReactECharts option={ddOption} style={{ height: 150 }} notMerge /> : null}
           </div>
+
+          <CorrelationMatrix funds={codes.map(c => ({ code: c, name: byCode.get(c)?.n ?? c, series: series[c] }))} />
 
           <div className="card overflow-hidden mb-4">
             <div className="table-scroll">
