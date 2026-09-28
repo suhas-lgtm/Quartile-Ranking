@@ -136,11 +136,33 @@ jobs:
       # touched only to bootstrap a fund Neon has never held — on the very first
       # run that is every fund (~3.5M rows, a few minutes). Pass
       # --history-source mfapi to re-download everything instead.
+      # The NAV history as of the last run, kept in GitHub's Actions cache so the
+      # pipeline reads only the newest days from Neon (~0.4 MB) instead of all
+      # 3.7M rows (~95 MB) — the full read every run used up Neon's free 5 GB
+      # monthly transfer. A miss (first run, or a copy GitHub expired after 7
+      # unused days) costs one full read and saves a fresh copy.
+      - name: Restore the NAV history copy
+        uses: actions/cache/restore@v4
+        with:
+          path: .navcache
+          key: navhist-${{ github.run_id }}
+          restore-keys: navhist-
+
       - name: Run daily pipeline (Neon + mfapi + AMFI -> engine -> JSON)
         run: |
           python scripts/daily_run.py             --workers 12             --max-staleness "${{ github.event.inputs.max_staleness || '6' }}"             ${{ github.event.inputs.skip_indices == 'true' && '--skip-indices' || '' }}
         env:
           PYTHONIOENCODING: utf-8
+          NAV_CACHE: .navcache/nav_history.pkl.gz
+
+      # Saved only after a successful pipeline, so a failed run never leaves a
+      # copy that disagrees with Neon.
+      - name: Save the NAV history copy
+        if: success() && hashFiles('.navcache/nav_history.pkl.gz') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .navcache
+          key: navhist-${{ github.run_id }}
 
       - name: Confirm no database was left behind
         run: |

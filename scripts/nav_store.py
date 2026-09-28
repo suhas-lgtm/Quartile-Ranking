@@ -128,6 +128,83 @@ def pull_stored(codes: list[str], from_date: str | None = None) -> dict[str, Ser
     return out
 
 
+# ── Local copy of the history, kept between runs ────────────────────────────
+#
+# Reading the whole of nav_history (3.7M rows, ~100 MB) on every run used up
+# Neon's free 5 GB monthly transfer in days. The workflow now keeps the history
+# in GitHub's Actions cache (NAV_CACHE points at the file) and only asks Neon for
+# the last CACHE_OVERLAP_DAYS, plus the full series of any fund the copy lacks.
+# Neon stays the authority: the copy is only ever what Neon held plus what this
+# pipeline itself wrote there, and a missing or unreadable copy just means one
+# full read, after which a fresh copy is saved.
+
+CACHE_OVERLAP_DAYS = 10
+
+
+def load_cache(path: str | None) -> dict[str, Series] | None:
+    import gzip
+    import os
+    import pickle
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        with gzip.open(path, "rb") as fh:
+            data = pickle.load(fh)
+        if not isinstance(data, dict) or not data:
+            return None
+        log.info("NAV cache: %s fund(s) loaded from %s", f"{len(data):,}", path)
+        return data
+    except Exception as exc:                     # a bad copy is just a cache miss
+        log.warning("NAV cache unreadable (%s) — reading the full history from Neon", exc)
+        return None
+
+
+def save_cache(path: str | None, series_by_code: dict[str, Series]) -> None:
+    import gzip
+    import os
+    import pickle
+    if not path:
+        return
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    tmp = path + ".tmp"
+    with gzip.open(tmp, "wb", compresslevel=6) as fh:
+        pickle.dump(series_by_code, fh, protocol=pickle.HIGHEST_PROTOCOL)
+    os.replace(tmp, path)
+    log.info("NAV cache: saved %s fund(s) to %s (%.1f MB)", f"{len(series_by_code):,}", path,
+             os.path.getsize(path) / 1e6)
+
+
+def pull_stored_cached(codes: list[str], from_date: str | None, cache_path: str | None) -> dict[str, Series]:
+    """
+    pull_stored, reading only what is new since the cached copy. Without a
+    usable copy this is exactly pull_stored (one full read).
+    """
+    from datetime import date, timedelta
+    cached = load_cache(cache_path)
+    if cached is None:
+        return pull_stored(codes, from_date)
+
+    from scripts import neon_store as db
+    out = {c: dict(cached[c]) for c in codes if c in cached}
+    newest = max((max(s) for s in out.values() if s), default=None)
+    if newest is None:
+        return pull_stored(codes, from_date)
+    since = (date.fromisoformat(newest) - timedelta(days=CACHE_OVERLAP_DAYS)).isoformat()
+    recent = db.read_nav_history(list(out), since)
+    for c, s in recent.items():
+        out.setdefault(c, {}).update(s)
+    unknown = [c for c in codes if c not in out]
+    if unknown:
+        # Funds the copy has never seen: their whole stored history (few, small).
+        full = db.read_nav_history(unknown, from_date)
+        out.update(full)
+    if from_date:
+        out = {c: {d: v for d, v in s.items() if d >= from_date} for c, s in out.items()}
+    log.info("Neon: read %s recent row(s) since %s for %s cached fund(s), full history for %s other(s)",
+             f"{sum(len(s) for s in recent.values()):,}", since, f"{len(recent):,}", len(unknown))
+    return out
+
+
 def new_rows(series_by_code: dict[str, Series], stored: dict[str, Series]):
     """(code, date, nav) for every day a series holds that Neon does not."""
     for code, s in series_by_code.items():

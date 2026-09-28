@@ -311,7 +311,10 @@ def load_history_from_neon(conn, schemes: list[dict], from_date: str | None,
     codes = [str(s["scheme_code"]) for s in schemes]
     log.info("Reading stored NAV history for %s fund(s) from Neon ...",
              f"{len(codes):,}")
-    series = nav_store.pull_stored(codes, from_date)
+    # NAV_CACHE (set by the workflow): the history as of the last run, so only
+    # the newest days are read from Neon. Unset = read everything, as before.
+    cache_path = os.environ.get("NAV_CACHE")
+    series = nav_store.pull_stored_cached(codes, from_date, cache_path)
     stored = {c: dict(s) for c, s in series.items()}
 
     cap = previous_business_close()
@@ -368,6 +371,12 @@ def load_history_from_neon(conn, schemes: list[dict], from_date: str | None,
     # Neon already holds is never rewritten.
     added = db.write_nav_rows(nav_store.new_rows(series, stored))
     log.info("Neon: stored %s new NAV row(s)", f"{added:,}")
+
+    # The copy for the next run: exactly what Neon now holds for these funds.
+    try:
+        nav_store.save_cache(cache_path, series)
+    except Exception as exc:                  # never fail a run over the cache
+        log.warning("NAV cache not saved (%s)", exc)
 
     # Restate history across unit splits before the engine sees it; Neon keeps
     # the NAVs exactly as published.

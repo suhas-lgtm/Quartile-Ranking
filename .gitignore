@@ -69,3 +69,6 @@ backups/
 # Cloudflare Pages local dev secrets and cache - never committed
 site/.dev.vars
 site/.wrangler/
+
+# NAV history copy kept in the GitHub Actions cache - never committed
+.navcache/

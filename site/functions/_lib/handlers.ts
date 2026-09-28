@@ -17,7 +17,37 @@ export interface Env {
 }
 
 const NO_STORE = { 'cache-control': 'private, no-store' }
-const PUBLIC = 'public, max-age=300'
+// Data changes once a day (08:00 IST refresh), so browsers and Cloudflare's edge
+// may reuse a file for an hour. Every miss is a read from Neon, whose free plan
+// allows 5 GB of transfer a month — this keeps repeat visits off it.
+const PUBLIC = 'public, max-age=3600'
+const EDGE_TTL = 3600
+
+/**
+ * Serve a public GET from Cloudflare's edge cache, filling it on a miss. The key
+ * is the URL alone (never cookies), so this must only wrap public responses.
+ * x-edge-cache: HIT / MISS says which happened.
+ */
+async function edgeCached(req: Request, make: () => Promise<Response>): Promise<Response> {
+  const cache = (globalThis as unknown as { caches?: { default?: Cache } }).caches?.default
+  if (!cache || req.method !== 'GET') return make()
+  const key = new Request(new URL(req.url).toString(), { method: 'GET' })
+  const hit = await cache.match(key).catch(() => undefined)
+  if (hit) {
+    const r = new Response(hit.body, hit)
+    r.headers.set('x-edge-cache', 'HIT')
+    return r
+  }
+  const res = await make()
+  if (res.status === 200 && !(res.headers.get('cache-control') ?? '').includes('no-store')) {
+    const copy = new Response(res.clone().body, res)
+    copy.headers.set('cache-control', `public, max-age=${EDGE_TTL}`)
+    await cache.put(key, copy).catch(() => undefined)
+  }
+  const out = new Response(res.body, res)
+  out.headers.set('x-edge-cache', 'MISS')
+  return out
+}
 
 /** /data/* and /live/indices/* — a published file from Neon. */
 export async function serveFile(req: Request, env: Env): Promise<Response> {
@@ -28,6 +58,7 @@ export async function serveFile(req: Request, env: Env): Promise<Response> {
   const target = route(new URL(req.url).pathname)
   if (!target) return new Response('Not found', { status: 404 })
   const protectedFile = target.bucket === 'MF Data' && isProtected(target.path)
+  if (!protectedFile) return edgeCached(req, () => readPublic(req, databaseUrl, target))
 
   // Whitelist Screener data needs a login; fails closed without a password set.
   if (protectedFile) {
@@ -39,15 +70,25 @@ export async function serveFile(req: Request, env: Env): Promise<Response> {
     }
   }
 
+  // Protected (Whitelist Screener) files: after the login check, never cached.
   try {
     const file = await readFile(databaseUrl, target.bucket, target.path)
-    if (!file) return new Response('Not found', { status: 404, headers: protectedFile ? NO_STORE : { 'cache-control': PUBLIC } })
+    if (!file) return new Response('Not found', { status: 404, headers: NO_STORE })
     return new Response(req.method === 'HEAD' ? null : new Uint8Array(file.body), {
-      status: 200,
-      headers: {
-        'content-type': file.contentType,
-        ...(protectedFile ? NO_STORE : { 'cache-control': file.cacheControl ?? PUBLIC }),
-      },
+      status: 200, headers: { 'content-type': file.contentType, ...NO_STORE },
+    })
+  } catch (err) {
+    console.error('neon read failed', target, err)
+    return new Response('Upstream error', { status: 502, headers: NO_STORE })
+  }
+}
+
+async function readPublic(req: Request, databaseUrl: string, target: { bucket: string; path: string }): Promise<Response> {
+  try {
+    const file = await readFile(databaseUrl, target.bucket, target.path)
+    if (!file) return new Response('Not found', { status: 404, headers: { 'cache-control': 'public, max-age=300' } })
+    return new Response(req.method === 'HEAD' ? null : new Uint8Array(file.body), {
+      status: 200, headers: { 'content-type': file.contentType, 'cache-control': PUBLIC },
     })
   } catch (err) {
     console.error('neon read failed', target, err)
@@ -62,11 +103,13 @@ export async function serveApi(req: Request, env: Env): Promise<Response> {
 
   const readers: Record<string, typeof handleNav> = { nav: handleNav, series: handleSeries, holdings: handleHoldings }
   if (readers[action]) {
-    const r = await readers[action](url.searchParams, env.DATABASE_URL)
-      .catch(err => { console.error('nav', err); return { status: 502, body: '{"error":"database error"}' } })
-    return new Response(r.body, { status: r.status, headers: {
-      'content-type': 'application/json', 'cache-control': r.status === 200 ? PUBLIC : 'no-store',
-    } })
+    return edgeCached(req, async () => {
+      const r = await readers[action](url.searchParams, env.DATABASE_URL)
+        .catch(err => { console.error('nav', err); return { status: 502, body: '{"error":"database error"}' } })
+      return new Response(r.body, { status: r.status, headers: {
+        'content-type': 'application/json', 'cache-control': r.status === 200 ? PUBLIC : 'no-store',
+      } })
+    })
   }
 
   const out: { status: number; body: string; setCookie?: string } =
