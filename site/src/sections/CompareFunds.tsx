@@ -47,6 +47,8 @@ export default function CompareFunds() {
   })
   const [pick, setPick] = useState('')
   const [range, setRange] = useState<Range>('3Y')
+  /** Main chart: growth of ₹10,000, cumulative return %, or the NAV itself. */
+  const [chart, setChart] = useState<'growth' | 'return' | 'nav'>('growth')
   const [series, setSeries] = useState<Record<string, Series>>({})
   const [risk, setRisk] = useState<Record<string, RiskFundRow | null>>({})
 
@@ -92,12 +94,14 @@ export default function CompareFunds() {
     const lines = adj.map(({ c, pts }) => {
       const base = valueAt(pts, start)
       const win = pts.filter(p => p[0] >= start && p[0] <= end)
-      if (!base || win.length < 2) return { c, growth: [], dd: [], ret: null as number | null, maxDd: null as number | null }
+      if (!base || win.length < 2) return { c, growth: [], retPct: [], nav: [], dd: [], ret: null as number | null, maxDd: null as number | null }
       let peak = 0, maxDd = 0
       const growth = win.map(([d, v]) => [d, (v / base[1]) * 10000])
+      const retPct = win.map(([d, v]) => [d, (v / base[1] - 1) * 100])
+      const nav = win.map(([d, v]) => [d, v])
       const dd = win.map(([d, v]) => { peak = Math.max(peak, v); const x = v / peak - 1; maxDd = Math.min(maxDd, x); return [d, x * 100] })
       const last = valueAt(pts, end)!
-      return { c, growth, dd, ret: last[1] / base[1] - 1, maxDd }
+      return { c, growth, retPct, nav, dd, ret: last[1] / base[1] - 1, maxDd }
     })
     return { start, end, lines, clipped: start > rangeStart }
   }, [codes, series, range])
@@ -114,12 +118,19 @@ export default function CompareFunds() {
     tooltip: { trigger: 'axis' },
     legend: { top: 0, type: 'scroll', textStyle: { color: axis, fontSize: 11 } },
   }
+  const fmtY = chart === 'growth' ? (v: number) => '₹' + Math.round(v).toLocaleString('en-IN')
+    : chart === 'return' ? (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
+    : (v: number) => '₹' + v.toFixed(2)
   const growthOption = view && {
     ...chartBase,
     grid: { top: 34, right: 16, bottom: 30, left: 64 },
-    tooltip: { trigger: 'axis', valueFormatter: (v: number) => '₹' + Math.round(v).toLocaleString('en-IN') },
-    yAxis: { type: 'value', scale: true, axisLabel: { color: axis, fontSize: 10 }, splitLine: { lineStyle: { color: grid } } },
-    series: view.lines.map((l, i) => ({ name: short(l.c), type: 'line', showSymbol: false, data: l.growth,
+    tooltip: { trigger: 'axis', valueFormatter: fmtY },
+    yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: grid } },
+             axisLabel: { color: axis, fontSize: 10, formatter: chart === 'return' ? '{value}%' : undefined } },
+    series: view.lines.map((l, i) => ({ name: short(l.c), type: 'line', showSymbol: false,
+                                         data: chart === 'growth' ? l.growth : chart === 'return' ? l.retPct : l.nav,
+                                         ...(chart === 'return' && i === 0 ? { markLine: { silent: true, symbol: 'none', label: { show: false },
+                                              lineStyle: { color: axis, type: 'dashed', width: 1 }, data: [{ yAxis: 0 }] } } : {}),
                                          lineStyle: { width: 2, color: PALETTE[i] }, itemStyle: { color: PALETTE[i] } })),
   }
   const ddOption = view && {
@@ -183,11 +194,23 @@ export default function CompareFunds() {
       ) : (
         <>
           <div className="card p-4 mb-4">
-            <div className="text-sm font-semibold mb-1" style={{ color: 'var(--text-hi)' }}>
-              Growth of ₹10,000
-              {view && <span className="font-normal text-xs ml-2" style={{ color: 'var(--text-low)' }}>
-                {fmtDate(view.start)} → {fmtDate(view.end)}{view.clipped ? ' · starts when the youngest fund launched' : ''}
-              </span>}
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <div className="text-sm font-semibold" style={{ color: 'var(--text-hi)' }}>
+                {chart === 'growth' ? 'Growth of ₹10,000' : chart === 'return' ? 'Return since start (NAV)' : 'NAV'}
+                {view && <span className="font-normal text-xs ml-2" style={{ color: 'var(--text-low)' }}>
+                  {fmtDate(view.start)} → {fmtDate(view.end)}{view.clipped ? ' · starts when the youngest fund launched' : ''}
+                </span>}
+              </div>
+              <div className="tab-bar flex gap-1 ml-auto">
+                {([['growth', '₹10,000'], ['return', 'Return %'], ['nav', 'NAV']] as const).map(([k, l]) => (
+                  <button key={k} onClick={() => setChart(k)} className={`tab-btn${chart === k ? ' active accent' : ''}`}
+                          title={k === 'growth' ? 'What ₹10,000 invested at the start would be worth'
+                            : k === 'return' ? 'Cumulative NAV return from the start date, in %'
+                            : 'The NAV itself (split-adjusted). Funds with very different NAVs sit far apart; use Return % to compare them.'}>
+                    {l}
+                  </button>
+                ))}
+              </div>
             </div>
             {growthOption ? <ReactECharts option={growthOption} style={{ height: 300 }} notMerge /> : <div className="skeleton h-72 w-full" />}
             <div className="text-xs font-semibold mt-2" style={{ color: 'var(--text-mid)' }}>Drawdown (below previous peak)</div>
