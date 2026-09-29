@@ -19,7 +19,7 @@ export interface SifPlan {
   isin: string | null
   nav: number
   date: string | null
-  /** NAV against the ₹10 NFO price. */
+  /** NAV against the launch price (₹10 or ₹1,000); null for IDCW options or when history does not reach the launch. */
   since_launch: number | null
   /** Annualised since launch; null until the strategy is a year old. */
   since_launch_ann?: number | null

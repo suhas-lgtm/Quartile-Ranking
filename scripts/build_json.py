@@ -1388,6 +1388,31 @@ def build_amfi_extras():
 SIF_RETURN_PERIODS = {"1D": 1, "1W": 7, "1M": 30, "3M": 91, "6M": 182, "1Y": 365}
 
 
+def sif_since_launch(plan: dict, history: dict[str, float], launch: str | None) -> float | None:
+    """
+    A SIF's return since launch, or None when it cannot be measured honestly.
+
+    The start is the launch price, read off the fund's first NAV: SIFs launch at
+    ₹10 or ₹1,000 a unit (Diviniti and Sapphire are ₹1,000), so a fixed ₹10
+    made those read +8,000%. The first stored NAV must fall within 45 days of
+    the launch date (the NFO runs about three weeks before the first NAV);
+    otherwise the history does not reach the launch and there is no figure.
+    IDCW options pay out of NAV, so their NAV understates the return: no figure.
+    """
+    option = f"{plan.get('option') or ''} {plan.get('name') or ''}".lower()
+    if any(w in option for w in ("idcw", "dividend", "payout", "reinvest")):
+        return None
+    if not history:
+        return None
+    first = min(history)
+    if launch and (date.fromisoformat(first) - date.fromisoformat(launch)).days > 45:
+        return None
+    nav0 = history[first]
+    # The launch price the first NAV sits next to (₹10 or ₹1,000); anything else, the first NAV itself.
+    base = next((p for p in (10.0, 1000.0) if abs(nav0 / p - 1) <= 0.05), nav0)
+    return plan["nav"] / base - 1
+
+
 def build_sif():
     """
     sif.json and sif_nfo.json — the SIF desk. Latest NAVs from AMFI; the history
@@ -1451,17 +1476,19 @@ def build_sif():
             continue
         det = details.get(sif_data._key(r["name"])) or {}
         launch = det.get("launch_date")
-        days_live = (date.fromisoformat(as_of_day) - date.fromisoformat(launch)).days if launch else None
-        sl = sif_data.since_launch(r["nav"])
         h = dict(hist.get(r["id"]) or {})
         if r["date"]:
             h[r["date"]] = r["nav"]
         end = max(h) if h else None
+        first = min(h) if h else None
+        start_day = launch or first
+        days_live = (date.fromisoformat(as_of_day) - date.fromisoformat(start_day)).days if start_day else None
+        sl = sif_since_launch(r, h, launch)
         plans.append({
             **r,
-            "since_launch": fmt(sl),
+            "since_launch": fmt(sl) if sl is not None else None,
             # Annualised only once a year old: a young fund's CAGR is mostly noise.
-            "since_launch_ann": fmt((1 + sl) ** (365 / days_live) - 1) if days_live and days_live >= 365 else None,
+            "since_launch_ann": fmt((1 + sl) ** (365 / days_live) - 1) if sl is not None and days_live and days_live >= 365 else None,
             "launch_date": launch,
             "days_live": days_live,
             "objective": det.get("objective"),

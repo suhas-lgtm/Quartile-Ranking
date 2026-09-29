@@ -3,7 +3,7 @@
 //
 // AMFI publishes only each SIF's latest NAV (sif.json, collected daily), so
 // period returns, volatility and drawdown cover the days collected so far and
-// "since launch" is measured from the ₹10 NFO price. SIF portfolios are not
+// "since launch" is measured from the launch price (₹10 or ₹1,000). SIF portfolios are not
 // published, so there is no holdings look-through here.
 
 import { useMemo, useRef, useState } from 'react'
@@ -118,7 +118,7 @@ export function SifEditor({ lines, onChange, inputStyle, weightOf, showSip = tru
                           {(['1M', '3M', '6M', '1Y'] as const).map(k => p.returns[k] != null && (
                             <span key={k} className={retColor(p.returns[k])}>{k} {fmtPct(p.returns[k])}</span>
                           ))}
-                          <span className={retColor(p.since_launch)}>since launch {fmtPct(p.since_launch)}</span>
+                          {p.since_launch != null && <span className={retColor(p.since_launch)}>since launch {fmtPct(p.since_launch)}</span>}
                         </div>
                       )}
                     </td>
@@ -231,7 +231,7 @@ export function SifAnalysis({ lines, colour = '#A78BFA' }: { lines: { id: string
         </div>
         <div className="px-4 text-[10px]" style={{ color: 'var(--text-low)' }}>
           Returns from the NAVs collected since {fmtDate(data?.plans.map(p => p.history_from).filter(Boolean).sort()[0] ?? null)};
-          since launch from the ₹{data?.nfo_price ?? 10} NFO price. Volatility = daily return swings × √250. Max DD = the worst fall from a peak since launch
+          since launch from the launch price (₹10 or ₹1,000; blank for IDCW options or when the history does not reach the launch). Volatility = daily return swings × √250. Max DD = the worst fall from a peak since launch
           (each day: NAV ÷ highest NAV so far − 1; the lowest value).
         </div>
         <div className="table-scroll">

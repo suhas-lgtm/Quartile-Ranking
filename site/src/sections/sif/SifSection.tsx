@@ -4,7 +4,7 @@
 // sif.json / sif_nfo.json (build_json.build_sif). AMFI publishes only each SIF's
 // latest NAV, so history — and with it period returns, point-to-point and the
 // comparison chart — grows from the day collection started; "since launch" is
-// measured from the ₹10 NFO price and is available from day one.
+// measured from the launch price (₹10 or ₹1,000 a unit) — see build_json.sif_since_launch.
 
 import { useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
@@ -55,9 +55,9 @@ function HistoryNote({ data }: { data: SifData }) {
   const from = data.plans.map(p => p.history_from).filter(Boolean).sort()[0]
   return (
     <div className="card p-3 mb-3 text-xs" style={{ color: 'var(--text-mid)' }}>
-      AMFI publishes only each SIF&apos;s <b>latest</b> NAV, so the dashboard collects them daily
-      {from ? <> — history since <b>{fmtDate(from)}</b></> : null}. <b>Since launch</b> is measured from the ₹{data.nfo_price} NFO
-      price and is available now; 1D–1Y returns, point-to-point and the comparison chart fill in as days are collected.
+      Daily NAVs from AMFI{from ? <>, since <b>{fmtDate(from)}</b></> : null}. <b>Since launch</b> is measured from each SIF&apos;s
+      launch price (₹10 or ₹1,000 a unit, read off its first NAV); it is left blank for IDCW options, whose payouts lower the NAV,
+      and where the NAV history does not reach back to the launch.
       Risk ratios and quartiles will be added once about a year of history exists.
     </div>
   )
@@ -100,7 +100,7 @@ function NavTab() {
                 <th style={{ textAlign: 'right' }}>NAV</th>
                 <th style={{ textAlign: 'right' }}>Date</th>
                 <th style={{ textAlign: 'right' }}>Launched</th>
-                <th style={{ textAlign: 'right' }} title={`NAV against the ₹${data.nfo_price} NFO price`}>Since launch</th>
+                <th style={{ textAlign: 'right' }} title="NAV against the launch price (₹10 or ₹1,000); blank for IDCW options or when the history does not reach the launch">Since launch</th>
                 {PERIODS.map(p => <th key={p} style={{ textAlign: 'right' }}>{p}</th>)}
               </tr>
             </thead>
