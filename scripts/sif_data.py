@@ -53,6 +53,7 @@ def fetch_latest() -> list[dict]:
                         continue
                     cat = s.get("category") or c.get("category") or ""
                     out.append({
+                        "sif_id": str(s.get("sifId") or ""),
                         "id": s["Sd_Id"],
                         "house": s.get("SIFName") or g.get("SIFName"),
                         "name": re.sub(r"\s+", " ", s.get("NavName") or "").strip(),
@@ -66,6 +67,38 @@ def fetch_latest() -> list[dict]:
                         "date": _day(s.get("Date")),
                     })
     log.info("SIF: %d plans with a NAV from %d houses", len(out), len({r['house'] for r in out}))
+    return out
+
+
+def _key(name: str) -> str:
+    """Strategy name without plan/option, for matching NAV rows to details."""
+    # Plan and option are written every which way ("Fund-Regular Growth",
+    # "Fund - Growth Option - Regular Plan"); every strategy name ends in "Fund".
+    n = (name or "").lower()
+    m = re.search(r"^(.*?\bfund)\b", n)
+    n = m.group(1) if m else re.split(r"\s+-\s+(regular|direct)\b", n)[0]
+    return re.sub(r"[^a-z0-9]+", " ", n).strip()
+
+
+def fetch_details(sif_ids: set[str]) -> dict[str, dict]:
+    """{strategy key: launch date, objective, exit load, minimum, website} per SIF house."""
+    out = {}
+    for sid in sorted(sif_ids):
+        try:
+            rows = requests.get(f"{BASE}/investment-strategy-detail", params={"sif_id": sid},
+                                headers=UA, timeout=60).json().get("data") or []
+        except Exception as exc:
+            log.warning("SIF %s details unavailable (%s)", sid, exc)
+            continue
+        for d in rows:
+            out[_key(d.get("Scheme_Name"))] = {
+                "launch_date": _day(d.get("Launch_Date")),
+                "objective": re.sub(r"\s+", " ", d.get("Scheme_Objective") or "").strip() or None,
+                "exit_load": re.sub(r"\s+", " ", d.get("scheme_load") or "").strip() or None,
+                "min_amount": re.sub(r"\s+", " ", d.get("Scheme_min_amt") or "").strip() or None,
+                "website": d.get("AMC_Website") or None,
+            }
+    log.info("SIF details: %d strategies", len(out))
     return out
 
 

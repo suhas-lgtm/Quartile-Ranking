@@ -151,6 +151,7 @@ export default function App() {
         onChangeTheme={setTheme}
         space={space}
         onGoMutualFunds={() => goTo('mf')}
+        onGoSif={() => goTo('sif')}
         onOpenDrawer={setDrawer}
       />
       <Sidebar kind={drawer} space={space} activeTab={activeTab} onPick={goTo} onClose={() => setDrawer(null)} />

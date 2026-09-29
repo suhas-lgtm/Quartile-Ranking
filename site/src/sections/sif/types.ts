@@ -21,6 +21,16 @@ export interface SifPlan {
   date: string | null
   /** NAV against the ₹10 NFO price. */
   since_launch: number | null
+  /** Annualised since launch; null until the strategy is a year old. */
+  since_launch_ann?: number | null
+  launch_date?: string | null
+  days_live?: number | null
+  objective?: string | null
+  exit_load?: string | null
+  min_amount?: string | null
+  website?: string | null
+  /** {'YYYY-MM': month's return} from the collected history. */
+  monthly?: Record<string, number | null>
   /** Null until enough daily NAVs have been collected for the period. */
   returns: Record<SifPeriod, number | null>
   history_from: string | null

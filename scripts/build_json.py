@@ -1430,17 +1430,45 @@ def build_sif():
     def is_direct(r):
         return (r.get("plan") or "").lower().startswith("direct") or "direct plan" in (r.get("name") or "").lower()
 
+    try:
+        details = sif_data.fetch_details({r["sif_id"] for r in rows if r.get("sif_id")})
+    except Exception as exc:
+        log.warning("SIF details unavailable (%s)", exc)
+        details = {}
+    as_of_day = max((r["date"] for r in rows if r["date"]), default=date.today().isoformat())
+
+    def monthly(series: dict[str, float]) -> dict[str, float]:
+        """{'YYYY-MM': return} from each month's last NAV to the next month's."""
+        last: dict[str, float] = {}
+        for d in sorted(series):
+            last[d[:7]] = series[d]
+        ms = sorted(last)
+        return {ms[i]: fmt(last[ms[i]] / last[ms[i - 1]] - 1) for i in range(1, len(ms))}
+
     plans = []
     for r in rows:
         if is_direct(r):
             continue
+        det = details.get(sif_data._key(r["name"])) or {}
+        launch = det.get("launch_date")
+        days_live = (date.fromisoformat(as_of_day) - date.fromisoformat(launch)).days if launch else None
+        sl = sif_data.since_launch(r["nav"])
         h = dict(hist.get(r["id"]) or {})
         if r["date"]:
             h[r["date"]] = r["nav"]
         end = max(h) if h else None
         plans.append({
             **r,
-            "since_launch": fmt(sif_data.since_launch(r["nav"])),
+            "since_launch": fmt(sl),
+            # Annualised only once a year old: a young fund's CAGR is mostly noise.
+            "since_launch_ann": fmt((1 + sl) ** (365 / days_live) - 1) if days_live and days_live >= 365 else None,
+            "launch_date": launch,
+            "days_live": days_live,
+            "objective": det.get("objective"),
+            "exit_load": det.get("exit_load"),
+            "min_amount": det.get("min_amount"),
+            "website": det.get("website"),
+            "monthly": monthly(h),
             "returns": {p: (ret(h, end, d) if end else None) for p, d in SIF_RETURN_PERIODS.items()},
             "history_from": min(h) if h else None,
             "history": sorted([d, v] for d, v in h.items()),

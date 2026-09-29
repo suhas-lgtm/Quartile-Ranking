@@ -11,6 +11,9 @@ export type TabDef = { id: string; label: string }
 
 export const SIF_TABS: TabDef[] = [
   { id: 'sif-nav',     label: 'NAV & Returns' },
+  { id: 'sif-leaders', label: 'Leaderboard' },
+  { id: 'sif-details', label: 'Strategy Details' },
+  { id: 'sif-monthly', label: 'Monthly Returns' },
   { id: 'sif-p2p',     label: 'Point to Point' },
   { id: 'sif-compare', label: 'Compare SIFs' },
   { id: 'sif-nfo',     label: 'SIF NFOs' },

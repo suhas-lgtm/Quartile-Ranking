@@ -132,11 +132,11 @@ export default function Dividends() {
                         </td>
                         <td className="ret-cell">{f.idcw_nav.toFixed(4)}</td>
                         <td className="ret-cell text-xs">
-                          {f.last_payout ? <>₹{f.last_payout.amount.toFixed(3)}<div className="text-[10px]" style={{ color: 'var(--text-low)' }}>{fmtDate(f.last_payout.date)}</div></> : '—'}
+                          {f.last_payout ? <>≈₹{f.last_payout.amount.toFixed(2)}<div className="text-[10px]" style={{ color: 'var(--text-low)' }}>{fmtDate(f.last_payout.date)}</div></> : '—'}
                         </td>
                         <td className="ret-cell">{f.count_12m}</td>
                         <td className="text-xs" style={{ color: 'var(--text-mid)' }}>{frequency(f)}</td>
-                        <td className="ret-cell font-semibold">{f.total_12m ? `₹${f.total_12m.toFixed(3)}` : '—'}</td>
+                        <td className="ret-cell font-semibold">{f.total_12m ? `≈₹${f.total_12m.toFixed(2)}` : '—'}</td>
                         <td className="ret-cell font-semibold" style={{ color: 'var(--accent-a)' }}>{f.yield_12m ? fmtPct(f.yield_12m) : '—'}</td>
                         <td className="ret-cell">
                           {f.payouts.length > 0 && (
@@ -153,7 +153,7 @@ export default function Dividends() {
                             <div className="flex flex-wrap gap-2 p-2">
                               {[...f.payouts].reverse().map(p => (
                                 <span key={p.date} className="text-[11px] px-2 py-1 rounded" style={{ border: '1px solid var(--line)' }}>
-                                  {fmtDate(p.date)} · <b>₹{p.amount.toFixed(3)}</b> <span style={{ color: 'var(--text-low)' }}>({fmtPct(p.pct)})</span>
+                                  {fmtDate(p.date)} · <b>≈₹{p.amount.toFixed(2)}</b> <span style={{ color: 'var(--text-low)' }}>({fmtPct(p.pct)})</span>
                                 </span>
                               ))}
                             </div>
@@ -170,7 +170,7 @@ export default function Dividends() {
             <b style={{ color: 'var(--text-hi)' }}>How payouts are found.</b> AMFI&apos;s dividend feed is empty, so payouts are
             worked out from NAVs: a fund&apos;s IDCW and Growth options hold the same portfolio, so on a normal day both NAVs move
             by the same percentage; on a record date the IDCW NAV also drops by the payout. The drop beyond the Growth move is the
-            payout per unit (accurate to about a paisa). Regular plan, last {data.years} years. <b>Yield 12M</b> = payouts in the
+            payout per unit — shown with ≈ because it is worked out, not the AMC's declared figure (usually within about a paisa). Regular plan, last {data.years} years. <b>Yield 12M</b> = payouts in the
             last 12 months ÷ today&apos;s IDCW NAV. A payout comes out of the fund&apos;s own NAV — it is not extra return.
           </div>
         </>

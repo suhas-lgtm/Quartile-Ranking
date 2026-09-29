@@ -18,12 +18,13 @@ interface Props {
   /** Which section is open: the Mutual Funds desk, SIF, or a person. */
   space: string
   onGoMutualFunds: () => void
+  onGoSif: () => void
   /** Opens the SIF or Employees panel. */
   onOpenDrawer: (kind: 'sif' | 'people') => void
 }
 
 export default function HeroHeader({
-  asOf, tabs, spaceName, activeTab, onChangeTab, theme, onChangeTheme, space, onGoMutualFunds, onOpenDrawer,
+  asOf, tabs, spaceName, activeTab, onChangeTab, theme, onChangeTheme, space, onGoMutualFunds, onGoSif, onOpenDrawer,
 }: Props) {
   const navBtn = (label: string, on: boolean, onClick: () => void, title: string) => (
     <button onClick={onClick} title={title}
@@ -77,7 +78,7 @@ export default function HeroHeader({
           </div>
           <div className="flex items-center gap-1.5 ml-1 sm:ml-3">
             {navBtn('📈 Mutual Funds', space === 'mf', onGoMutualFunds, 'The main mutual fund dashboard')}
-            {navBtn('🧭 SIF', space === 'sif', () => onOpenDrawer('sif'), 'Specialised Investment Funds — opens the SIF menu')}
+            {navBtn('🧭 SIF', space === 'sif', onGoSif, 'Specialised Investment Funds')}
             {navBtn('👥 Employees', space.startsWith('person:'), () => onOpenDrawer('people'), 'Pages for each team member')}
           </div>
         </div>

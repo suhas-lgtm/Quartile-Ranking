@@ -404,7 +404,7 @@ export default function WhitelistScreener() {
               {PARAMS.filter(p => p.group === g.id).map(p => (
                 <label key={p.key} className="flex items-center justify-between gap-2 py-0.5 text-xs"
                        style={{ color: 'var(--text-hi)' }} title={p.help}>
-                  <span className={p.key === 'active_share' ? 'opacity-60' : ''}>{p.label}</span>
+                  <span>{p.label}</span>
                   <span className="flex items-center gap-1">
                     <input type="number" min={0} max={100} step={1} value={w[p.key] ?? 0}
                            onChange={e => setWeight(p.key, parseFloat(e.target.value))}
@@ -427,7 +427,7 @@ export default function WhitelistScreener() {
             Score is recalculated and every category re-ranked instantly. Your weights are remembered in this browser.
             {grandTotal !== 100 && ' Weights need not add to 100 — they are used in proportion.'}
             {' '}{(w.active_share ?? 0) === 0
-              ? `Active Share is set to 0% by default because portfolio holdings are only loaded for some AMCs so far (${asCount} of ${ranked.length} ranked funds here). Give it a weight to include it.`
+              ? `Active Share has 0% weight, so it does not count. Holdings are loaded for ${asCount} of ${ranked.length} ranked funds here.`
               : asCount === 0
               ? 'Active Share has no holdings data for this category yet, so its weight is shared across the rest.'
               : `Active Share is available for ${asCount} of ${ranked.length} ranked funds so far; the others are scored without it.`}

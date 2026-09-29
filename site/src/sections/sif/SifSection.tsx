@@ -99,13 +99,14 @@ function NavTab() {
                 <th className="text-left">Plan</th>
                 <th style={{ textAlign: 'right' }}>NAV</th>
                 <th style={{ textAlign: 'right' }}>Date</th>
+                <th style={{ textAlign: 'right' }}>Launched</th>
                 <th style={{ textAlign: 'right' }} title={`NAV against the ₹${data.nfo_price} NFO price`}>Since launch</th>
                 {PERIODS.map(p => <th key={p} style={{ textAlign: 'right' }}>{p}</th>)}
               </tr>
             </thead>
             <tbody>
               {byStrategy.map(([strategy, rows]) => (
-                <GroupRows key={strategy} title={strategy} span={5 + PERIODS.length}>
+                <GroupRows key={strategy} title={strategy} span={6 + PERIODS.length}>
                   {rows.map(p => (
                     <tr key={p.id}>
                       <td className="sticky-col" style={{ maxWidth: 320 }}>
@@ -115,6 +116,8 @@ function NavTab() {
                       <td className="text-xs" style={{ color: 'var(--text-mid)' }}>{(p.plan ?? '').replace(' Plan', '')} · {p.option}</td>
                       <td className="ret-cell font-semibold">{p.nav.toFixed(4)}</td>
                       <td className="ret-cell text-[11px]" style={{ color: 'var(--text-low)' }}>{fmtDate(p.date)}</td>
+                      <td className="ret-cell text-[11px]" style={{ color: 'var(--text-low)' }}
+                          title={p.days_live != null ? `${p.days_live} days ago` : undefined}>{fmtDate(p.launch_date ?? null)}</td>
                       <td className={`ret-cell font-semibold ${retColor(p.since_launch)}`}>{fmtPct(p.since_launch)}</td>
                       {PERIODS.map(k => <td key={k} className={`ret-cell ${retColor(p.returns[k])}`}>{fmtPct(p.returns[k])}</td>)}
                     </tr>
@@ -137,6 +140,171 @@ function GroupRows({ title, span, children }: { title: string; span: number; chi
         <td colSpan={span - 1} />
       </tr>
       {children}
+    </>
+  )
+}
+
+
+// ── Leaderboard ──────────────────────────────────────────────────────────────
+type LeadKey = 'since_launch' | 'since_launch_ann' | SifPeriod
+const LEAD_LABEL: Record<LeadKey, string> = {
+  since_launch: 'Since launch', since_launch_ann: 'Since launch p.a.',
+  '1D': '1D', '1W': '1W', '1M': '1M', '3M': '3M', '6M': '6M', '1Y': '1Y',
+}
+
+function LeadersTab() {
+  const { data, loading } = useSif()
+  const [key, setKey] = useState<LeadKey>('since_launch')
+  if (loading) return <div className="card p-6"><div className="skeleton h-40 w-full" /></div>
+  if (!data) return <Empty />
+  const val = (p: SifPlan) => (key === 'since_launch' ? p.since_launch : key === 'since_launch_ann' ? p.since_launch_ann ?? null : p.returns[key])
+  const growth = data.plans.filter(p => /growth/i.test(p.option ?? ''))
+  const groups = [...new Set(growth.map(p => p.strategy))].sort()
+  const available = (Object.keys(LEAD_LABEL) as LeadKey[]).filter(k => growth.some(p => (k === 'since_launch' ? p.since_launch
+    : k === 'since_launch_ann' ? p.since_launch_ann : p.returns[k]) != null))
+  return (
+    <>
+      <HistoryNote data={data} />
+      <div className="flex items-center gap-2 flex-wrap mb-3 text-xs">
+        <span style={{ color: 'var(--text-mid)' }}>Rank by:</span>
+        <div className="tab-bar flex gap-1">
+          {(Object.keys(LEAD_LABEL) as LeadKey[]).map(k => {
+            const on = available.includes(k)
+            return (
+              <button key={k} onClick={() => on && setKey(k)} disabled={!on} className={`tab-btn${key === k ? ' active accent' : ''}`}
+                      style={on ? undefined : { opacity: 0.35 }} title={on ? undefined : 'Not enough history collected yet'}>
+                {LEAD_LABEL[k]}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2 mb-4">
+        {groups.map(g => {
+          const rows = growth.filter(p => p.strategy === g).sort((a, b) => (val(b) ?? -9) - (val(a) ?? -9))
+          const best = val(rows[0])
+          return (
+            <div key={g} className="card p-4">
+              <div className="font-display font-bold text-sm mb-2" style={{ color: 'var(--accent-a)' }}>{g}</div>
+              {rows.map((p, i) => {
+                const v = val(p)
+                return (
+                  <div key={p.id} className="flex items-center gap-2 py-1 text-xs border-b" style={{ borderColor: 'var(--line)' }}>
+                    <span className="w-6 text-center font-bold" style={{ color: i === 0 ? '#F59E0B' : 'var(--text-low)' }}>
+                      {v == null ? '–' : i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}
+                    </span>
+                    <span className="flex-1 truncate" title={p.name}>
+                      {p.name.replace(/\s*-\s*Regular.*$/i, '')}
+                      <span className="text-[10px] ml-1" style={{ color: 'var(--text-low)' }}>{p.house} · {p.days_live != null ? `${p.days_live}d old` : ''}</span>
+                    </span>
+                    <div className="w-24 h-2 rounded" style={{ background: 'var(--bg-raised)' }}>
+                      {v != null && best != null && best > 0 && v > 0 && (
+                        <div className="h-2 rounded" style={{ width: `${Math.min(100, (v / best) * 100)}%`, background: '#34D399' }} />
+                      )}
+                    </div>
+                    <span className={`w-16 text-right font-semibold ${retColor(v)}`}>{fmtPct(v)}</span>
+                  </div>
+                )
+              })}
+            </div>
+          )
+        })}
+      </div>
+      <p className="text-[11px]" style={{ color: 'var(--text-low)' }}>
+        Growth option of each strategy, ranked within its SEBI strategy type. <b>Since launch</b> favours older strategies —
+        they have had longer to grow; <b>Since launch p.a.</b> (for strategies over a year old) and the period returns compare
+        like with like as history builds up.
+      </p>
+    </>
+  )
+}
+
+// ── Strategy details ─────────────────────────────────────────────────────────
+function DetailsTab() {
+  const { data, loading } = useSif()
+  const [query, setQuery] = useState('')
+  if (loading) return <div className="card p-6"><div className="skeleton h-40 w-full" /></div>
+  if (!data) return <Empty />
+  const hit = fuzzyMatcher(query)
+  // One card per strategy: its Growth option (or the first plan listed).
+  const byName = new Map<string, SifPlan>()
+  for (const p of data.plans) {
+    const k = p.name.replace(/\s*-\s*Regular.*$/i, '').toLowerCase()
+    const cur = byName.get(k)
+    if (!cur || (/growth/i.test(p.option ?? '') && !/growth/i.test(cur.option ?? ''))) byName.set(k, p)
+  }
+  const list = [...byName.values()].filter(p => hit(p.name) || hit(p.house ?? '') || hit(p.strategy))
+    .sort((a, b) => (a.launch_date ?? '').localeCompare(b.launch_date ?? ''))
+  return (
+    <>
+      <TableSearch value={query} onChange={setQuery} count={list.length} total={byName.size} />
+      <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))' }}>
+        {list.map(p => (
+          <div key={p.id} className="card p-4 flex flex-col gap-2">
+            <div>
+              <div className="font-display font-bold text-sm" style={{ color: 'var(--text-hi)' }}>{p.name.replace(/\s*-\s*Regular.*$/i, '')}</div>
+              <div className="text-[11px]" style={{ color: 'var(--text-low)' }}>{p.house} · <span style={{ color: 'var(--accent-a)' }}>{p.strategy}</span></div>
+            </div>
+            <div className="grid grid-cols-4 gap-2 text-[11px]">
+              {[['Launched', fmtDate(p.launch_date ?? null)], ['Age', p.days_live != null ? `${p.days_live} days` : '—'],
+                ['NAV', p.nav.toFixed(4)], ['Since launch', fmtPct(p.since_launch)]].map(([l, v]) => (
+                <div key={l} className="rounded-lg p-2" style={{ background: 'var(--bg-raised)' }}>
+                  <div style={{ color: 'var(--text-low)' }}>{l}</div>
+                  <div className="font-semibold" style={{ color: 'var(--text-hi)' }}>{v}</div>
+                </div>
+              ))}
+            </div>
+            {p.objective && <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-mid)' }}><b>Objective.</b> {p.objective}</p>}
+            {p.exit_load && <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-mid)' }}><b>Exit load.</b> {p.exit_load}</p>}
+            <div className="flex gap-3 text-[11px] mt-auto" style={{ color: 'var(--text-low)' }}>
+              {p.min_amount && <span>{p.min_amount}</span>}
+              {p.website && <a href={p.website} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-a)' }}>Website ↗</a>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  )
+}
+
+// ── Monthly returns ──────────────────────────────────────────────────────────
+function MonthlyTab() {
+  const { data, loading } = useSif()
+  if (loading) return <div className="card p-6"><div className="skeleton h-40 w-full" /></div>
+  if (!data) return <Empty />
+  const growth = data.plans.filter(p => /growth/i.test(p.option ?? ''))
+  const months = [...new Set(growth.flatMap(p => Object.keys(p.monthly ?? {})))].sort().reverse()
+  const label = (m: string) => new Date(m + '-01T00:00:00').toLocaleDateString('en-IN', { month: 'short', year: '2-digit' })
+  return (
+    <>
+      <HistoryNote data={data} />
+      {!months.length ? (
+        <div className="card p-8 text-center text-sm" style={{ color: 'var(--text-mid)' }}>
+          Monthly returns appear once NAVs have been collected across a month end — the first column fills in after
+          {' '}{data.as_of ? new Date(new Date(data.as_of).getFullYear(), new Date(data.as_of).getMonth() + 1, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }) : 'the next month end'}.
+        </div>
+      ) : (
+        <div className="card overflow-hidden mb-4">
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th className="sticky-col text-left" style={{ minWidth: 280 }}>Strategy</th>
+                  {months.map(m => <th key={m} style={{ textAlign: 'right' }}>{label(m)}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {growth.map(p => (
+                  <tr key={p.id}>
+                    <td className="sticky-col text-xs truncate" style={{ maxWidth: 320 }} title={p.name}>{p.name.replace(/\s*-\s*Regular.*$/i, '')}</td>
+                    {months.map(m => { const v = p.monthly?.[m] ?? null; return <td key={m} className={`ret-cell text-xs ${retColor(v)}`}>{fmtPct(v)}</td> })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </>
   )
 }
@@ -337,6 +505,7 @@ function Empty() {
 
 const TITLES: Record<string, string> = {
   'sif-nav': 'SIF — NAV & Returns', 'sif-p2p': 'SIF — Point to Point',
+  'sif-leaders': 'SIF — Leaderboard', 'sif-details': 'SIF — Strategy Details', 'sif-monthly': 'SIF — Monthly Returns',
   'sif-compare': 'SIF — Compare', 'sif-nfo': 'SIF — New Fund Offers',
 }
 
@@ -345,6 +514,9 @@ export default function SifSection({ tab }: { tab: string }) {
     <section className="px-4 sm:px-6 py-6 max-w-screen-2xl mx-auto">
       <div className="section-header"><span>{TITLES[tab] ?? 'SIF'}</span></div>
       {tab === 'sif-nav' && <NavTab />}
+      {tab === 'sif-leaders' && <LeadersTab />}
+      {tab === 'sif-details' && <DetailsTab />}
+      {tab === 'sif-monthly' && <MonthlyTab />}
       {tab === 'sif-p2p' && <P2PTab />}
       {tab === 'sif-compare' && <CompareTab />}
       {tab === 'sif-nfo' && <NfoTab />}
