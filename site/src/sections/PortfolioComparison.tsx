@@ -53,7 +53,7 @@ export default function PortfolioComparison() {
         and remove, add or change funds. Every change stays listed, and the analysis below shows what it does to the portfolio.
       </p>
 
-      <PdfSection id="inputs" label="Existing & suggested fund lists">
+      <PdfSection id="inputs" page label="Existing & suggested fund lists">
       <div className="grid gap-4 xl:grid-cols-2 mb-4">
         {/* ── existing ── */}
         <div className="card p-4">

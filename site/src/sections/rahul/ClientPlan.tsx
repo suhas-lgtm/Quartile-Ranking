@@ -98,14 +98,16 @@ export function MfEditor({ lines, onChange, weightOf, showSip = true }: {
                       <div className="text-xs font-medium truncate"><FundLink code={l.code} name={f?.n ?? l.code} /></div>
                       <div className="text-[10px]" style={{ color: f ? categoryColor(f.s) : 'var(--text-low)' }}>{f?.k}</div>
                     </td>
-                    <td style={{ width: 140 }}>
+                    <td style={{ width: 140, textAlign: 'right' }}>
+                      <span className="hidden print:inline text-xs font-semibold">{l.lump ? inr(l.lump) : '—'}</span>
                       <input type="number" min={0} step={50000} value={l.lump ?? ''} placeholder={showSip ? 'Lump sum' : '₹ amount'}
-                             onChange={e => set(i, { lump: num(e.target.value) })} className="px-2 py-1 rounded text-xs w-full text-right" style={inputStyle} />
+                             onChange={e => set(i, { lump: num(e.target.value) })} className="px-2 py-1 rounded text-xs w-full text-right print:hidden" style={inputStyle} />
                     </td>
                     {showSip && (
-                      <td style={{ width: 130 }}>
+                      <td style={{ width: 130, textAlign: 'right' }}>
+                        <span className="hidden print:inline text-xs font-semibold">{l.sip ? inr(l.sip) : '—'}</span>
                         <input type="number" min={0} step={1000} value={l.sip ?? ''} placeholder="SIP"
-                               onChange={e => set(i, { sip: num(e.target.value) })} className="px-2 py-1 rounded text-xs w-full text-right" style={inputStyle} />
+                               onChange={e => set(i, { sip: num(e.target.value) })} className="px-2 py-1 rounded text-xs w-full text-right print:hidden" style={inputStyle} />
                       </td>
                     )}
                     <td className="ret-cell text-[11px]" style={{ width: 56, color: 'var(--text-low)' }}>{tot ? pct1(weightOf(l) / tot) : ''}</td>
@@ -188,7 +190,7 @@ export default function ClientPlan() {
       </div>
 
       {/* ── the plan ── */}
-      <PdfSection id="plan" label="Plan summary (client, lump sums, SIPs, MF vs SIF)">
+      <PdfSection id="plan" page label="Plan summary (client, lump sums, SIPs, MF vs SIF)">
       <div className="card p-4 mb-4">
         <div className="flex flex-wrap items-end gap-4">
           <label className="text-xs" style={{ color: 'var(--text-mid)' }}>Client
@@ -244,7 +246,7 @@ export default function ClientPlan() {
       </PdfSection>
 
       {/* ── mutual funds ── */}
-      <PdfSection id="mf-list" label="Mutual fund list (lump sum & SIP per fund)">
+      <PdfSection id="mf-list" page label="Mutual fund list (lump sum & SIP per fund)">
       <div className="card p-4 mb-4">
         <div className="font-display font-bold text-sm mb-2" style={{ color: MF_COLOUR }}>Mutual funds</div>
         <MfEditor lines={plan.mf} onChange={mf => update({ mf })} weightOf={w} />

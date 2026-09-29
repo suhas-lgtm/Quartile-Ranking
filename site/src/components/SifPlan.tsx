@@ -122,14 +122,16 @@ export function SifEditor({ lines, onChange, inputStyle, weightOf, showSip = tru
                         </div>
                       )}
                     </td>
-                    <td style={{ width: 140 }}>
+                    <td style={{ width: 140, textAlign: 'right' }}>
+                      <span className="hidden print:inline text-xs font-semibold">{l.lump ? inr(l.lump) : '—'}</span>
                       <input type="number" min={0} step={100000} value={l.lump ?? ''} placeholder="Lump sum"
-                             onChange={e => set(i, { lump: num(e.target.value) })} className="px-2 py-1 rounded text-xs w-full text-right" style={inputStyle} />
+                             onChange={e => set(i, { lump: num(e.target.value) })} className="px-2 py-1 rounded text-xs w-full text-right print:hidden" style={inputStyle} />
                     </td>
                     {showSip && (
-                      <td style={{ width: 130 }}>
+                      <td style={{ width: 130, textAlign: 'right' }}>
+                        <span className="hidden print:inline text-xs font-semibold">{l.sip ? inr(l.sip) : '—'}</span>
                         <input type="number" min={0} step={5000} value={l.sip ?? ''} placeholder="SIP"
-                               onChange={e => set(i, { sip: num(e.target.value) })} className="px-2 py-1 rounded text-xs w-full text-right" style={inputStyle} />
+                               onChange={e => set(i, { sip: num(e.target.value) })} className="px-2 py-1 rounded text-xs w-full text-right print:hidden" style={inputStyle} />
                       </td>
                     )}
                     <td className="ret-cell text-[11px]" style={{ width: 56, color: 'var(--text-low)' }}>{tot ? pct1(weightOf(l) / tot) : ''}</td>
@@ -200,7 +202,7 @@ export function SifAnalysis({ lines, colour = '#A78BFA' }: { lines: { id: string
 
   return (
     <div>
-      <PdfSection id="sif-split" label="SIF — strategy & house allocation">
+      <PdfSection id="sif-split" page label="SIF — strategy & house allocation" kicker="SIF" title="SIF Strategy &amp; House Allocation">
       <div className="grid gap-4 lg:grid-cols-2">
         {([['Strategy allocation', split(p => p.strategy)], ['SIF house allocation', split(p => p.house ?? 'Other')]] as const).map(([t, s]) => (
           <div key={t} className="card p-4 mb-4">
@@ -219,11 +221,11 @@ export function SifAnalysis({ lines, colour = '#A78BFA' }: { lines: { id: string
       </div>
       </PdfSection>
 
-      <PdfSection id="sif-returns" label="SIF — returns & risk (vs benchmark)">
+      <PdfSection id="sif-returns" label="SIF — returns & risk (vs benchmark)" kicker="SIF" title="SIF Returns &amp; Risk">
       <div className="card overflow-hidden mb-4">
         <div className="px-4 pt-3 flex items-center flex-wrap gap-2">
           <span className="font-display font-bold text-sm" style={{ color: colour }}>SIF strategies — returns &amp; risk</span>
-          <span className="ml-auto flex items-center gap-2 text-xs" style={{ color: 'var(--text-mid)' }}>
+          <span className="ml-auto flex items-center gap-2 text-xs print:hidden" style={{ color: 'var(--text-mid)' }}>
             Compare with <BenchmarkPicker id={benchId} onChange={setBenchId} />
           </span>
         </div>
@@ -286,15 +288,15 @@ export function SifAnalysis({ lines, colour = '#A78BFA' }: { lines: { id: string
       </PdfSection>
 
       {chart && rows.some(r => r.p.history.length > 1) && (
-        <PdfSection id="sif-chart" label="SIF — NAV chart">
+        <PdfSection id="sif-chart" label="SIF — NAV chart" kicker="SIF" title="SIF NAV Growth">
         <div className="card p-4 mb-4">
           <div className="font-display font-bold text-sm mb-1" style={{ color: 'var(--text-hi)' }}>SIF NAV, rebased to 100</div>
-          <ReactECharts option={chart} style={{ height: 280 }} notMerge />
+          <ReactECharts option={chart} style={{ height: 220 }} notMerge />
         </div>
         </PdfSection>
       )}
 
-      <PdfSection id="sif-details" label="SIF — strategy details">
+      <PdfSection id="sif-details" label="SIF — strategy details" kicker="SIF" title="SIF Strategy Details">
       <div className="card p-4 mb-4">
         <div className="font-display font-bold text-sm mb-2" style={{ color: 'var(--text-hi)' }}>Strategy details</div>
         {rows.map(r => (

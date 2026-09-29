@@ -203,7 +203,7 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
       </div>
 
       {/* ── summary ── */}
-      <PdfSection id="summary" label="Summary (incl. stocks going out / coming in)">
+      <PdfSection id="summary" page label="Summary (incl. stocks going out / coming in)" kicker="At a glance" title="Portfolio Summary">
       <ValueTable title="Summary" cols={cols} two={two} rows={[
         { label: 'Amount', vals: shown.map(x => inr(total(x.s))) },
         { label: 'Number of funds', vals: shown.map(x => String(priced(x.s).length)) },
@@ -223,7 +223,7 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
                                        overlap={stockOverlap(shown[0].lt.rows, shown[1].lt.rows)} /> : null} />
       </PdfSection>
 
-      <PdfSection id="alloc" label="Market cap, asset class & category allocation">
+      <PdfSection id="alloc" label="Market cap, asset class & category allocation" kicker="How the money is spread" title="Market Cap, Asset Class &amp; Category">
       <div className="grid gap-4 lg:grid-cols-2">
         <SplitTable cols={cols} two={two} title="Market cap & asset class" note="% of the whole portfolio · SEBI Large/Mid/Small (AMFI list)"
           rows={(() => {
@@ -245,7 +245,7 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
       </div>
       </PdfSection>
 
-      <PdfSection id="sector" label="Sector allocation (with industries)">
+      <PdfSection id="sector" page label="Sector allocation (with industries)" kicker="How the money is spread" title="Sector Allocation">
       <SplitTable cols={cols} two={two}
         sub={Object.fromEntries(sectorBreakdown(focus.lt.rows).map(g => [g.sector, industryLine(g)]))}
         title="Sector allocation" note="Equity holdings through the funds, % of the whole portfolio · industries in each sector underneath"
@@ -253,11 +253,11 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
       </PdfSection>
 
       {/* ── returns & ratios ── */}
-      <PdfSection id="returns" label="Returns, SIP returns & ratios (weighted, vs benchmark)">
+      <PdfSection id="returns" page label="Returns, SIP returns & ratios (weighted, vs benchmark)" kicker="Performance" title="Returns &amp; Ratios">
       <div className="card overflow-hidden mb-4">
         <div className="px-4 pt-3 flex items-center flex-wrap gap-2">
           <span className="font-display font-bold text-sm" style={{ color: 'var(--text-hi)' }}>Returns &amp; ratios (weighted by amount)</span>
-          <span className="ml-auto flex items-center gap-2 text-xs" style={{ color: 'var(--text-mid)' }}>
+          <span className="ml-auto flex items-center gap-2 text-xs print:hidden" style={{ color: 'var(--text-mid)' }}>
             Compare with <BenchmarkPicker id={benchId} onChange={setBenchId} />
           </span>
         </div>
@@ -354,7 +354,7 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
       </PdfSection>
 
       {/* ── top holdings ── */}
-      <PdfSection id="holdings" label="Top holdings">
+      <PdfSection id="holdings" page label="Top holdings" kicker="Look-through" title="Top Holdings">
       <div className={`grid gap-4 mb-4 ${two ? 'lg:grid-cols-2' : ''}`}>
         {shown.map(({ s, i, lt }) => (
           <div key={i} className="card p-4">
@@ -392,14 +392,14 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
       </div>
       </PdfSection>
 
-      {two && <PdfSection id="stocks" label="Stocks increased / reduced"><StockChanges a={shown[0]} b={shown[1]} /></PdfSection>}
+      {two && <PdfSection id="stocks" label="Stocks increased / reduced" kicker="Look-through" title="Stocks Increased &amp; Reduced"><StockChanges a={shown[0]} b={shown[1]} /></PdfSection>}
 
-      <PdfSection id="comparative" label="Comparative analysis (fund vs category vs benchmark)">
+      <PdfSection id="comparative" label="Comparative analysis (fund vs category vs benchmark)" kicker="Performance" title="Fund vs Category Average vs Benchmark">
         <ComparativeAnalysis sides={shown.map(x => x.s)} risk={risk} riskFiles={riskFiles} fundByCode={fundByCode} asOf={asOf ?? null} />
       </PdfSection>
 
       {/* ── fund level ── */}
-      <PdfSection id="funds" label="Fund tables (each fund's returns & ratios)">
+      <PdfSection id="funds" page label="Fund tables (each fund's returns & ratios)" kicker="Fund by fund" title="Fund Returns &amp; Ratios">
       {shown.map(({ s, i }) => (
         <div key={i} className="card overflow-hidden mb-4">
           <div className="px-4 pt-3 font-display font-bold text-sm" style={{ color: s.colour }}>{s.label} — funds</div>
@@ -446,8 +446,8 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
       )}
       {focusFunds.length > 1 ? (
         <div key={`c${fx?.i}`}>
-          {two && <div className="text-xs font-semibold mb-1 hidden print:block" style={{ color: fx?.s.colour }}>{fx?.s.label} portfolio</div>}
-          <PdfSection id="correlation" label="Correlation between funds"><CorrelationMatrix funds={focusFunds.map(f => ({ ...f, series: series[f.code] }))} /></PdfSection>
+          <PdfSection id="correlation" page label="Correlation between funds" kicker="Diversification"
+                      title={`Correlation Between Funds${two ? ` — ${fx?.s.label} Portfolio` : ''}`}><CorrelationMatrix funds={focusFunds.map(f => ({ ...f, series: series[f.code] }))} /></PdfSection>
         </div>
       ) : (
         <p className="text-xs mb-4" style={{ color: 'var(--text-mid)' }}>
@@ -463,8 +463,8 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
       )}
       {ovFunds.length > 1 ? (
         <div key={`o${ov?.i}`}>
-          {two && <div className="text-xs font-semibold mb-1 hidden print:block" style={{ color: ov?.s.colour }}>{ov?.s.label} portfolio</div>}
-          <PdfSection id="overlap" label="Portfolio overlap between funds"><OverlapMatrix funds={ovFunds} /></PdfSection>
+          <PdfSection id="overlap" label="Portfolio overlap between funds" kicker="Diversification"
+                      title={`Portfolio Overlap Between Funds${two ? ` — ${ov?.s.label} Portfolio` : ''}`}><OverlapMatrix funds={ovFunds} /></PdfSection>
         </div>
       ) : (
         <p className="text-xs mb-4" style={{ color: 'var(--text-mid)' }}>
@@ -668,7 +668,7 @@ function ComparativeAnalysis({ sides, risk, riskFiles, fundByCode, asOf }: {
     return c ? ASSET_ORDER.indexOf(c.asset_class) * 1000 + c.display_order : 99999
   }
   const slugs = [...bySlug.keys()].sort((a, b) => order(a) - order(b))
-  const cols = CMP_PERIODS.length + (sides.length > 1 ? 2 : 1)
+  const cols = CMP_PERIODS.length + 1
   const cell = (v: number | null | undefined, ref?: (number | null | undefined)[]) => {
     const beat = v == null || !ref ? null : ref.filter((r): r is number => r != null).map(r => v > r)
     return (
@@ -697,7 +697,6 @@ function ComparativeAnalysis({ sides, risk, riskFiles, fundByCode, asOf }: {
         <table className="data-table">
           <thead><tr>
             <th className="sticky-col text-left" style={{ minWidth: 240 }}>Fund</th>
-            {sides.length > 1 && <th className="text-left">In</th>}
             {CMP_PERIODS.map(([l]) => <th key={l} style={{ textAlign: 'right' }}>{l}</th>)}
           </tr></thead>
           <tbody>
@@ -739,25 +738,18 @@ function ComparativeAnalysis({ sides, risk, riskFiles, fundByCode, asOf }: {
                             })()}
                           </div>
                         </td>
-                        {sides.length > 1 && (
-                          <td className="text-[10px] whitespace-nowrap">
-                            {inSide(code).map(s => <span key={s.label} className="mr-1" style={{ color: s.colour }}>● {s.label}</span>)}
-                          </td>
-                        )}
                         {CMP_PERIODS.map(([l, k]) => <Fragment key={l}>{cell(r?.returns?.[k], [avg?.[k], bm?.returns?.[k]])}</Fragment>)}
                       </tr>
                     )
                   })}
                   <tr className="benchmark-row">
                     <td className="sticky-col text-[11px]" style={{ paddingLeft: 18, color: 'var(--text-mid)' }}>Category average</td>
-                    {sides.length > 1 && <td />}
                     {CMP_PERIODS.map(([l, k]) => <Fragment key={l}>{cell(avg?.[k])}</Fragment>)}
                   </tr>
                   <tr className="benchmark-row">
                     <td className="sticky-col text-[11px]" style={{ paddingLeft: 18, color: 'var(--accent-a)' }}>
                       Benchmark{bm?.name ? ` — ${bm.name}` : ''}{bm?.stale ? ' (stale)' : ''}
                     </td>
-                    {sides.length > 1 && <td />}
                     {CMP_PERIODS.map(([l, k]) => <Fragment key={l}>{cell(bm?.returns?.[k])}</Fragment>)}
                   </tr>
                 </Fragment>

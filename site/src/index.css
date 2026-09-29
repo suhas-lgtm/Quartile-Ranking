@@ -1432,17 +1432,102 @@ h1, h2, h3, h4, h5, h6 {
 .pdf-picking [data-pdf] table tbody tr > :first-child::before { content: '☑ '; color: var(--accent-a); font-weight: 700; }
 .pdf-picking [data-pdf] table thead th.pdf-cell-off::before,
 .pdf-picking [data-pdf] table tbody tr.pdf-row-off > :first-child::before { content: '☐ '; color: var(--text-low); }
+/* The report's cover and slide headings exist only on paper. */
+.pdf-slide-head, .pdf-cover { display: none; }
+
+/* ── the printed report: A2 landscape, Armstrong colours (navy #262D6B, greys), Barlow ── */
 @media print {
-  .pdf-row-off, .pdf-cell-off { display: none !important; }
-  @page { size: A4 landscape; margin: 10mm; }
-  html, body { background: #fff !important; }
-  header, nav, .print\:hidden, .no-print { display: none !important; }
-  main { padding-top: 0 !important; }
-  .pdf-off { display: none !important; }
-  .pdf-hide-ret .col-ret, .pdf-hide-sip .col-sip, .pdf-hide-ratio .col-ratio, .pdf-hide-aum .col-aum { display: none !important; }
-  .table-scroll { overflow: visible !important; max-height: none !important; }
-  .card { break-inside: avoid; box-shadow: none !important; }
-  .data-table { font-size: 9px; }
-  .sticky-col { position: static !important; }
+  @page {
+    size: 594mm 420mm;   /* A2 landscape — browsers do not know the name A2 */
+    margin: 34mm 22mm 24mm 22mm;
+    background: #E6E7EB;   /* the grey backdrop of the Armstrong slides, edge to edge */
+    @bottom-left { content: "Armstrong Capital"; font: 400 15px 'Barlow', sans-serif; color: #3A3F55; vertical-align: top; }
+    @bottom-right { content: counter(page, decimal-leading-zero) " / " counter(pages, decimal-leading-zero); font: 400 15px 'Barlow', sans-serif; color: #3A3F55; vertical-align: top; }
+  }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  /* The grey comes from the page itself; everything above it is see-through. */
+  html, body, #root, #root > div, main, .pdf-doc, .pdf-doc > section { background: transparent !important; }
+  header, nav, footer, .site-footer, .print\:hidden, .no-print { display: none !important; }
+  /* Darker greys than the screen theme, so small print stays readable. */
+  .pdf-doc { --text-hi: #15172A; --text-mid: #3A3F55; --text-low: #5E6378; }
+  main { padding-top: 0 !important; }
+  .pdf-off, .pdf-row-off, .pdf-cell-off { display: none !important; }
+  .pdf-hide-ret .col-ret, .pdf-hide-sip .col-sip, .pdf-hide-ratio .col-ratio, .pdf-hide-aum .col-aum { display: none !important; }
+
+  /* Page content: full width, scaled up for the big sheet. */
+  .pdf-doc { zoom: 1.25; font-family: 'Barlow', 'Inter', sans-serif; color: #1B1D2A; }
+  .pdf-doc section, section:has(.pdf-doc), .pdf-doc > section { max-width: none !important; padding: 0 !important; }
+  .pdf-doc .section-header, .pdf-doc > section > p { display: none !important; }
+  /* No screen controls on paper: buttons, pickers, empty inputs, checkboxes. */
+  .pdf-doc button, .pdf-doc input[type=checkbox], .pdf-doc input:placeholder-shown, .pdf-doc select, .pdf-doc details { display: none !important; }
+  .pdf-doc input { border: 0 !important; background: transparent !important; padding: 0 !important; color: inherit !important;
+                   font-weight: 600; text-align: right; box-shadow: none !important; }
+
+  /* Sections marked `page` open a new page like a slide; the rest follow on the same page. */
+  [data-pdf] { margin-top: 26px; }
+  [data-pdf].pdf-newpage { break-before: page; margin-top: 0; }
+  .pdf-slide-head { display: block; border-bottom: 2px solid #C9CBD6; padding-bottom: 10px; margin-bottom: 18px; break-after: avoid; }
+  .pdf-slide-head.sub { border-bottom-width: 1px; padding-bottom: 6px; margin-bottom: 12px; }
+  .pdf-slide-head.sub .pdf-title { font-size: 26px; }
+  /* A section that follows on a page moves whole to the next page rather than leaving its heading behind
+     (one taller than a page still breaks inside, as it must). */
+  [data-pdf]:not(.pdf-newpage) { break-inside: avoid; }
+  .pdf-doc .echarts-for-react, .pdf-doc canvas { break-inside: avoid; }
+
+  /* Side by side as on a wide screen: two tables or card rows share the width of the sheet. */
+  .pdf-doc .lg\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .pdf-doc .xl\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .pdf-doc .lg\:grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)) !important; }
+  .pdf-doc .lg\:grid-cols-5 { grid-template-columns: repeat(5, minmax(0, 1fr)) !important; }
+  .pdf-doc .lg\:grid-cols-6 { grid-template-columns: repeat(6, minmax(0, 1fr)) !important; }
+  .pdf-doc .lg\:grid-cols-7 { grid-template-columns: repeat(7, minmax(0, 1fr)) !important; }
+
+  /* Tighter rows: the same tables in fewer pages. */
+  .pdf-doc .data-table thead th { padding: 4px 7px !important; }
+  .pdf-doc .data-table tbody td { padding: 3px 7px !important; }
+  .pdf-doc .card { margin-bottom: 10px !important; }
+  .pdf-doc .card.p-4 { padding: 10px 12px !important; }
+  /* Split tables (market cap, category, sectors): slimmer rows and bars. */
+  .pdf-doc .data-table td .h-1\.5 { height: 4px !important; }
+  .pdf-doc .data-table td .mt-1 { margin-top: 2px !important; }
+  .pdf-doc [data-pdf="sector"] .data-table tbody td, .pdf-doc [data-pdf="alloc"] .data-table tbody td { padding-top: 2px !important; padding-bottom: 2px !important; }
+  .pdf-kicker { font: 500 15px/1.2 'Barlow', sans-serif; letter-spacing: 0.06em; text-transform: uppercase; color: #262D6B; }
+  .pdf-title { font: 700 40px/1.1 'Barlow Condensed', 'Barlow', sans-serif; color: #15172A; margin-top: 4px; }
+
+  /* Cards and tables in the Armstrong palette. */
+  /* Cards may run over a page (a long table continues under its title rather than jumping to the next page). */
+  .pdf-doc .card { background: #F3F3F6 !important; border: 1px solid #D6D8E1 !important; box-shadow: none !important; border-radius: 4px !important; }
+  .pdf-doc .table-scroll { overflow: visible !important; max-height: none !important; }
+  .pdf-doc .sticky-col { position: static !important; background: transparent !important; }
+  .pdf-doc .data-table { font-size: 11px; border-collapse: collapse; width: 100%; }
+  .pdf-doc .data-table thead th { background: #262D6B !important; color: #fff !important; font-weight: 600; border: 0 !important;
+                                  text-transform: none; letter-spacing: 0; padding: 6px 8px !important; }
+  .pdf-doc .data-table tbody td { border-bottom: 1px solid #DDDFE7 !important; padding: 5px 8px !important; color: #1B1D2A; }
+  .pdf-doc .data-table tbody td { background: #F8F8FA; }
+  .pdf-doc .data-table tbody tr:nth-child(even) td { background: #EEEFF3; }
+  .pdf-doc .data-table .benchmark-row td { background: #E4E6F0 !important; font-weight: 600; }
+  .pdf-doc .data-table tr { break-inside: avoid; }
+  .pdf-doc .font-display { font-family: 'Barlow Condensed', 'Barlow', sans-serif !important; }
+
+  /* ── cover ── */
+  .pdf-cover { display: flex; flex-direction: column; justify-content: space-between; height: 250mm; break-after: page; }
+  .pdf-cover-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 30px; }
+  .pdf-cover-title { font: 700 72px/1.05 'Barlow Condensed', 'Barlow', sans-serif; color: #15172A; margin: 10px 0 18px; }
+  .pdf-cover-client { font: 400 30px 'Barlow', sans-serif; color: #262D6B; }
+  .pdf-cover-client b { font-weight: 700; }
+  .pdf-cover-date { font: 400 18px 'Barlow', sans-serif; color: #5A5F75; margin-top: 8px; }
+  .pdf-cover-logo { width: 380px; height: auto; }
+  .pdf-cover-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .pdf-cover-stat { background: #262D6B; color: #fff; padding: 18px 20px; border-radius: 4px; }
+  .pdf-cover-stat:nth-child(2) { background: #3B4A9A; }
+  .pdf-cover-stat:nth-child(3) { background: #557EA6; }
+  .pdf-cover-stat:nth-child(4) { background: #2E7D3A; }
+  .pdf-cover-stat .l { font: 500 14px 'Barlow', sans-serif; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.9; }
+  .pdf-cover-stat .v { font: 600 38px 'Barlow Condensed', 'Barlow', sans-serif; margin-top: 6px; }
+  .pdf-cover-foot { display: flex; justify-content: space-between; align-items: flex-end; gap: 30px;
+                    border-top: 2px solid #C9CBD6; padding-top: 16px; }
+  .pdf-cover-addr { font: 400 17px/1.5 'Barlow', sans-serif; color: #2B2F45; max-width: 620px; margin-top: 6px; }
+  .pdf-cover-advisor { text-align: right; }
+  .pdf-cover-advisor .n { font: 700 26px 'Barlow Condensed', 'Barlow', sans-serif; color: #15172A; margin-top: 4px; }
+  .pdf-cover-advisor .m { font: 500 20px 'Barlow', sans-serif; color: #262D6B; }
 }

@@ -22,6 +22,8 @@ export interface UploadedRow {
   units: number | null
   invested: number | null
   value: number
+  /** Monthly SIP running in this holding, when the file has a SIP column. */
+  sip?: number | null
   /** Our fund, or null when nothing looked close enough. */
   code: string | null
   /** false = the match needs checking by a person. */
@@ -35,6 +37,7 @@ const VALUE_RE = /(current|market|present|curr\.?|mkt\.?|latest)\s*(value|val|va
 const INV_RE = /invest|cost|purchase\s*(value|amount)|amount\s*paid|principal/i
 const UNITS_RE = /^(balance\s*)?units|units$|^unit\s*balance|no\.?\s*of\s*units/i
 const FOLIO_RE = /folio/i
+const SIP_RE = /\bsip\b|systematic/i
 const TOTAL_RE = /^(grand\s*)?total\b|sub\s*-?\s*total|^total\s*:/i
 
 /** "₹ 1,23,456.78", "(1,200)", "12.5 %" → number; null when there is no number. */
@@ -115,6 +118,7 @@ function locate(rows: unknown[][]) {
       invested: cells.findIndex(c => INV_RE.test(c)),
       units: cells.findIndex(c => UNITS_RE.test(c)),
       folio: cells.findIndex(c => FOLIO_RE.test(c)),
+      sip: cells.findIndex(c => SIP_RE.test(c) && !/date|start|end|no\.?$|count|units/i.test(c)),
     }
   }
   return null
@@ -143,6 +147,7 @@ export async function readHoldingsFile(file: File, funds: IndexFund[]): Promise<
         invested: at.invested >= 0 ? num(r[at.invested]) : null,
         units: at.units >= 0 ? num(r[at.units]) : null,
         folio: at.folio >= 0 ? (String(r[at.folio] ?? '').trim() || null) : null,
+        sip: at.sip >= 0 ? num(r[at.sip]) : null,
       })
     }
     if (out.length > best.rows.length) best = { rows: out, sheet }

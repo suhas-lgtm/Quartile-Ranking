@@ -26,7 +26,22 @@ interface Ctx {
   unregister: (id: string) => void
   off: Set<string>
 }
+/** What the printed report is: its cover page and the footer on every page. */
+export interface PdfDoc {
+  /** Small line above the title, e.g. "PORTFOLIO REVIEW". */
+  kicker: string
+  /** The report's name, e.g. "Portfolio Reallocation Proposal". */
+  title: string
+  client?: string
+  advisor?: { name: string; mobile: string }
+  /** Headline numbers on the cover. */
+  stats?: { label: string; value: string }[]
+}
+
+export const ARMSTRONG_ADDRESS = 'Corporate block, Golden Enclave Apartment, 5th Floor, A1 Tower, HAL Old Airport Rd, Bengaluru, Karnataka 560017'
+
 interface ListState {
+  doc?: PdfDoc
   sections: Map<string, string>
   off: Set<string>
   setOff: (s: Set<string>) => void
@@ -76,7 +91,7 @@ function applyMarks(root: HTMLElement, off: Set<string>) {
   })
 }
 
-export function PdfProvider({ pageKey, children }: { pageKey: string; children: React.ReactNode }) {
+export function PdfProvider({ pageKey, doc, children }: { pageKey: string; doc?: PdfDoc; children: React.ReactNode }) {
   const [sections, setSections] = useState<Map<string, string>>(new Map())
   const [off, setOff] = useState<Set<string>>(() => loadOff(pageKey))
   const [picking, setPicking] = useState(false)
@@ -123,8 +138,11 @@ export function PdfProvider({ pageKey, children }: { pageKey: string; children: 
   const cellsOff = [...off].filter(k => k.startsWith('r|') || k.startsWith('c|'))
   return (
     <PdfCtx.Provider value={ctx}>
-      <ListCtx.Provider value={{ sections, off, setOff, picking, setPicking }}>
-        <div ref={box} className={`${colClasses} ${picking ? 'pdf-picking' : ''}`}>{children}</div>
+      <ListCtx.Provider value={{ doc, sections, off, setOff, picking, setPicking }}>
+        <div ref={box} className={`pdf-doc ${colClasses} ${picking ? 'pdf-picking' : ''}`}>
+          {doc && <PdfCover doc={doc} />}
+          {children}
+        </div>
         {picking && (
           <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[90] card px-4 py-3 flex items-center gap-3 flex-wrap text-xs print:hidden"
                style={{ boxShadow: '0 8px 30px rgba(0,0,0,0.45)', border: '1px solid var(--accent-a)', maxWidth: 'calc(100vw - 32px)' }}>
@@ -137,7 +155,7 @@ export function PdfProvider({ pageKey, children }: { pageKey: string; children: 
             {cellsOff.length > 0 && (
               <button className="tab-btn" onClick={() => setOff(new Set([...off].filter(k => !k.startsWith('r|') && !k.startsWith('c|'))))}>Reset</button>
             )}
-            <button className="tab-btn" onClick={() => { setPicking(false); printLight() }}>⬇ Download PDF</button>
+            <button className="tab-btn" onClick={() => { setPicking(false); printLight(doc) }}>⬇ Download PDF</button>
             <button className="tab-btn active" onClick={() => setPicking(false)}>Done</button>
           </div>
         )}
@@ -147,25 +165,95 @@ export function PdfProvider({ pageKey, children }: { pageKey: string; children: 
 }
 
 /** One choosable block of the PDF. Outside a PdfProvider it simply renders its children. */
-export function PdfSection({ id, label, children }: { id: string; label: string; children: React.ReactNode }) {
+export function PdfSection({ id, label, kicker, title, page, children }: {
+  id: string; label: string
+  /** Start a new page here. Without it the section follows the previous one on the same page. */
+  page?: boolean
+  /** Printed above the section, like a slide: a small kicker line and a big title (default: the label). */
+  kicker?: string; title?: string
+  children: React.ReactNode
+}) {
   const ctx = useContext(PdfCtx)
   useEffect(() => {
     ctx?.register(id, label)
     return () => ctx?.unregister(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, label])
-  return <div data-pdf={id} className={ctx?.off.has(id) ? 'pdf-off' : undefined}>{children}</div>
+  return (
+    <div data-pdf={id} className={[ctx?.off.has(id) ? 'pdf-off' : '', page ? 'pdf-newpage' : ''].filter(Boolean).join(' ') || undefined}>
+      <div className={`pdf-slide-head ${page ? '' : 'sub'}`} aria-hidden>
+        {kicker && <div className="pdf-kicker">{kicker}</div>}
+        <div className="pdf-title">{title ?? label}</div>
+      </div>
+      {children}
+    </div>
+  )
 }
 
+/** The first page of the printed report. Hidden on screen. */
+function PdfCover({ doc }: { doc: PdfDoc }) {
+  const month = new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
+  return (
+    <div className="pdf-cover" aria-hidden>
+      <div className="pdf-cover-top">
+        <div>
+          <div className="pdf-kicker">{doc.kicker}</div>
+          <div className="pdf-cover-title">{doc.title}</div>
+          {doc.client && <div className="pdf-cover-client">Prepared for <b>{doc.client}</b></div>}
+          <div className="pdf-cover-date">{month}</div>
+        </div>
+      </div>
+      {doc.stats && doc.stats.length > 0 && (
+        <div className="pdf-cover-stats">
+          {doc.stats.map(s => (
+            <div key={s.label} className="pdf-cover-stat">
+              <div className="l">{s.label}</div>
+              <div className="v">{s.value}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="pdf-cover-foot">
+        <div>
+          <div className="pdf-kicker">Armstrong Capital</div>
+          <div className="pdf-cover-addr">{ARMSTRONG_ADDRESS}</div>
+        </div>
+        {doc.advisor && (
+          <div className="pdf-cover-advisor">
+            <div className="pdf-kicker">Your advisor</div>
+            <div className="n">{doc.advisor.name}</div>
+            <div className="m">{doc.advisor.mobile}</div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** The corner logo as a data URL: page margin boxes print an image only when it is already in hand. */
+let logoData: string | null = null
+fetch('/logo-pdf.png').then(r => r.blob()).then(b => new Promise<string>(res => {
+  const fr = new FileReader(); fr.onload = () => res(String(fr.result)); fr.readAsDataURL(b)
+})).then(d => { logoData = d }).catch(() => { /* no logo in the corner */ })
+
 /** Print the page with the light theme, then put the viewer's theme back. */
-function printLight() {
+function printLight(doc?: PdfDoc) {
   const root = document.documentElement
   const before = root.getAttribute('data-theme')
   root.setAttribute('data-theme', 'light')
   root.classList.add('pdf-printing')
+  // The footer text lives in @page margin boxes, which only take fixed strings: write it for this report.
+  const foot = document.createElement('style')
+  const q = (t: string) => JSON.stringify(t)
+  foot.textContent = `@media print { @page {
+    @bottom-left { content: ${q(['Armstrong Capital', doc?.title, doc?.client].filter(Boolean).join('  ·  '))}; }
+    ${logoData ? `@top-right { content: url(${logoData}); vertical-align: middle; }` : ''}
+  } }`
+  document.head.appendChild(foot)
   const restore = () => {
     if (before == null) root.removeAttribute('data-theme'); else root.setAttribute('data-theme', before)
     root.classList.remove('pdf-printing')
+    foot.remove()
     window.removeEventListener('afterprint', restore)
   }
   window.addEventListener('afterprint', restore)
@@ -232,7 +320,7 @@ export function PdfButton({ title }: { title?: string }) {
             <div className="flex justify-end gap-2">
               <button className="tab-btn" onClick={() => setOpen(false)}>Cancel</button>
               <button className="tab-btn active" disabled={!chosen}
-                      onClick={() => { setOpen(false); printLight() }}>⬇ Download PDF</button>
+                      onClick={() => { setOpen(false); printLight(list.doc) }}>⬇ Download PDF</button>
             </div>
           </div>
         </div>

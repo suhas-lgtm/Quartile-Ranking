@@ -104,11 +104,12 @@ export default function SuggestedEditor({ existing, lines, onChange, inputStyle,
                       <div className="text-[10px]" style={{ color: f ? categoryColor(f.s) : 'var(--text-low)' }}>{f?.k}</div>
                     </td>
                     <td className="ret-cell text-xs" style={{ color: 'var(--text-mid)' }}>{ex ? inr(ex) : '—'}</td>
-                    <td style={{ width: 140 }}>
+                    <td style={{ width: 140, textAlign: 'right' }}>
+                      <span className="hidden print:inline text-xs font-semibold">{removed || !sg ? '—' : inr(sg)}</span>
                       <input type="number" min={0} step={10000} value={removed ? '' : (sgMap.has(code) ? (sgMap.get(code) || '') : '')}
                              placeholder={removed ? 'removed' : '₹ amount'}
                              onChange={e => setAmount(code, e.target.value === '' ? null : Math.max(0, +e.target.value))}
-                             className="px-2 py-1 rounded text-xs w-full text-right" style={inputStyle} />
+                             className="px-2 py-1 rounded text-xs w-full text-right print:hidden" style={inputStyle} />
                     </td>
                     <td className="ret-cell text-xs font-semibold" style={{ color: c }}>
                       {sg - ex === 0 ? '—' : `${sg > ex ? '+' : '−'}${inr(Math.abs(sg - ex))}`}

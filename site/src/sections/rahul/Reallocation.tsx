@@ -121,7 +121,18 @@ export default function Reallocation() {
   const setRow = (i: number, patch: Partial<UploadedRow>) => update({ rows: cur.rows.map((r, j) => (j === i ? { ...r, ...patch } : r)) })
 
   return (
-    <PdfProvider pageKey="rahul-realloc">
+    <PdfProvider pageKey="rahul-realloc" doc={{
+      kicker: 'Portfolio review', title: 'Portfolio Reallocation Proposal', client: cur.client || undefined,
+      advisor: { name: 'Rahul', mobile: '+91 98091 10073' },
+      stats: [
+        { label: 'Existing portfolio', value: inrShort(exTotal) },
+        { label: 'Suggested portfolio', value: inrShort(prMf + prSif) },
+        { label: 'Funds', value: `${existing.size} → ${cur.proposed.filter(l => (l.lump ?? 0) > 0).length + cur.sif.filter(l => (l.lump ?? 0) > 0).length}` },
+        prMf + prSif - exTotal >= 0
+          ? { label: 'Fresh money', value: inrShort(prMf + prSif - exTotal) }
+          : { label: 'Money left over', value: inrShort(exTotal - prMf - prSif) },
+      ],
+    }}>
     <section id="reallocation" className="px-4 sm:px-6 py-6 max-w-screen-2xl mx-auto">
       <div className="section-header">
         <span>Portfolio Reallocation</span>
@@ -164,7 +175,7 @@ export default function Reallocation() {
       </div>
 
       {cur.rows.length > 0 && (
-        <PdfSection id="existing" label="Existing holdings (from the upload)">
+        <PdfSection id="existing" page label="Existing holdings (from the upload)" kicker="Where you stand today" title="Existing Holdings">
         <div className="card overflow-hidden mb-4">
           <div className="px-4 pt-3 flex items-center gap-3">
             <span className="font-display font-bold text-sm" style={{ color: EX_COLOUR }}>Existing holdings</span>
@@ -173,7 +184,7 @@ export default function Reallocation() {
               {exInvested != null && <> · invested {inrShort(exInvested)} · gain <b className={retColor(exTotal - exInvested)}>{inrShort(exTotal - exInvested)} ({fmtPct(exTotal / exInvested - 1)})</b></>}
             </span>
             {(unmatched > 0 || unsure > 0) && (
-              <span className="text-[11px]" style={{ color: '#F59E0B' }}>
+              <span className="text-[11px] print:hidden" style={{ color: '#F59E0B' }}>
                 {unmatched > 0 && `${unmatched} not matched`}{unmatched > 0 && unsure > 0 && ' · '}{unsure > 0 && `${unsure} to check`} — fix in the Matched fund column
               </span>
             )}
@@ -181,45 +192,67 @@ export default function Reallocation() {
           <div className="table-scroll">
             <table className="data-table">
               <thead><tr>
-                <th className="text-left">In the file</th><th className="text-left">Matched fund</th>
-                <th className="text-left">Folio</th><th style={{ textAlign: 'right' }}>Units</th>
-                <th style={{ textAlign: 'right' }}>Invested</th><th style={{ textAlign: 'right' }}>Current value</th>
-                <th style={{ textAlign: 'right' }}>Gain</th><th style={{ textAlign: 'right' }}>Weight</th><th>Use</th>
+                <th className="text-left">Fund</th><th className="text-left">Folio</th>
+                <th style={{ textAlign: 'right' }}>Units</th><th style={{ textAlign: 'right' }}>Invested</th>
+                <th style={{ textAlign: 'right' }}>Current value</th><th style={{ textAlign: 'right' }}>Abs return</th>
+                <th style={{ textAlign: 'right' }}>SIP / month</th>
+                <th className="print:hidden" style={{ textAlign: 'right' }}>Weight</th><th className="print:hidden">Use</th>
               </tr></thead>
               <tbody>
                 {cur.rows.map((r, i) => {
                   const f = r.code ? fundByCode.get(r.code) : null
                   return (
-                    <tr key={i} style={{ opacity: r.skip ? 0.45 : 1 }}>
-                      <td className="text-[11px]" style={{ maxWidth: 260, color: 'var(--text-mid)' }} title={r.raw}><div className="truncate">{r.raw}</div></td>
-                      <td style={{ minWidth: 260 }}>
+                    <tr key={i} className={r.skip ? 'print:hidden' : undefined} style={{ opacity: r.skip ? 0.45 : 1 }}>
+                      <td style={{ minWidth: 280 }}>
                         {f && fix[i] == null ? (
                           <div className="flex items-center gap-1.5">
-                            {!r.sure && <span title="Check this match" style={{ color: '#F59E0B' }}>⚠</span>}
-                            <span className="text-xs truncate" style={{ maxWidth: 220 }}><FundLink code={f.c} name={f.n} /></span>
+                            {!r.sure && <span className="print:hidden" title="Check this match" style={{ color: '#F59E0B' }}>⚠</span>}
+                            <span className="text-xs truncate" style={{ maxWidth: 300 }}><FundLink code={f.c} name={f.n} /></span>
                             <button className="text-[10px]" onClick={() => setFix(x => ({ ...x, [i]: '' }))}
                                     style={{ background: 'none', border: 'none', color: 'var(--accent-a)', cursor: 'pointer' }}>change</button>
                           </div>
                         ) : (
-                          <FundPicker funds={funds} value={fix[i] ?? ''} onChange={v => setFix(x => ({ ...x, [i]: v }))} autoFocus={fix[i] != null}
-                                      onPick={p => { setRow(i, { code: p.c, sure: true }); setFix(x => { const y = { ...x }; delete y[i]; return y }) }}
-                                      placeholder={r.code ? 'Pick the right fund…' : 'Not matched — pick the fund…'} style={inputStyle} />
+                          <>
+                            <span className="hidden print:inline text-xs">{r.raw}</span>
+                            <div className="print:hidden">
+                              <FundPicker funds={funds} value={fix[i] ?? ''} onChange={v => setFix(x => ({ ...x, [i]: v }))} autoFocus={fix[i] != null}
+                                          onPick={p => { setRow(i, { code: p.c, sure: true }); setFix(x => { const y = { ...x }; delete y[i]; return y }) }}
+                                          placeholder={r.code ? 'Pick the right fund…' : 'Not matched — pick the fund…'} style={inputStyle} />
+                            </div>
+                          </>
                         )}
+                        <div className="text-[10px] truncate print:hidden" style={{ maxWidth: 300, color: 'var(--text-low)' }} title={r.raw}>in the file: {r.raw}</div>
                       </td>
-                      <td className="text-[11px]" style={{ color: 'var(--text-low)' }}>{r.folio ?? ''}</td>
+                      <td className="text-[11px]" style={{ color: 'var(--text-mid)' }}>{r.folio ?? '—'}</td>
                       <td className="ret-cell text-xs">{r.units == null ? '—' : r.units.toLocaleString('en-IN', { maximumFractionDigits: 3 })}</td>
                       <td className="ret-cell text-xs">{r.invested == null ? '—' : inr(r.invested)}</td>
                       <td className="ret-cell text-xs font-semibold">{inr(r.value)}</td>
                       <td className={`ret-cell text-xs ${retColor(r.invested ? r.value - r.invested : null)}`}>
                         {r.invested ? fmtPct(r.value / r.invested - 1) : '—'}
                       </td>
-                      <td className="ret-cell text-[11px]" style={{ color: 'var(--text-low)' }}>{!r.skip && exTotal ? pct1(r.value / exTotal) : ''}</td>
-                      <td style={{ textAlign: 'center' }}>
+                      <td className="ret-cell text-xs">{r.sip ? inr(r.sip) : '—'}</td>
+                      <td className="ret-cell text-[11px] print:hidden" style={{ color: 'var(--text-low)' }}>{!r.skip && exTotal ? pct1(r.value / exTotal) : ''}</td>
+                      <td className="print:hidden" style={{ textAlign: 'center' }}>
                         <input type="checkbox" checked={!r.skip} onChange={e => setRow(i, { skip: !e.target.checked })} title="Include in the existing portfolio" />
                       </td>
                     </tr>
                   )
                 })}
+                {(() => {
+                  const used = cur.rows.filter(r => !r.skip)
+                  const inv = used.every(r => r.invested != null) ? used.reduce((t, r) => t + (r.invested ?? 0), 0) : null
+                  const sip = used.reduce((t, r) => t + (r.sip ?? 0), 0)
+                  return (
+                    <tr className="benchmark-row">
+                      <td className="text-xs font-semibold">Total · {used.length} holding{used.length === 1 ? '' : 's'}</td><td /><td />
+                      <td className="ret-cell text-xs font-semibold">{inv == null ? '—' : inr(inv)}</td>
+                      <td className="ret-cell text-xs font-semibold">{inr(exTotal)}</td>
+                      <td className={`ret-cell text-xs font-semibold ${retColor(inv ? exTotal - inv : null)}`}>{inv ? fmtPct(exTotal / inv - 1) : '—'}</td>
+                      <td className="ret-cell text-xs font-semibold">{sip ? inr(sip) : '—'}</td>
+                      <td className="print:hidden" /><td className="print:hidden" />
+                    </tr>
+                  )
+                })()}
               </tbody>
             </table>
           </div>
@@ -228,7 +261,7 @@ export default function Reallocation() {
       )}
 
       {/* ── suggested portfolio ── */}
-      <PdfSection id="suggested" label="Suggested portfolio — mutual funds (changes)">
+      <PdfSection id="suggested" page label="Suggested portfolio — mutual funds (changes)" kicker="What we recommend" title="Suggested Portfolio — Mutual Funds">
       <div className="card p-4 mb-4">
         <SuggestedEditor existing={[...existing.entries()].map(([code, x]) => ({ code, amount: Math.round(x.value) }))}
                          lines={cur.proposed.map(l => ({ code: l.code, amount: l.lump }))}
@@ -236,7 +269,7 @@ export default function Reallocation() {
                          inputStyle={inputStyle} colour={PR_COLOUR} title="Suggested portfolio — mutual funds" />
       </div>
       </PdfSection>
-      <PdfSection id="suggested-sif" label="Suggested portfolio — SIF">
+      <PdfSection id="suggested-sif" label="Suggested portfolio — SIF" kicker="What we recommend" title="Suggested Portfolio — SIF">
       <div className="card p-4 mb-4">
         <div className="flex items-center justify-between mb-2">
           <div className="font-display font-bold text-sm" style={{ color: SIF_COLOUR }}>Suggested portfolio — SIF</div>
@@ -247,7 +280,7 @@ export default function Reallocation() {
       </PdfSection>
 
       {(exTotal > 0 || prMf + prSif > 0) && (
-        <PdfSection id="totals" label="Totals (existing, suggested, amount to sell and buy, profit booked)">
+        <PdfSection id="totals" page label="Totals (existing, suggested, amount to sell and buy, profit booked)" kicker="The switch in numbers" title="What Changes">
         <div className="grid gap-3 grid-cols-2 lg:grid-cols-6 mb-3">
           <Card label="Existing portfolio value" value={inrShort(exTotal)} colour={EX_COLOUR} />
           <Card label="Suggested — mutual funds" value={inrShort(prMf)} colour={PR_COLOUR} />
@@ -291,7 +324,7 @@ export default function Reallocation() {
 
       {/* ── switches ── */}
       {existing.size > 0 && cur.proposed.length > 0 && (
-        <PdfSection id="switches" label="Switches to make (sell, buy, profit booked per fund)">
+        <PdfSection id="switches" label="Switches to make (sell, buy, profit booked per fund)" kicker="Fund by fund" title="Switches to Make">
         <div className="card overflow-hidden mb-4">
           <div className="px-4 pt-3 font-display font-bold text-sm" style={{ color: 'var(--text-hi)' }}>Switches to make — fund by fund</div>
           <div className="px-4 text-[10px]" style={{ color: 'var(--text-low)' }}>
