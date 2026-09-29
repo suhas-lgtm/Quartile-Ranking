@@ -1499,7 +1499,27 @@ h1, h2, h3, h4, h5, h6 {
   .pdf-doc .card { background: #F3F3F6 !important; border: 1px solid #D6D8E1 !important; box-shadow: none !important; border-radius: 4px !important; }
   .pdf-doc .table-scroll { overflow: visible !important; max-height: none !important; }
   .pdf-doc .sticky-col { position: static !important; background: transparent !important; }
-  .pdf-doc .data-table { font-size: 11px; border-collapse: collapse; width: 100%; }
+  .pdf-doc .data-table { font-size: 14px; border-collapse: collapse; width: 100%; }
+  /* Bigger print text: the screen's small sizes are too small on paper. */
+  .pdf-doc .data-table .text-xs, .pdf-doc .data-table td, .pdf-doc .data-table th { font-size: 14px !important; line-height: 1.3; }
+  .pdf-doc .text-xs { font-size: 14px !important; }
+  .pdf-doc .text-\[11px\] { font-size: 13px !important; }
+  .pdf-doc .text-\[10px\] { font-size: 12px !important; }
+  .pdf-doc .text-\[9px\] { font-size: 11px !important; }
+  .pdf-doc .text-sm { font-size: 17px !important; }
+  /* The fund / stock name column takes only what it needs and wraps, so the numbers get the room. */
+  .pdf-doc .data-table th:first-child, .pdf-doc .data-table td:first-child { width: 22%; max-width: 360px; white-space: normal !important; }
+  .pdf-doc .data-table td:first-child .truncate { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; max-width: none !important; }
+  /* Half-width tables (side by side) and split tables (a label with bars, short numbers): the name gets more of the width. */
+  .pdf-doc .grid .data-table th:first-child, .pdf-doc .grid .data-table td:first-child { width: 42%; max-width: none; }
+  .pdf-doc [data-pdf="sector"] .data-table th:first-child, .pdf-doc [data-pdf="sector"] .data-table td:first-child,
+  .pdf-doc [data-pdf="alloc"] .data-table th:first-child, .pdf-doc [data-pdf="alloc"] .data-table td:first-child { width: 58%; max-width: none; }
+  /* Nothing may stretch the document past its last section (a blank last page). */
+  .pdf-doc [data-pdf="sector"] .data-table td { line-height: 1.12 !important; padding-top: 1px !important; padding-bottom: 1px !important; }
+  .pdf-doc [data-pdf="sector"] .data-table td .text-\[10px\] { font-size: 11px !important; line-height: 1.1 !important; }
+  .pdf-doc [data-pdf="sector"] .data-table td .gap-0\.5 { gap: 1px !important; }
+  .min-h-screen { min-height: 0 !important; }
+  main { padding-bottom: 0 !important; }
   .pdf-doc .data-table thead th { background: #262D6B !important; color: #fff !important; font-weight: 600; border: 0 !important;
                                   text-transform: none; letter-spacing: 0; padding: 6px 8px !important; }
   .pdf-doc .data-table tbody td { border-bottom: 1px solid #DDDFE7 !important; padding: 5px 8px !important; color: #1B1D2A; }
