@@ -13,13 +13,14 @@ import { industryLine, sectorBreakdown } from './SectorBars'
 import { useJson, useMeta } from '../hooks/useData'
 import FundLink from './FundLink'
 import OverlapMatrix from './OverlapMatrix'
-import CorrelationMatrix, { type NavSeries } from './CorrelationMatrix'
+import CorrelationMatrix, { adjustSplits, type NavSeries } from './CorrelationMatrix'
 import { capSplit, useStockCaps, CAP_COLOURS } from './CapSplit'
 import { useLookThrough, type LookRow } from './LookThrough'
 import { BenchmarkPicker, useBenchmarkChoice } from '../sections/PortfolioBuilder'
 import { categoryPath } from '../config/dataPaths'
 import { closeAt, indexTrailing, useIndexSeries } from '../utils/benchmark'
 import { isoMinus } from '../utils/navMath'
+import { seriesStats } from '../utils/seriesStats'
 import { categoryColor } from '../config/categoryColors'
 import { fmtPct, retColor } from '../utils/format'
 import type { FundsIndex, RiskData, RiskFundRow } from '../types'
@@ -122,12 +123,30 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
   const ltB = useLookThrough(withValue(B))
   const allCodes = [...new Set([...A.lines, ...B.lines].map(l => l.code))]
   const riskFiles = useRiskFiles(allCodes.map(c => fundByCode.get(c)?.s).filter((x): x is string => !!x))
+  // NAV history of every fund: correlation, and the numbers for funds with no published row.
+  const series = useSeries(allCodes)
+  const rf = Object.values(riskFiles).find(f => f?.risk_free_rate != null)?.risk_free_rate ?? 0.065
+  const pubAsOf = Object.values(riskFiles).map(f => f?.as_of).filter((x): x is string => !!x).sort().slice(-1)[0] ?? null
   const risk = useMemo(() => {
     const out: Record<string, RiskFundRow> = {}
     for (const f of Object.values(riskFiles)) for (const r of f?.funds ?? []) if (allCodes.includes(r.scheme_code)) out[r.scheme_code] = r
+    // Debt funds have no Risk & Returns file: their returns and ratios come from their own NAVs.
+    // Beta, Alpha and captures need a benchmark of their own, so they stay blank.
+    for (const c of allCodes) {
+      const sr = series[c]
+      if (out[c] || !sr?.points?.length) continue
+      const st = seriesStats(adjustSplits(sr), rf, pubAsOf)
+      if (!st) continue
+      out[c] = {
+        scheme_code: c, scheme_name: fundByCode.get(c)?.n ?? c,
+        returns: st.returns as RiskFundRow['returns'], sip: st.sip,
+        std_annual: st.std_annual, sharpe: st.sharpe, sortino: st.sortino, max_drawdown: st.max_drawdown,
+        alpha: null, beta: null, upside_capture: null, downside_capture: null, composite_score: null, recovery_days: null,
+      }
+    }
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [riskFiles, allCodes.join(',')])
+  }, [riskFiles, series, allCodes.join(','), rf, pubAsOf])
   const caps = useStockCaps()
   const [benchId, setBenchId] = useBenchmarkChoice()
   const benchSeries = useIndexSeries(benchId)
@@ -140,6 +159,13 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
     bench['10Y'] = start ? Math.pow(end[1] / start, 1 / 10) - 1 : null
   }
   const benchName = meta?.benchmarks.find(b => b.index_id === benchId)?.index_name ?? 'Index'
+  // The benchmark's own SIP returns and ratios; against itself Beta is 1, Alpha 0 and both captures 100.
+  const benchStats = seriesStats(benchTo, rf)
+  const benchRow = benchStats ? {
+    ...benchStats, returns: benchStats.returns as RiskFundRow['returns'],
+    alpha: 0, beta: 1, upside_capture: 100, downside_capture: 100, composite_score: null, recovery_days: null,
+    scheme_code: 'bench', scheme_name: benchName,
+  } as RiskFundRow : null
   const [allHold, setAllHold] = useState<Record<number, boolean>>({})
 
   const total = (s: ReviewSide) => s.lines.reduce((t, l) => t + (l.amount ?? 0), 0)
@@ -160,8 +186,6 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
   const ov = shown.find(x => x.i === ovPick) ?? focus
   const ovFunds = ov ? fundsOf(ov.s) : []
   const ovDebt = ov ? priced(ov.s).filter(l => isDebt(l.code)).length : 0
-  // Series for both sides, so switching sides is instant.
-  const series = useSeries([...new Set(shown.flatMap(x => fundsOf(x.s).map(f => f.code)))])
 
   if (!shown.length) {
     return (
@@ -323,7 +347,7 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
                     <td className="sticky-col text-xs">{l} (XIRR)</td>
                     {v.map((x, i) => <td key={i} className={`ret-cell text-xs ${retColor(x)}`}>{fmtPct(x)}</td>)}
                     {two && <td className="ret-cell text-xs">{v[0] != null && v[1] != null ? <Delta v={v[1] - v[0]} good="up" /> : '—'}</td>}
-                    <td className="ret-cell text-xs">—</td>
+                    <td className={`ret-cell text-xs ${retColor(benchRow?.sip?.[k] ?? null)}`}>{fmtPct(benchRow?.sip?.[k] ?? null)}</td>
                   </tr>
                 )
               })}
@@ -343,7 +367,7 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
                         )}
                       </td>
                     )}
-                    <td className="ret-cell text-xs">—</td>
+                    <td className="ret-cell text-xs">{(() => { const b = benchRow ? get(benchRow) : null; return b == null ? '—' : f(b) })()}</td>
                   </tr>
                 )
               })}
@@ -400,9 +424,11 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
 
       {/* ── fund level ── */}
       <PdfSection id="funds" page label="Fund tables (each fund's returns & ratios)" kicker="Fund by fund" title="Fund Returns &amp; Ratios">
-      {shown.map(({ s, i }) => (
+      {shown.map(({ s, i }) => ({ s, i, lines: two && i === 0
+          ? priced(s).filter(l => !priced(shown[1].s).some(m => m.code === l.code))
+          : priced(s) })).filter(x => x.lines.length > 0).map(({ s, i, lines }) => (
         <div key={i} className="card overflow-hidden mb-4">
-          <div className="px-4 pt-3 font-display font-bold text-sm" style={{ color: s.colour }}>{s.label} — funds</div>
+          <div className="px-4 pt-3 font-display font-bold text-sm" style={{ color: s.colour }}>{two && i === 0 ? 'Exited funds (sold in full)' : `${s.label} — funds`}</div>
           <div className="table-scroll">
             <table className="data-table">
               <thead><tr>
@@ -414,7 +440,7 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
                 <th className="col-aum" style={{ textAlign: 'right' }}>AUM (₹ Cr)</th>
               </tr></thead>
               <tbody>
-                {priced(s).map(l => {
+                {lines.map(l => {
                   const r = risk[l.code], t = total(s), f = fundByCode.get(l.code)
                   return (
                     <tr key={l.code}>

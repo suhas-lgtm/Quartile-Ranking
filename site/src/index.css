@@ -1518,6 +1518,7 @@ h1, h2, h3, h4, h5, h6 {
   .pdf-doc [data-pdf="sector"] .data-table td { line-height: 1.12 !important; padding-top: 1px !important; padding-bottom: 1px !important; }
   .pdf-doc [data-pdf="sector"] .data-table td .text-\[10px\] { font-size: 11px !important; line-height: 1.1 !important; }
   .pdf-doc [data-pdf="sector"] .data-table td .gap-0\.5 { gap: 1px !important; }
+  .pdf-doc [data-pdf="existing"] .truncate { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; max-width: none !important; }
   .min-h-screen { min-height: 0 !important; }
   main { padding-bottom: 0 !important; }
   .pdf-doc .data-table thead th { background: #262D6B !important; color: #fff !important; font-weight: 600; border: 0 !important;

@@ -192,10 +192,14 @@ export default function Reallocation() {
           <div className="table-scroll">
             <table className="data-table">
               <thead><tr>
-                <th className="text-left">Fund</th><th className="text-left">Folio</th>
+                {/* Screen: the full working table. Print: Fund, Folio, Units, Invested, Current, Abs return, SIP. */}
+                <th className="text-left print:hidden">In the file</th>
+                <th className="text-left"><span className="print:hidden">Matched fund</span><span className="hidden print:inline">Fund</span></th>
+                <th className="text-left">Folio</th>
                 <th style={{ textAlign: 'right' }}>Units</th><th style={{ textAlign: 'right' }}>Invested</th>
-                <th style={{ textAlign: 'right' }}>Current value</th><th style={{ textAlign: 'right' }}>Abs return</th>
-                <th style={{ textAlign: 'right' }}>SIP / month</th>
+                <th style={{ textAlign: 'right' }}>Current value</th>
+                <th style={{ textAlign: 'right' }}><span className="print:hidden">Gain</span><span className="hidden print:inline">Abs return</span></th>
+                <th style={{ textAlign: 'right' }}>SIP ₹ / month</th>
                 <th className="print:hidden" style={{ textAlign: 'right' }}>Weight</th><th className="print:hidden">Use</th>
               </tr></thead>
               <tbody>
@@ -203,7 +207,8 @@ export default function Reallocation() {
                   const f = r.code ? fundByCode.get(r.code) : null
                   return (
                     <tr key={i} className={r.skip ? 'print:hidden' : undefined} style={{ opacity: r.skip ? 0.45 : 1 }}>
-                      <td style={{ minWidth: 280 }}>
+                      <td className="text-[11px] print:hidden" style={{ maxWidth: 260, color: 'var(--text-mid)' }} title={r.raw}><div className="truncate">{r.raw}</div></td>
+                      <td style={{ minWidth: 260 }}>
                         {f && fix[i] == null ? (
                           <div className="flex items-center gap-1.5">
                             {!r.sure && <span className="print:hidden" title="Check this match" style={{ color: '#F59E0B' }}>⚠</span>}
@@ -221,7 +226,6 @@ export default function Reallocation() {
                             </div>
                           </>
                         )}
-                        <div className="text-[10px] truncate print:hidden" style={{ maxWidth: 300, color: 'var(--text-low)' }} title={r.raw}>in the file: {r.raw}</div>
                       </td>
                       <td className="text-[11px]" style={{ color: 'var(--text-mid)' }}>{r.folio ?? '—'}</td>
                       <td className="ret-cell text-xs">{r.units == null ? '—' : r.units.toLocaleString('en-IN', { maximumFractionDigits: 3 })}</td>
@@ -230,7 +234,13 @@ export default function Reallocation() {
                       <td className={`ret-cell text-xs ${retColor(r.invested ? r.value - r.invested : null)}`}>
                         {r.invested ? fmtPct(r.value / r.invested - 1) : '—'}
                       </td>
-                      <td className="ret-cell text-xs">{r.sip ? inr(r.sip) : '—'}</td>
+                      <td className="ret-cell text-xs" style={{ width: 120 }}>
+                        {/* From the file's SIP column when it has one; type it in when it does not. */}
+                        <span className="hidden print:inline">{r.sip ? inr(r.sip) : '—'}</span>
+                        <input type="number" min={0} step={500} value={r.sip ?? ''} placeholder="—"
+                               onChange={e => setRow(i, { sip: e.target.value === '' ? null : Math.max(0, +e.target.value) })}
+                               className="px-2 py-1 rounded text-xs w-full text-right print:hidden" style={inputStyle} />
+                      </td>
                       <td className="ret-cell text-[11px] print:hidden" style={{ color: 'var(--text-low)' }}>{!r.skip && exTotal ? pct1(r.value / exTotal) : ''}</td>
                       <td className="print:hidden" style={{ textAlign: 'center' }}>
                         <input type="checkbox" checked={!r.skip} onChange={e => setRow(i, { skip: !e.target.checked })} title="Include in the existing portfolio" />
@@ -244,6 +254,7 @@ export default function Reallocation() {
                   const sip = used.reduce((t, r) => t + (r.sip ?? 0), 0)
                   return (
                     <tr className="benchmark-row">
+                      <td className="print:hidden" />
                       <td className="text-xs font-semibold">Total · {used.length} holding{used.length === 1 ? '' : 's'}</td><td /><td />
                       <td className="ret-cell text-xs font-semibold">{inv == null ? '—' : inr(inv)}</td>
                       <td className="ret-cell text-xs font-semibold">{inr(exTotal)}</td>
