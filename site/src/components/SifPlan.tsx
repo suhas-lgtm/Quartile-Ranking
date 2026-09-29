@@ -112,6 +112,15 @@ export function SifEditor({ lines, onChange, inputStyle, weightOf, showSip = tru
                       <div className="text-[10px]" style={{ color: 'var(--text-low)' }}>
                         {p?.strategy}{p?.min_amount ? ` · min ${p.min_amount}` : ''}
                       </div>
+                      {p && (
+                        <div className="text-[10px] flex flex-wrap gap-x-2" style={{ color: 'var(--text-mid)' }}>
+                          <span>NAV {p.nav.toFixed(4)}</span>
+                          {(['1M', '3M', '6M', '1Y'] as const).map(k => p.returns[k] != null && (
+                            <span key={k} className={retColor(p.returns[k])}>{k} {fmtPct(p.returns[k])}</span>
+                          ))}
+                          <span className={retColor(p.since_launch)}>since launch {fmtPct(p.since_launch)}</span>
+                        </div>
+                      )}
                     </td>
                     <td style={{ width: 140 }}>
                       <input type="number" min={0} step={100000} value={l.lump ?? ''} placeholder="Lump sum"

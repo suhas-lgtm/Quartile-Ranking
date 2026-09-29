@@ -149,9 +149,14 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
   const focus = shown[shown.length - 1]
   // Debt funds are left out: their correlation and stock overlap with equity funds say nothing useful.
   const isDebt = (code: string) => meta?.categories.find(c => c.slug === fundByCode.get(code)?.s)?.asset_class === 'Debt'
-  const focusFunds = focus ? priced(focus.s).filter(l => !isDebt(l.code)).map(l => ({ code: l.code, name: name(l.code) })) : []
-  const debtLeftOut = focus ? priced(focus.s).filter(l => isDebt(l.code)).length : 0
-  const series = useSeries(focusFunds.map(f => f.code))
+  // Correlation and overlap: one side at a time, chosen with a switch (the proposal by default).
+  const [fxPick, setFxPick] = useState<number | null>(null)
+  const fx = shown.find(x => x.i === fxPick) ?? focus
+  const fundsOf = (s: ReviewSide) => priced(s).filter(l => !isDebt(l.code)).map(l => ({ code: l.code, name: name(l.code) }))
+  const focusFunds = fx ? fundsOf(fx.s) : []
+  const debtLeftOut = fx ? priced(fx.s).filter(l => isDebt(l.code)).length : 0
+  // Series for both sides, so switching sides is instant.
+  const series = useSeries([...new Set(shown.flatMap(x => fundsOf(x.s).map(f => f.code)))])
 
   if (!shown.length) {
     return (
@@ -252,7 +257,8 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
           </span>
         </div>
         <div className="px-4 text-[10px]" style={{ color: 'var(--text-low)' }}>
-          Returns up to 1Y absolute, 3Y+ annualised. SIP = XIRR of a monthly SIP. Ratios over 3 years.
+          Returns up to 1Y absolute, 3Y+ annualised. SIP = XIRR of a monthly SIP. Sharpe, Sortino, Std Dev, Alpha, Beta and captures over the last 3 years (monthly
+          returns); Max DD = the worst fall from a peak in the fund&apos;s whole daily NAV history (since 2010 or launch).
         </div>
         <div className="table-scroll">
           <table className="data-table">
@@ -398,16 +404,33 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
       ))}
       </PdfSection>
 
+      {two && (
+        <div className="flex items-center gap-2 flex-wrap mb-2 text-xs print:hidden">
+          <span className="font-semibold" style={{ color: 'var(--text-hi)' }}>Correlation &amp; overlap for</span>
+          {shown.map(x => (
+            <button key={x.i} className={`tab-btn ${fx?.i === x.i ? 'active' : ''}`} onClick={() => setFxPick(x.i)}
+                    style={fx?.i === x.i ? { borderColor: x.s.colour, color: x.s.colour } : undefined}>
+              {x.s.label} portfolio ({fundsOf(x.s).length} funds)
+            </button>
+          ))}
+          <span style={{ color: 'var(--text-low)' }}>updates as you change the funds</span>
+        </div>
+      )}
       {debtLeftOut > 0 && (
         <p className="text-[11px] mb-2" style={{ color: 'var(--text-low)' }}>
           {debtLeftOut} debt fund{debtLeftOut === 1 ? '' : 's'} left out of the correlation and overlap tables.
         </p>
       )}
-      {focusFunds.length > 1 && (
-        <>
+      {focusFunds.length > 1 ? (
+        <div key={fx?.i}>
+          {two && <div className="text-xs font-semibold mb-1 hidden print:block" style={{ color: fx?.s.colour }}>{fx?.s.label} portfolio</div>}
           <PdfSection id="correlation" label="Correlation between funds"><CorrelationMatrix funds={focusFunds.map(f => ({ ...f, series: series[f.code] }))} /></PdfSection>
           <PdfSection id="overlap" label="Portfolio overlap between funds"><OverlapMatrix funds={focusFunds} /></PdfSection>
-        </>
+        </div>
+      ) : two && (
+        <p className="text-xs mb-4" style={{ color: 'var(--text-mid)' }}>
+          The {fx?.s.label.toLowerCase()} portfolio has fewer than two equity-oriented funds, so there is nothing to correlate.
+        </p>
       )}
 
       <p className="text-[11px] mb-4" style={{ color: 'var(--text-low)' }}>
@@ -661,7 +684,21 @@ function ComparativeAnalysis({ sides, risk, riskFiles, fundByCode, asOf }: {
                     return (
                       <tr key={code}>
                         <td className="sticky-col text-xs" style={{ maxWidth: 280, paddingLeft: 18 }}>
-                          <div className="truncate"><FundLink code={code} name={fundByCode.get(code)?.n ?? code} /></div>
+                          <div className="truncate">
+                            <FundLink code={code} name={fundByCode.get(code)?.n ?? code} />
+                            {sides.length > 1 && (() => {
+                              // First side = existing, second = the proposal: a fund only in the proposal is new, only in the existing one is going.
+                              const ins = inSide(code).map(s => s.label)
+                              if (ins.length !== 1) return null
+                              const isNew = ins[0] === sides[1].label
+                              return (
+                                <span className="ml-1.5 text-[9px] font-bold px-1 rounded"
+                                      style={{ background: isNew ? 'rgba(34,211,238,0.15)' : 'rgba(248,113,113,0.15)', color: isNew ? '#22D3EE' : '#F87171' }}>
+                                  {isNew ? 'NEW' : 'REMOVED'}
+                                </span>
+                              )
+                            })()}
+                          </div>
                         </td>
                         {sides.length > 1 && (
                           <td className="text-[10px] whitespace-nowrap">
