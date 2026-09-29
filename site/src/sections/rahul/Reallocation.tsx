@@ -21,6 +21,7 @@ import { readHoldingsFile, type UploadInfo, type UploadedRow } from '../../utils
 import { fmtPct, retColor } from '../../utils/format'
 import { inputStyle, type MfLine } from './ClientPlan'
 import SuggestedEditor from '../../components/SuggestedEditor'
+import { SipChanges, SwitchPlan, type SwitchRow } from '../../components/ActionPlan'
 import type { FundsIndex } from '../../types'
 
 interface Realloc {
@@ -31,6 +32,10 @@ interface Realloc {
   rows: UploadedRow[]
   proposed: MfLine[]
   sif: SifLine[]
+  /** Suggested SIP per fund (only funds whose SIP was changed or started). */
+  sipPlan?: Record<string, number | null>
+  /** Switches and STPs that carry out the reallocation. */
+  moves?: SwitchRow[]
 }
 const STORE = 'rahul_realloc_v1'
 const EMPTY: Realloc = { client: '', file: null, rows: [], proposed: [], sif: [] }
@@ -105,6 +110,13 @@ export default function Reallocation() {
     }).sort((a, b) => ['Exit', 'Reduce', 'Keep', 'Add', 'New'].indexOf(a.action) - ['Exit', 'Reduce', 'Keep', 'Add', 'New'].indexOf(b.action) || b.ex - a.ex)
   }, [existing, cur.proposed])
   const soldTotal = switches.reduce((s, x) => s + x.sold, 0)
+  // Existing SIPs by fund (from the upload, or typed in), and how much each fund moves in the suggestion.
+  const existingSip = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const r of cur.rows) if (!r.skip && r.code && r.sip) m.set(r.code, (m.get(r.code) ?? 0) + r.sip)
+    return m
+  }, [cur.rows])
+  const fundChanges = useMemo(() => new Map(switches.map(x => [x.code, x.pr - x.ex])), [switches])
   const gainTotal = switches.every(x => x.gain != null || x.sold === 0) ? switches.reduce((s, x) => s + (x.gain ?? 0), 0) : null
   const boughtTotal = switches.reduce((s, x) => s + x.bought, 0)
   const sellCount = switches.filter(x => x.sold > 0).length
@@ -401,6 +413,19 @@ export default function Reallocation() {
         </PdfSection>
       )}
 
+
+      {/* ── action plan: SIP changes, switches and STPs ── */}
+      {(existing.size > 0 || cur.proposed.length > 0) && (
+        <PdfSection id="actions" page label="Action plan (SIP changes, switches & STPs)" kicker="What to do" title="Action Plan — SIPs, Switches &amp; STPs">
+          <div className="card p-4 mb-4">
+            <SipChanges existing={existingSip} suggested={cur.sipPlan ?? {}} onChange={sipPlan => update({ sipPlan })} inputStyle={inputStyle} />
+          </div>
+          <div className="card p-4 mb-4">
+            <SwitchPlan rows={cur.moves ?? []} onChange={moves => update({ moves })} changes={fundChanges} inputStyle={inputStyle}
+                        fromFunds={[...new Set([...existing.keys(), ...cur.proposed.map(l => l.code)])]} />
+          </div>
+        </PdfSection>
+      )}
 
       <PortfolioReview title="Mutual funds — existing vs suggested" sides={[
         { label: 'Existing', colour: EX_COLOUR, lines: [...existing.entries()].map(([code, x]) => ({ code, amount: x.value })) },
