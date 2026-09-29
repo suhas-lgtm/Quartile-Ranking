@@ -80,6 +80,10 @@ export default function HeroHeader({
             {navBtn('📈 Mutual Funds', space === 'mf', onGoMutualFunds, 'The main mutual fund dashboard')}
             {navBtn('🧭 SIF', space === 'sif', onGoSif, 'Specialised Investment Funds')}
             {navBtn('👥 Employees', space.startsWith('person:'), () => onOpenDrawer('people'), 'Pages for each team member')}
+            {navBtn('🔒 Lock', false, () => {
+              // Sign out of the dashboard password (server/siteGate.ts); the reload shows the opening page.
+              fetch('/api/site-logout', { method: 'POST', credentials: 'same-origin' }).finally(() => location.reload())
+            }, 'Sign out — the password is needed again on this device')}
           </div>
         </div>
 

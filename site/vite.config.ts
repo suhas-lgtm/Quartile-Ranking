@@ -6,6 +6,7 @@ import { route, readFile } from './server/neonFiles'
 import { handleAuth, isProtected, readCookie, sessionValid, SESSION_COOKIE } from './server/auth'
 import { handleBlacklist } from './server/lists'
 import { handleHoldings, handleNav, handleSeries } from './server/navLookup'
+import { siteGate } from './server/siteGate'
 
 // Dev mirrors what the Netlify function does in production: /data/* and
 // /live/indices/* are answered from Neon's `files` table, which the pipeline
@@ -53,9 +54,24 @@ function hasLocal(pathname: string): boolean {
 function neonData(): Plugin {
   const databaseUrl = readEnv('DATABASE_URL')
   const password = readEnv('WHITELIST_PASSWORD')
+  const sitePassword = readEnv('SITE_PASSWORD')
   return {
     name: 'neon-data',
     configureServer(server) {
+      // The dashboard password (server/siteGate.ts), first so nothing is served around it —
+      // the same gate as functions/_middleware.ts in production. Vite's own module
+      // requests (/@vite, /src, /node_modules) are the app itself and need the login too.
+      server.middlewares.use(async (req, res, next) => {
+        const pathname = (req.url ?? '').split('?')[0]
+        const out = await siteGate({
+          pathname, method: req.method ?? 'GET', cookie: req.headers.cookie, accept: req.headers.accept,
+          readBody: () => new Promise<string>(resolve => { let b = ''; req.on('data', c => { b += c }); req.on('end', () => resolve(b)) }),
+        }, { password: sitePassword, salt: databaseUrl }, false)
+        if (!out) return next()
+        res.statusCode = out.status
+        for (const [k, v] of Object.entries(out.headers)) res.setHeader(k, v)
+        res.end(out.body)
+      })
       if (!databaseUrl || databaseUrl.includes('YOUR-')) {
         console.warn('[vite] DATABASE_URL is not set in ../.env — /data requests will 404 '
           + 'until you add your Neon connection string there.')
