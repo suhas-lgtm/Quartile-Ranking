@@ -8,9 +8,13 @@
 // every purchase as an outflow and the end value as the inflow. NAVs come from
 // /api/nav (server/navLookup.ts). Saved in this browser.
 
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import OverlapMatrix from '../components/OverlapMatrix'
 import LookThrough, { useLookThrough } from '../components/LookThrough'
+import CapSplit, { capSplit, useStockCaps } from '../components/CapSplit'
+import { flowsIntoIndex, indexTrailing, TRAILING, useIndexSeries } from '../utils/benchmark'
+import { categoryPath } from '../config/dataPaths'
+import type { RiskData, RiskFundRow } from '../types'
 import CorrelationMatrix, { type NavSeries } from '../components/CorrelationMatrix'
 import FundPicker, { bestFund } from '../components/FundPicker'
 import { useJson, useMeta } from '../hooks/useData'
@@ -456,6 +460,7 @@ function PortfolioEditor({ storeKey, label }: { storeKey: string; label: string 
       <CorrelationMatrix funds={pf.holdings.map(h => ({ code: h.code, name: fundByCode.get(h.code)?.n ?? h.code, series: series[h.code] }))} />
       <OverlapMatrix funds={pf.holdings.map(h => ({ code: h.code, name: fundByCode.get(h.code)?.n ?? h.code }))} />
       <LookThrough funds={results.filter(r => r.value > 0).map(r => ({ code: r.h.code, name: r.name, value: r.value }))} />
+      <PortfolioVsBenchmark flows={results.flatMap(r => r.flows.filter(f => f.amount < 0))} tot={tot} end={end} />
       <p className="text-[11px]" style={{ color: 'var(--text-low)' }}>
         A SIP buys once a month on the same day, from its start date up to the “Value as of” date (at most 10 years).
         Units bought = amount ÷ NAV on or before the purchase date. Value = units × NAV on or before the “Value as of”
@@ -512,6 +517,12 @@ function PortfolioCompare() {
   const B = usePortfolioCalc(b, latest, fundByCode)
   const ltA = useLookThrough(A.results.filter(r => r.value > 0).map(r => ({ code: r.h.code, name: r.name, value: r.value })))
   const ltB = useLookThrough(B.results.filter(r => r.value > 0).map(r => ({ code: r.h.code, name: r.name, value: r.value })))
+  const risk = useFundRisk([...new Set([...a.holdings, ...b.holdings].map(h => h.code))], fundByCode)
+  const caps = useStockCaps()
+  const [benchId, setBenchId] = useBenchmarkChoice()
+  const benchSeries = useIndexSeries(benchId)
+  const bench = useMemo(() => indexTrailing(benchSeries), [benchSeries])
+  const benchName = meta?.benchmarks.find(x => x.index_id === benchId)?.index_name ?? 'Index'
 
   if (!a.holdings.length || !b.holdings.length) {
     return (
@@ -555,7 +566,47 @@ function PortfolioCompare() {
 
   return (
     <section className="px-4 sm:px-6 py-6 max-w-screen-2xl mx-auto">
-      <div className="section-header"><span>Portfolio A vs Portfolio B</span></div>
+      <div className="section-header">
+        <span>Portfolio A vs Portfolio B</span>
+        <span className="ml-auto flex items-center gap-2 text-xs" style={{ color: 'var(--text-mid)' }}>
+          Benchmark <BenchmarkPicker id={benchId} onChange={setBenchId} />
+        </span>
+      </div>
+
+      <div className="text-xs font-semibold mb-2" style={{ color: 'var(--text-mid)' }}>
+        The funds, as they stand today — trailing returns and 3Y ratios, no purchase dates involved
+      </div>
+      <FundsSideBySide title="Portfolio A" colour="#22D3EE" calc={A} risk={risk} bench={bench} benchName={benchName} />
+      <FundsSideBySide title="Portfolio B" colour="#F59E0B" calc={B} risk={risk} bench={bench} benchName={benchName} />
+
+      <div className="grid gap-4 lg:grid-cols-2 mb-4">
+        {([['Portfolio A', ltA, '#22D3EE'], ['Portfolio B', ltB, '#F59E0B']] as const).map(([t, lt, c]) => {
+          const sec = new Map<string, number>()
+          for (const r of lt.rows) sec.set(r.sector || r.industry || 'Other', (sec.get(r.sector || r.industry || 'Other') ?? 0) + r.weight)
+          const top = [...sec.entries()].sort((x, y) => y[1] - x[1]).slice(0, 8)
+          return (
+            <div key={t} className="card p-4">
+              <div className="font-display font-bold text-sm mb-2" style={{ color: c }}>{t} — market cap &amp; sectors</div>
+              <CapSplit split={capSplit(lt.rows, caps)} period={caps?.period} compact />
+              <div className="mt-3">
+                {top.map(([k, v]) => (
+                  <div key={k} className="flex items-center gap-2 text-[11px] py-0.5">
+                    <span className="truncate" style={{ width: 150, color: 'var(--text-mid)' }}>{k}</span>
+                    <div className="flex-1 h-2 rounded" style={{ background: 'var(--bg-raised)' }}>
+                      <div className="h-2 rounded" style={{ width: `${Math.min(100, (v / (top[0]?.[1] || 1)) * 100)}%`, background: c }} />
+                    </div>
+                    <span className="ret-cell" style={{ width: 44 }}>{(v * 100).toFixed(1)}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="text-xs font-semibold mb-2" style={{ color: 'var(--text-mid)' }}>
+        The portfolios as built — with their purchase dates and amounts
+      </div>
       <div className="grid gap-4 lg:grid-cols-2 mb-4">
         <div className="card overflow-hidden">
           <table className="data-table">
@@ -625,5 +676,177 @@ function PortfolioCompare() {
         <LookThrough funds={B.results.filter(r => r.value > 0).map(r => ({ code: r.h.code, name: r.name, value: r.value }))} title="Portfolio B — holdings" />
       </div>
     </section>
+  )
+}
+
+
+// ── Benchmark ────────────────────────────────────────────────────────────────
+
+const BENCH_KEY = 'pb_bench_v1'
+
+function useBenchmarkChoice() {
+  const [id, setId] = useState<number>(() => { try { return Number(localStorage.getItem(BENCH_KEY)) || 5 } catch { return 5 } })
+  useEffect(() => { try { localStorage.setItem(BENCH_KEY, String(id)) } catch { /* optional */ } }, [id])
+  return [id, setId] as const
+}
+
+function BenchmarkPicker({ id, onChange }: { id: number; onChange: (id: number) => void }) {
+  const { data: meta } = useMeta()
+  const list = [...(meta?.benchmarks ?? [])].sort((a, b) => a.index_name.localeCompare(b.index_name))
+  return (
+    <select value={id} onChange={e => onChange(Number(e.target.value))} className="px-2 py-1 rounded text-xs"
+            style={{ background: 'var(--bg-raised)', border: '1px solid var(--line)', color: 'var(--text-hi)' }}
+            title="Any index the dashboard holds">
+      {list.map(b => <option key={b.index_id} value={b.index_id}>{b.index_name}</option>)}
+    </select>
+  )
+}
+
+/** The same purchases and SIP instalments, on the same dates, put into an index instead. */
+function PortfolioVsBenchmark({ flows, tot, end }: {
+  flows: { date: string; amount: number }[]
+  tot: { invested: number; value: number; gain: number; ret: number | null; irr: number | null }
+  end: string
+}) {
+  const { data: meta } = useMeta()
+  const [id, setId] = useBenchmarkChoice()
+  const series = useIndexSeries(id)
+  const idx = useMemo(() => flowsIntoIndex(flows, series, end), [flows, series, end])
+  if (!flows.length || !tot.invested) return null
+  const name = meta?.benchmarks.find(b => b.index_id === id)?.index_name ?? 'Index'
+  const diff = tot.irr != null && idx?.irr != null ? tot.irr - idx.irr : null
+  const row = (label: string, a: string, b: string, good?: boolean | null) => (
+    <tr key={label}>
+      <td className="sticky-col text-xs">{label}</td>
+      <td className="ret-cell text-xs font-semibold" style={{ color: good === true ? '#34D399' : undefined }}>{a}</td>
+      <td className="ret-cell text-xs font-semibold" style={{ color: good === false ? '#34D399' : undefined }}>{b}</td>
+    </tr>
+  )
+  return (
+    <div className="card p-4 mb-4">
+      <div className="flex items-center gap-3 flex-wrap mb-2">
+        <div className="font-display font-bold text-sm" style={{ color: 'var(--text-hi)' }}>Portfolio vs Benchmark</div>
+        <BenchmarkPicker id={id} onChange={setId} />
+        {diff != null && (
+          <span className="text-xs ml-auto font-semibold" style={{ color: diff >= 0 ? '#34D399' : '#F87171' }}>
+            {diff >= 0 ? 'Beat' : 'Trailed'} {name} by {(Math.abs(diff) * 100).toFixed(2)}% a year
+          </span>
+        )}
+      </div>
+      {!series ? <div className="skeleton h-20 w-full" /> : !idx ? (
+        <div className="text-xs" style={{ color: 'var(--text-low)' }}>{name} has no data for these dates.</div>
+      ) : (
+        <table className="data-table">
+          <thead><tr><th className="sticky-col text-left">Same money, same dates</th>
+            <th style={{ textAlign: 'right' }}>This portfolio</th><th style={{ textAlign: 'right' }}>{name}</th></tr></thead>
+          <tbody>
+            {row('Invested', inr(tot.invested), inr(idx.invested))}
+            {row(`Value on ${fmtDate(end)}`, inr(tot.value), inr(idx.value), tot.value === idx.value ? null : tot.value > idx.value)}
+            {row('Gain', inr(tot.gain), inr(idx.gain), tot.gain === idx.gain ? null : tot.gain > idx.gain)}
+            {row('Absolute return', fmtPct(tot.ret), fmtPct(idx.ret), tot.ret == null ? null : tot.ret > idx.ret)}
+            {row('XIRR (annualised)', tot.irr == null ? '—' : fmtPct(tot.irr), idx.irr == null ? '—' : fmtPct(idx.irr),
+                 tot.irr == null || idx.irr == null ? null : tot.irr > idx.irr)}
+          </tbody>
+        </table>
+      )}
+      <p className="text-[11px] mt-2" style={{ color: 'var(--text-low)' }}>
+        Every purchase and SIP instalment of this portfolio, on its own date, is put into {name} instead (at the index close on
+        or before that date), and valued on the same “Value as of” date. Index levels are price returns — no dividends — so a
+        total-return index would be slightly higher.{idx?.skipped ? ` ${idx.skipped} instalment(s) fell before the index history and were left out.` : ''}
+      </p>
+    </div>
+  )
+}
+
+// ── Fund returns & ratios side by side (no dates) ────────────────────────────
+
+/** Each fund's row in its category's risk file (trailing returns and ratios). */
+function useFundRisk(codes: string[], fundByCode: Map<string, FundsIndex['funds'][number]>) {
+  const [rows, setRows] = useState<Record<string, RiskFundRow | null>>({})
+  const slugs = [...new Set(codes.map(c => fundByCode.get(c)?.s).filter((x): x is string => !!x))]
+  useEffect(() => {
+    for (const slug of slugs) {
+      categoryPath(slug, 'risk.json').then(pth => fetch(`/data/${pth}`)).then(r => (r.ok ? r.json() : null))
+        .then((d: RiskData | null) => {
+          if (!d) return
+          setRows(prev => {
+            const next = { ...prev }
+            for (const f of d.funds) if (codes.includes(f.scheme_code)) next[f.scheme_code] = f
+            return next
+          })
+        }).catch(() => { /* not published for this category */ })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slugs.join(','), codes.join(',')])
+  return rows
+}
+
+const RET_KEYS: [string, string][] = [['1M', '1M'], ['3M', '3M'], ['6M', '6M'], ['1Y', '12M'], ['3Y', '3Y'], ['5Y', '5Y']]
+const RATIO_KEYS: [string, (r: RiskFundRow) => number | null, (v: number) => string][] = [
+  ['Sharpe', r => r.sharpe, v => v.toFixed(2)],
+  ['Std Dev', r => r.std_annual, v => `${(v * 100).toFixed(1)}%`],
+  ['Alpha', r => (r.alpha == null ? null : r.alpha * 100), v => v.toFixed(2)],
+  ['Beta', r => r.beta, v => v.toFixed(2)],
+  ['Max DD', r => r.max_drawdown, v => `${(v * 100).toFixed(1)}%`],
+]
+
+function FundsSideBySide({ title, colour, calc, risk, bench, benchName }: {
+  title: string; colour: string; calc: Calc; risk: Record<string, RiskFundRow | null>
+  bench: Record<string, number | null>; benchName: string
+}) {
+  const total = calc.results.reduce((s, r) => s + (r.value > 0 ? r.value : 0), 0)
+  const weight = (v: number) => (total ? v / total : 0)
+  const weighted = (get: (r: RiskFundRow) => number | null) => {
+    let s = 0, w = 0
+    for (const r of calc.results) {
+      const row = risk[r.h.code], v = row ? get(row) : null
+      if (v == null || !(r.value > 0)) continue
+      s += v * r.value; w += r.value
+    }
+    return w ? s / w : null
+  }
+  const cell = (v: number | null, f: (v: number) => string, colourIt = false) =>
+    <td className={`ret-cell text-xs ${colourIt ? retColor(v) : ''}`}>{v == null ? '—' : f(v)}</td>
+  return (
+    <div className="card overflow-hidden mb-4">
+      <div className="px-4 pt-3 font-display font-bold text-sm" style={{ color: colour }}>{title}</div>
+      <div className="table-scroll">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th className="sticky-col text-left" style={{ minWidth: 220 }}>Fund</th>
+              <th style={{ textAlign: 'right' }} title="Share of the portfolio's value">Weight</th>
+              {RET_KEYS.map(([l]) => <th key={l} style={{ textAlign: 'right' }}>{l}</th>)}
+              {RATIO_KEYS.map(([l]) => <th key={l} style={{ textAlign: 'right' }}>{l}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {calc.results.map(r => {
+              const row = risk[r.h.code]
+              return (
+                <tr key={r.h.code}>
+                  <td className="sticky-col text-xs truncate" style={{ maxWidth: 260 }}><FundLink code={r.h.code} name={r.name} /></td>
+                  <td className="ret-cell text-xs">{(weight(r.value) * 100).toFixed(1)}%</td>
+                  {RET_KEYS.map(([l, k]) => cell(row?.returns?.[k as keyof RiskFundRow['returns']] ?? null, fmtPct, true))}
+                  {RATIO_KEYS.map(([l, get, f]) => <td key={l} className="ret-cell text-xs">{row && get(row) != null ? f(get(row)!) : '—'}</td>)}
+                </tr>
+              )
+            })}
+            <tr className="benchmark-row">
+              <td className="sticky-col text-xs font-bold" style={{ color: colour }}>Portfolio (weighted)</td>
+              <td className="ret-cell text-xs font-bold">100%</td>
+              {RET_KEYS.map(([l, k]) => <Fragment key={l}>{cell(weighted(r => r.returns?.[k as keyof RiskFundRow['returns']] ?? null), fmtPct, true)}</Fragment>)}
+              {RATIO_KEYS.map(([l, get, f]) => <Fragment key={l}>{cell(weighted(get), f)}</Fragment>)}
+            </tr>
+            <tr className="benchmark-row">
+              <td className="sticky-col text-xs font-semibold" style={{ color: 'var(--accent-a)' }}>Benchmark · {benchName}</td>
+              <td className="ret-cell text-xs">—</td>
+              {RET_KEYS.map(([l]) => <Fragment key={l}>{cell(bench[l] ?? null, fmtPct, true)}</Fragment>)}
+              {RATIO_KEYS.map(([l]) => <td key={l} className="ret-cell text-xs">—</td>)}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   )
 }

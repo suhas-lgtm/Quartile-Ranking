@@ -1973,6 +1973,14 @@ def main():
             build_calendar(conn, slug)
     build_amfi_extras()
     build_sif()
+    try:                                   # SEBI Large/Mid/Small Cap per stock (scripts/stock_caps.py)
+        from scripts import stock_caps
+        caps = stock_caps.fetch()
+        if caps:
+            write_json(out("stock_caps.json"), caps)
+            log.info("✓ stock_caps.json (%d stocks, %s)", len(caps["caps"]), caps["period"])
+    except Exception as exc:
+        log.warning("stock_caps.json skipped (%s)", exc)
     try:                                   # IDCW payouts, derived from NAVs (scripts/dividends.py)
         from scripts import dividends
         slugs = {slug for _, slug, ac in categories if ac in ("Equity", "Hybrid")}

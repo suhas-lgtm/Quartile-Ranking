@@ -9,6 +9,7 @@
 // returns, ratios, quartiles and rules from the files the build published.
 
 import { useEffect, useMemo, useState } from 'react'
+import CapSplit, { capSplit, useStockCaps } from './CapSplit'
 import ReactECharts from 'echarts-for-react'
 import { useIndices, useJson, useMeta } from '../hooks/useData'
 import { categoryPath } from '../config/dataPaths'
@@ -62,7 +63,8 @@ function FundPanel({ code, onClose }: { code: string; onClose: () => void }) {
     () => categoryPath(slug, `quartiles_${qMode}.json`), slug ? `fd-q:${slug}:${qMode}` : '')
   const { data: black } = useJson<BlacklistData>('blacklist.json')
   const [series, setSeries] = useState<Series | null>(null)
-  const [holdings, setHoldings] = useState<{ month: string | null; holdings: { name: string; industry: string; pct: number;
+  const caps = useStockCaps()
+  const [holdings, setHoldings] = useState<{ month: string | null; holdings: { isin: string; name: string; industry: string; pct: number;
                                                                           asset_class?: string; sector?: string | null }[] } | null>(null)
   const [allHoldings, setAllHoldings] = useState(false)
   const [range, setRange] = useState<Range>('3Y')
@@ -321,6 +323,8 @@ function FundPanel({ code, onClose }: { code: string; onClose: () => void }) {
                         </button>
                       )}
                     </div>
+                    <CapSplit split={capSplit(hs.map(h => ({ isin: h.isin, weight: h.pct, asset_class: h.asset_class })), caps)}
+                              period={caps?.period} />
                     {sectors.length > 0 && (
                       <div className="mt-3">
                         <div className="text-xs font-semibold mb-1" style={{ color: 'var(--text-mid)' }}>Sectors</div>

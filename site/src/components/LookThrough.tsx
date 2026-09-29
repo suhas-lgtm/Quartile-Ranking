@@ -6,6 +6,7 @@
 // (Balanced Advantage, Multi Asset) are listed and left out of the weights.
 
 import { Fragment, useEffect, useMemo, useState } from 'react'
+import CapSplit, { capSplit, useStockCaps } from './CapSplit'
 
 type Raw = { isin: string; name: string; industry: string; pct: number; asset_class?: string; sector?: string | null }
 export interface LookRow {
@@ -64,6 +65,7 @@ export default function LookThrough({ funds, title = 'Portfolio holdings (look-t
   title?: string
 }) {
   const lt = useLookThrough(funds)
+  const caps = useStockCaps()
   const [all, setAll] = useState(false)
   const [open, setOpen] = useState<string | null>(null)
   if (!funds.length) return null
@@ -137,7 +139,8 @@ export default function LookThrough({ funds, title = 'Portfolio holdings (look-t
             )}
           </div>
           <div>
-            <div className="text-xs font-semibold mb-1" style={{ color: 'var(--text-mid)' }}>Sectors</div>
+            <CapSplit split={capSplit(lt.rows, caps)} period={caps?.period} compact={false} />
+            <div className="text-xs font-semibold mb-1 mt-3" style={{ color: 'var(--text-mid)' }}>Sectors</div>
             {sectors.map(([k, v]) => (
               <div key={k} className="flex items-center gap-2 text-[11px] py-0.5">
                 <span className="truncate" style={{ width: 140, color: 'var(--text-mid)' }} title={k}>{k}</span>
