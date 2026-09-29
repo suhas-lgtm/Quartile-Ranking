@@ -1420,3 +1420,18 @@ h1, h2, h3, h4, h5, h6 {
 /* Fund names that open the fund page (components/FundLink). */
 .fund-link { text-decoration: underline dotted transparent; text-underline-offset: 3px; transition: color 120ms, text-decoration-color 120ms; }
 .fund-link:hover { color: var(--accent-a); text-decoration-color: var(--accent-a); }
+
+/* ── PDF download (components/PdfSections.tsx) ── */
+@media print {
+  @page { size: A4 landscape; margin: 10mm; }
+  html, body { background: #fff !important; }
+  header, nav, .print\:hidden, .no-print { display: none !important; }
+  main { padding-top: 0 !important; }
+  .pdf-off { display: none !important; }
+  .pdf-hide-ret .col-ret, .pdf-hide-sip .col-sip, .pdf-hide-ratio .col-ratio, .pdf-hide-aum .col-aum { display: none !important; }
+  .table-scroll { overflow: visible !important; max-height: none !important; }
+  .card { break-inside: avoid; box-shadow: none !important; }
+  .data-table { font-size: 9px; }
+  .sticky-col { position: static !important; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

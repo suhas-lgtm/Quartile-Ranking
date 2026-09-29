@@ -8,6 +8,7 @@
 // one side the tables show a single column; with two, the change as well.
 
 import { Fragment, useEffect, useMemo, useState } from 'react'
+import { PdfSection } from './PdfSections'
 import { industryLine, sectorBreakdown } from './SectorBars'
 import { useJson, useMeta } from '../hooks/useData'
 import FundLink from './FundLink'
@@ -192,6 +193,7 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
       </div>
 
       {/* ── summary ── */}
+      <PdfSection id="summary" label="Summary (incl. stocks going out / coming in)">
       <ValueTable title="Summary" cols={cols} two={two} rows={[
         { label: 'Amount', vals: shown.map(x => inr(total(x.s))) },
         { label: 'Number of funds', vals: shown.map(x => String(priced(x.s).length)) },
@@ -209,7 +211,9 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
                                        out={onlyIn(shown[0].lt.rows, shown[1].lt.rows).length}
                                        inn={onlyIn(shown[1].lt.rows, shown[0].lt.rows).length}
                                        overlap={stockOverlap(shown[0].lt.rows, shown[1].lt.rows)} /> : null} />
+      </PdfSection>
 
+      <PdfSection id="alloc" label="Market cap, asset class & category allocation">
       <div className="grid gap-4 lg:grid-cols-2">
         <SplitTable cols={cols} two={two} title="Market cap & asset class" note="% of the whole portfolio · SEBI Large/Mid/Small (AMFI list)"
           rows={(() => {
@@ -229,13 +233,17 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
             return [k, v, slug ? categoryColor(slug) : undefined] as [string, number[], string?]
           })} />
       </div>
+      </PdfSection>
 
+      <PdfSection id="sector" label="Sector allocation (with industries)">
       <SplitTable cols={cols} two={two}
         sub={Object.fromEntries(sectorBreakdown(focus.lt.rows).map(g => [g.sector, industryLine(g)]))}
         title="Sector allocation" note="Equity holdings through the funds, % of the whole portfolio · industries in each sector underneath"
         rows={rowsFor(x => sectorSplit(x.lt.rows)).slice(0, 20).map(([k, ...v]) => [k, v] as [string, number[]])} />
+      </PdfSection>
 
       {/* ── returns & ratios ── */}
+      <PdfSection id="returns" label="Returns, SIP returns & ratios (weighted, vs benchmark)">
       <div className="card overflow-hidden mb-4">
         <div className="px-4 pt-3 flex items-center flex-wrap gap-2">
           <span className="font-display font-bold text-sm" style={{ color: 'var(--text-hi)' }}>Returns &amp; ratios (weighted by amount)</span>
@@ -260,7 +268,7 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
               {FUND_RET.map(([l, k]) => {
                 const v = cols.map(s => weighted(s, r => r.returns?.[k] ?? null))
                 return (
-                  <tr key={l}>
+                  <tr key={l} className="col-ret">
                     <td className="sticky-col text-xs">{l} return{['3Y', '5Y', '10Y'].includes(l) ? ' (p.a.)' : ''}</td>
                     {v.map((x, i) => <td key={i} className={`ret-cell text-xs ${retColor(x)}`}>{fmtPct(x)}</td>)}
                     {two && <td className="ret-cell text-xs">{v[0] != null && v[1] != null ? <Delta v={v[1] - v[0]} good="up" /> : '—'}</td>}
@@ -271,7 +279,7 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
               {FUND_SIP.map(([l, k]) => {
                 const v = cols.map(s => weighted(s, r => r.sip?.[k] ?? null))
                 return (
-                  <tr key={l}>
+                  <tr key={l} className="col-sip">
                     <td className="sticky-col text-xs">{l} (XIRR)</td>
                     {v.map((x, i) => <td key={i} className={`ret-cell text-xs ${retColor(x)}`}>{fmtPct(x)}</td>)}
                     {two && <td className="ret-cell text-xs">{v[0] != null && v[1] != null ? <Delta v={v[1] - v[0]} good="up" /> : '—'}</td>}
@@ -283,7 +291,7 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
                 const v = cols.map(s => weighted(s, get))
                 const d = two && v[0] != null && v[1] != null ? v[1] - v[0] : null
                 return (
-                  <tr key={l}>
+                  <tr key={l} className="col-ratio">
                     <td className="sticky-col text-xs">{l}</td>
                     {v.map((x, i) => <td key={i} className="ret-cell text-xs">{x == null ? '—' : f(x)}</td>)}
                     {two && (
@@ -303,8 +311,10 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
           </table>
         </div>
       </div>
+      </PdfSection>
 
       {/* ── top holdings ── */}
+      <PdfSection id="holdings" label="Top holdings">
       <div className={`grid gap-4 mb-4 ${two ? 'lg:grid-cols-2' : ''}`}>
         {shown.map(({ s, i, lt }) => (
           <div key={i} className="card p-4">
@@ -340,12 +350,16 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
           </div>
         ))}
       </div>
+      </PdfSection>
 
-      {two && <StockChanges a={shown[0]} b={shown[1]} />}
+      {two && <PdfSection id="stocks" label="Stocks increased / reduced"><StockChanges a={shown[0]} b={shown[1]} /></PdfSection>}
 
-      <ComparativeAnalysis sides={shown.map(x => x.s)} risk={risk} riskFiles={riskFiles} fundByCode={fundByCode} asOf={asOf ?? null} />
+      <PdfSection id="comparative" label="Comparative analysis (fund vs category vs benchmark)">
+        <ComparativeAnalysis sides={shown.map(x => x.s)} risk={risk} riskFiles={riskFiles} fundByCode={fundByCode} asOf={asOf ?? null} />
+      </PdfSection>
 
       {/* ── fund level ── */}
+      <PdfSection id="funds" label="Fund tables (each fund's returns & ratios)">
       {shown.map(({ s, i }) => (
         <div key={i} className="card overflow-hidden mb-4">
           <div className="px-4 pt-3 font-display font-bold text-sm" style={{ color: s.colour }}>{s.label} — funds</div>
@@ -354,10 +368,10 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
               <thead><tr>
                 <th className="sticky-col text-left">Fund</th>
                 <th style={{ textAlign: 'right' }}>Amount</th><th style={{ textAlign: 'right' }}>Weight</th>
-                {FUND_RET.map(([l]) => <th key={l} style={{ textAlign: 'right' }}>{l}</th>)}
-                {FUND_SIP.map(([l]) => <th key={l} style={{ textAlign: 'right' }}>{l}</th>)}
-                {FUND_RATIO.map(([l]) => <th key={l} style={{ textAlign: 'right' }}>{l}</th>)}
-                <th style={{ textAlign: 'right' }}>AUM (₹ Cr)</th>
+                {FUND_RET.map(([l]) => <th key={l} className="col-ret" style={{ textAlign: 'right' }}>{l}</th>)}
+                {FUND_SIP.map(([l]) => <th key={l} className="col-sip" style={{ textAlign: 'right' }}>{l}</th>)}
+                {FUND_RATIO.map(([l]) => <th key={l} className="col-ratio" style={{ textAlign: 'right' }}>{l}</th>)}
+                <th className="col-aum" style={{ textAlign: 'right' }}>AUM (₹ Cr)</th>
               </tr></thead>
               <tbody>
                 {priced(s).map(l => {
@@ -370,10 +384,10 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
                       </td>
                       <td className="ret-cell text-xs">{inr(l.amount!)}</td>
                       <td className="ret-cell text-xs font-semibold">{t ? pct1(l.amount! / t) : '—'}</td>
-                      {FUND_RET.map(([lb, k]) => <td key={lb} className={`ret-cell text-xs ${retColor(r?.returns?.[k] ?? null)}`}>{fmtPct(r?.returns?.[k] ?? null)}</td>)}
-                      {FUND_SIP.map(([lb, k]) => <td key={lb} className={`ret-cell text-xs ${retColor(r?.sip?.[k] ?? null)}`}>{fmtPct(r?.sip?.[k] ?? null)}</td>)}
-                      {FUND_RATIO.map(([lb, get, fm]) => { const v = r ? get(r) : null; return <td key={lb} className="ret-cell text-xs">{v == null ? '—' : fm(v)}</td> })}
-                      <td className="ret-cell text-xs">{r?.aum_cr == null ? '—' : Math.round(r.aum_cr).toLocaleString('en-IN')}</td>
+                      {FUND_RET.map(([lb, k]) => <td key={lb} className={`col-ret ret-cell text-xs ${retColor(r?.returns?.[k] ?? null)}`}>{fmtPct(r?.returns?.[k] ?? null)}</td>)}
+                      {FUND_SIP.map(([lb, k]) => <td key={lb} className={`col-sip ret-cell text-xs ${retColor(r?.sip?.[k] ?? null)}`}>{fmtPct(r?.sip?.[k] ?? null)}</td>)}
+                      {FUND_RATIO.map(([lb, get, fm]) => { const v = r ? get(r) : null; return <td key={lb} className="col-ratio ret-cell text-xs">{v == null ? '—' : fm(v)}</td> })}
+                      <td className="col-aum ret-cell text-xs">{r?.aum_cr == null ? '—' : Math.round(r.aum_cr).toLocaleString('en-IN')}</td>
                     </tr>
                   )
                 })}
@@ -382,6 +396,7 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
           </div>
         </div>
       ))}
+      </PdfSection>
 
       {debtLeftOut > 0 && (
         <p className="text-[11px] mb-2" style={{ color: 'var(--text-low)' }}>
@@ -390,8 +405,8 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
       )}
       {focusFunds.length > 1 && (
         <>
-          <CorrelationMatrix funds={focusFunds.map(f => ({ ...f, series: series[f.code] }))} />
-          <OverlapMatrix funds={focusFunds} />
+          <PdfSection id="correlation" label="Correlation between funds"><CorrelationMatrix funds={focusFunds.map(f => ({ ...f, series: series[f.code] }))} /></PdfSection>
+          <PdfSection id="overlap" label="Portfolio overlap between funds"><OverlapMatrix funds={focusFunds} /></PdfSection>
         </>
       )}
 

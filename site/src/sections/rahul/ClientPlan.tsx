@@ -10,6 +10,7 @@
 // in this browser, one per client.
 
 import { useEffect, useMemo, useState } from 'react'
+import { PdfButton, PdfProvider, PdfSection } from '../../components/PdfSections'
 import { useJson } from '../../hooks/useData'
 import FundPicker from '../../components/FundPicker'
 import FundLink from '../../components/FundLink'
@@ -164,6 +165,7 @@ export default function ClientPlan() {
   }
 
   return (
+    <PdfProvider pageKey="rahul-plan">
     <section id="client-plan" className="px-4 sm:px-6 py-6 max-w-screen-2xl mx-auto">
       <div className="section-header">
         <span>Client Plan</span>
@@ -180,11 +182,12 @@ export default function ClientPlan() {
               setStore(s => { const plans = { ...s.plans }; delete plans[s.current]; return { current: '', plans: { '': EMPTY, ...plans } } })
             }}>Delete</button>
           )}
-          <button className="tab-btn" onClick={() => window.print()}>Print / PDF</button>
+          <PdfButton title={plan.client || 'Client Plan'} />
         </span>
       </div>
 
       {/* ── the plan ── */}
+      <PdfSection id="plan" label="Plan summary (client, lump sums, SIPs, MF vs SIF)">
       <div className="card p-4 mb-4">
         <div className="flex flex-wrap items-end gap-4">
           <label className="text-xs" style={{ color: 'var(--text-mid)' }}>Client
@@ -225,19 +228,25 @@ export default function ClientPlan() {
         </div>
       )}
 
+      </PdfSection>
+
       {/* ── mutual funds ── */}
+      <PdfSection id="mf-list" label="Mutual fund list (lump sum & SIP per fund)">
       <div className="card p-4 mb-4">
         <div className="font-display font-bold text-sm mb-2" style={{ color: MF_COLOUR }}>Mutual funds</div>
         <MfEditor lines={plan.mf} onChange={mf => update({ mf })} weightOf={w} />
       </div>
+      </PdfSection>
       <PortfolioReview title="Mutual funds — analysis"
                        sides={[{ label: 'Mutual funds', colour: MF_COLOUR, lines: plan.mf.map(l => ({ code: l.code, amount: w(l) || null })) }]} />
 
       {/* ── SIF ── */}
+      <PdfSection id="sif-list" label="SIF list (lump sum & SIP per strategy)">
       <div className="card p-4 mb-4 mt-6">
         <div className="font-display font-bold text-sm mb-2" style={{ color: SIF_COLOUR }}>SIF (Specialised Investment Funds)</div>
         <SifEditor lines={plan.sif} onChange={sif => update({ sif })} inputStyle={inputStyle} weightOf={w} />
       </div>
+      </PdfSection>
       {plan.sif.length > 0 && (
         <>
           <div className="section-header" style={{ marginTop: 8 }}><span>SIF — analysis</span></div>
@@ -245,5 +254,6 @@ export default function ClientPlan() {
         </>
       )}
     </section>
+    </PdfProvider>
   )
 }

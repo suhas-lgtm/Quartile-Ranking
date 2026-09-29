@@ -10,6 +10,7 @@
 // then the SIF part. Kept in this browser, one per client.
 
 import { useEffect, useMemo, useState } from 'react'
+import { PdfButton, PdfProvider, PdfSection } from '../../components/PdfSections'
 import { useJson } from '../../hooks/useData'
 import FundPicker from '../../components/FundPicker'
 import FundLink from '../../components/FundLink'
@@ -113,6 +114,7 @@ export default function Reallocation() {
   const setRow = (i: number, patch: Partial<UploadedRow>) => update({ rows: cur.rows.map((r, j) => (j === i ? { ...r, ...patch } : r)) })
 
   return (
+    <PdfProvider pageKey="rahul-realloc">
     <section id="reallocation" className="px-4 sm:px-6 py-6 max-w-screen-2xl mx-auto">
       <div className="section-header">
         <span>Portfolio Reallocation</span>
@@ -129,12 +131,12 @@ export default function Reallocation() {
               setStore(s => { const items = { ...s.items }; delete items[s.current]; return { current: '', items: { '': EMPTY, ...items } } })
             }}>Delete</button>
           )}
-          <button className="tab-btn" onClick={() => window.print()}>Print / PDF</button>
+          <PdfButton title={cur.client || 'Portfolio Reallocation'} />
         </span>
       </div>
 
       {/* ── upload ── */}
-      <div className="card p-4 mb-4">
+      <div className="card p-4 mb-4 print:hidden">
         <div className="flex flex-wrap items-end gap-4">
           <label className="text-xs" style={{ color: 'var(--text-mid)' }}>Client
             <input value={cur.client} onChange={e => update({ client: e.target.value })} placeholder="Client name"
@@ -155,6 +157,7 @@ export default function Reallocation() {
       </div>
 
       {cur.rows.length > 0 && (
+        <PdfSection id="existing" label="Existing holdings (from the upload)">
         <div className="card overflow-hidden mb-4">
           <div className="px-4 pt-3 flex items-center gap-3">
             <span className="font-display font-bold text-sm" style={{ color: EX_COLOUR }}>Existing holdings</span>
@@ -214,15 +217,19 @@ export default function Reallocation() {
             </table>
           </div>
         </div>
+        </PdfSection>
       )}
 
       {/* ── suggested portfolio ── */}
+      <PdfSection id="suggested" label="Suggested portfolio — mutual funds (changes)">
       <div className="card p-4 mb-4">
         <SuggestedEditor existing={[...existing.entries()].map(([code, x]) => ({ code, amount: Math.round(x.value) }))}
                          lines={cur.proposed.map(l => ({ code: l.code, amount: l.lump }))}
                          onChange={ls => update({ proposed: ls.map(l => ({ code: l.code, lump: l.amount, sip: null })) })}
                          inputStyle={inputStyle} colour={PR_COLOUR} title="Suggested portfolio — mutual funds" />
       </div>
+      </PdfSection>
+      <PdfSection id="suggested-sif" label="Suggested portfolio — SIF">
       <div className="card p-4 mb-4">
         <div className="flex items-center justify-between mb-2">
           <div className="font-display font-bold text-sm" style={{ color: SIF_COLOUR }}>Suggested portfolio — SIF</div>
@@ -230,8 +237,10 @@ export default function Reallocation() {
         </div>
         <SifEditor lines={cur.sif} onChange={sif => update({ sif })} inputStyle={inputStyle} weightOf={l => l.lump ?? 0} showSip={false} />
       </div>
+      </PdfSection>
 
       {(exTotal > 0 || prMf + prSif > 0) && (
+        <PdfSection id="totals" label="Totals (existing, suggested, fresh money, gain realised)">
         <div className="grid gap-3 grid-cols-2 lg:grid-cols-5 mb-4">
           {[
             ['Existing', inrShort(exTotal), EX_COLOUR],
@@ -247,10 +256,12 @@ export default function Reallocation() {
             </div>
           ))}
         </div>
+        </PdfSection>
       )}
 
       {/* ── switches ── */}
       {existing.size > 0 && cur.proposed.length > 0 && (
+        <PdfSection id="switches" label="Switches to make & gain realised">
         <div className="card overflow-hidden mb-4">
           <div className="px-4 pt-3 font-display font-bold text-sm" style={{ color: 'var(--text-hi)' }}>Switches to make &amp; gain realised</div>
           <div className="px-4 text-[10px]" style={{ color: 'var(--text-low)' }}>
@@ -284,6 +295,7 @@ export default function Reallocation() {
             </table>
           </div>
         </div>
+        </PdfSection>
       )}
 
       <PortfolioReview title="Mutual funds — existing vs suggested" sides={[
@@ -298,5 +310,6 @@ export default function Reallocation() {
         </>
       )}
     </section>
+    </PdfProvider>
   )
 }

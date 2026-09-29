@@ -7,6 +7,7 @@
 // published, so there is no holdings look-through here.
 
 import { useMemo, useRef, useState } from 'react'
+import { PdfSection } from './PdfSections'
 import ReactECharts from 'echarts-for-react'
 import { useJson } from '../hooks/useData'
 import { fuzzyFilter } from '../utils/fuzzy'
@@ -190,6 +191,7 @@ export function SifAnalysis({ lines, colour = '#A78BFA' }: { lines: { id: string
 
   return (
     <div>
+      <PdfSection id="sif-split" label="SIF — strategy & house allocation">
       <div className="grid gap-4 lg:grid-cols-2">
         {([['Strategy allocation', split(p => p.strategy)], ['SIF house allocation', split(p => p.house ?? 'Other')]] as const).map(([t, s]) => (
           <div key={t} className="card p-4 mb-4">
@@ -206,7 +208,9 @@ export function SifAnalysis({ lines, colour = '#A78BFA' }: { lines: { id: string
           </div>
         ))}
       </div>
+      </PdfSection>
 
+      <PdfSection id="sif-returns" label="SIF — returns & risk (vs benchmark)">
       <div className="card overflow-hidden mb-4">
         <div className="px-4 pt-3 flex items-center flex-wrap gap-2">
           <span className="font-display font-bold text-sm" style={{ color: colour }}>SIF strategies — returns &amp; risk</span>
@@ -269,13 +273,18 @@ export function SifAnalysis({ lines, colour = '#A78BFA' }: { lines: { id: string
         </div>
       </div>
 
+      </PdfSection>
+
       {chart && rows.some(r => r.p.history.length > 1) && (
+        <PdfSection id="sif-chart" label="SIF — NAV chart">
         <div className="card p-4 mb-4">
           <div className="font-display font-bold text-sm mb-1" style={{ color: 'var(--text-hi)' }}>SIF NAV, rebased to 100</div>
           <ReactECharts option={chart} style={{ height: 280 }} notMerge />
         </div>
+        </PdfSection>
       )}
 
+      <PdfSection id="sif-details" label="SIF — strategy details">
       <div className="card p-4 mb-4">
         <div className="font-display font-bold text-sm mb-2" style={{ color: 'var(--text-hi)' }}>Strategy details</div>
         {rows.map(r => (
@@ -289,6 +298,7 @@ export function SifAnalysis({ lines, colour = '#A78BFA' }: { lines: { id: string
           </div>
         ))}
       </div>
+      </PdfSection>
     </div>
   )
 }

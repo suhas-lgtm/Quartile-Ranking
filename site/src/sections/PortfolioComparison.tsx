@@ -10,6 +10,7 @@
 // browser.
 
 import { useEffect, useMemo, useState } from 'react'
+import { PdfButton, PdfProvider, PdfSection } from '../components/PdfSections'
 import { useJson } from '../hooks/useData'
 import FundPicker from '../components/FundPicker'
 import FundLink from '../components/FundLink'
@@ -41,13 +42,18 @@ export default function PortfolioComparison() {
   const inputStyle = { background: 'var(--bg-raised)', border: '1px solid var(--line)', color: 'var(--text-hi)', outline: 'none' }
 
   return (
+    <PdfProvider pageKey="pcompare">
     <section id="portfolio-comparison" className="px-4 sm:px-6 py-6 max-w-screen-2xl mx-auto">
-      <div className="section-header"><span>Portfolio Comparison</span></div>
+      <div className="section-header">
+        <span>Portfolio Comparison</span>
+        <span className="ml-auto print:hidden"><PdfButton title="Portfolio Comparison" /></span>
+      </div>
       <p className="text-xs mb-3" style={{ color: 'var(--text-mid)' }}>
         Enter the client&apos;s existing funds with today&apos;s value, then <b>⧉ Duplicate existing</b> into the suggested portfolio
         and remove, add or change funds. Every change stays listed, and the analysis below shows what it does to the portfolio.
       </p>
 
+      <PdfSection id="inputs" label="Existing & suggested fund lists">
       <div className="grid gap-4 xl:grid-cols-2 mb-4">
         {/* ── existing ── */}
         <div className="card p-4">
@@ -98,11 +104,13 @@ export default function PortfolioComparison() {
                            inputStyle={inputStyle} colour={SG_COLOUR} />
         </div>
       </div>
+      </PdfSection>
 
       <PortfolioReview title="Existing vs suggested" sides={[
         { label: 'Existing', colour: EX_COLOUR, lines: rv.existing },
         { label: 'Suggested', colour: SG_COLOUR, lines: rv.proposed },
       ].filter(s => s.lines.some(l => (l.amount ?? 0) > 0))} />
     </section>
+    </PdfProvider>
   )
 }
