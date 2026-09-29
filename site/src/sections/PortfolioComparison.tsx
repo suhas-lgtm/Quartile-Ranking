@@ -62,7 +62,11 @@ export default function PortfolioComparison() {
 
   const setLines = (side: keyof Review, lines: Line[]) => setRv(r => ({ ...r, [side]: lines }))
   const total = (side: keyof Review) => rv[side].reduce((s, l) => s + (l.amount ?? 0), 0)
-  const ready = total('existing') > 0 && total('proposed') > 0
+  // Either side on its own is enough: the other shows "—" and there is no change column value.
+  const hasE = total('existing') > 0, hasP = total('proposed') > 0
+  const ready = hasE || hasP
+  const both = hasE && hasP
+  const show = (has: boolean, v: string) => (has ? v : '—')
 
   // ── allocations ──
   const assetSplit = (rows: LookRow[]) => {
@@ -164,22 +168,24 @@ export default function PortfolioComparison() {
 
       {!ready ? (
         <div className="card p-8 text-center text-sm" style={{ color: 'var(--text-mid)' }}>
-          Add funds with amounts on both sides to see the comparison.
+          Add funds with amounts on either side (or both) to see the analysis.
         </div>
       ) : (
         <>
           {/* ── summary ── */}
           <CompareTable title="Summary" rows={[
-            ['Amount', inr(total('existing')), inr(total('proposed')), null],
-            ['Number of funds', String(rv.existing.length), String(rv.proposed.length), null],
-            ['Number of stocks (through the funds)', String(ltE.rows.filter(r => r.asset_class === 'Equity').length), String(ltP.rows.filter(r => r.asset_class === 'Equity').length), null],
-            ['Top 10 stocks, share of portfolio', pct1(ltE.rows.slice(0, 10).reduce((s, r) => s + r.weight, 0)), pct1(ltP.rows.slice(0, 10).reduce((s, r) => s + r.weight, 0)),
-             <Delta v={ltP.rows.slice(0, 10).reduce((s, r) => s + r.weight, 0) - ltE.rows.slice(0, 10).reduce((s, r) => s + r.weight, 0)} />],
+            ['Amount', show(hasE, inr(total('existing'))), show(hasP, inr(total('proposed'))), null],
+            ['Number of funds', show(hasE, String(rv.existing.length)), show(hasP, String(rv.proposed.length)), null],
+            ['Number of stocks (through the funds)', show(hasE, String(ltE.rows.filter(r => r.asset_class === 'Equity').length)),
+             show(hasP, String(ltP.rows.filter(r => r.asset_class === 'Equity').length)), null],
+            ['Top 10 stocks, share of portfolio', show(hasE, pct1(ltE.rows.slice(0, 10).reduce((s, r) => s + r.weight, 0))),
+             show(hasP, pct1(ltP.rows.slice(0, 10).reduce((s, r) => s + r.weight, 0))),
+             both ? <Delta v={ltP.rows.slice(0, 10).reduce((s, r) => s + r.weight, 0) - ltE.rows.slice(0, 10).reduce((s, r) => s + r.weight, 0)} /> : null],
           ]} />
 
           <div className="grid gap-4 lg:grid-cols-2">
             {/* market cap + asset class */}
-            <ChangeTable title="Market cap & asset class" note="% of the whole portfolio · SEBI Large/Mid/Small (AMFI list)"
+            <ChangeTable has={[hasE, hasP]} title="Market cap & asset class" note="% of the whole portfolio · SEBI Large/Mid/Small (AMFI list)"
               rows={(() => {
                 const ce = capSplit(ltE.rows, caps), cp = capSplit(ltP.rows, caps)
                 const ae = assetSplit(ltE.rows), ap = assetSplit(ltP.rows)
@@ -192,7 +198,7 @@ export default function PortfolioComparison() {
                 return out
               })()} />
             {/* category */}
-            <ChangeTable title="Category allocation" note="% of the amount in each fund category"
+            <ChangeTable has={[hasE, hasP]} title="Category allocation" note="% of the amount in each fund category"
               rows={(() => {
                 const e = categorySplit('existing'), p = categorySplit('proposed')
                 return [...new Set([...e.keys(), ...p.keys()])].map(k => [k, e.get(k) ?? 0, p.get(k) ?? 0] as [string, number, number])
@@ -200,7 +206,7 @@ export default function PortfolioComparison() {
               })()} />
           </div>
 
-          <ChangeTable title="Sector allocation" note="Equity holdings through the funds, % of the whole portfolio"
+          <ChangeTable has={[hasE, hasP]} title="Sector allocation" note="Equity holdings through the funds, % of the whole portfolio"
             rows={(() => {
               const e = sectorSplit(ltE.rows), p = sectorSplit(ltP.rows)
               return [...new Set([...e.keys(), ...p.keys()])].map(k => [k, e.get(k) ?? 0, p.get(k) ?? 0] as [string, number, number])
@@ -260,7 +266,7 @@ export default function PortfolioComparison() {
 
           {/* top holdings */}
           <div className="grid gap-4 lg:grid-cols-2 mb-4">
-            {([['existing', ltE], ['proposed', ltP]] as const).map(([k, lt]) => {
+            {([['existing', ltE], ['proposed', ltP]] as const).filter(([k]) => (k === 'existing' ? hasE : hasP)).map(([k, lt]) => {
               const sd = SIDES.find(x => x.key === k)!
               return (
                 <div key={k} className="card p-4">
@@ -283,7 +289,7 @@ export default function PortfolioComparison() {
 
           {/* fund level */}
           <div className="grid gap-4 lg:grid-cols-2 mb-4">
-            {SIDES.map(sd => (
+            {SIDES.filter(sd => (sd.key === 'existing' ? hasE : hasP)).map(sd => (
               <div key={sd.key} className="card overflow-hidden">
                 <div className="px-4 pt-3 font-display font-bold text-sm" style={{ color: sd.colour }}>{sd.label} — funds</div>
                 <div className="table-scroll">
@@ -348,7 +354,7 @@ function CompareTable({ title, rows }: { title: string; rows: [string, string, s
 }
 
 /** Before / after / change for each row, with bars so the shift is visible at a glance. */
-function ChangeTable({ title, note, rows }: { title: string; note: string; rows: [string, number, number, string?][] }) {
+function ChangeTable({ title, note, rows, has }: { title: string; note: string; rows: [string, number, number, string?][]; has: [boolean, boolean] }) {
   const max = Math.max(0.0001, ...rows.flatMap(r => [r[1], r[2]]))
   return (
     <div className="card overflow-hidden mb-4">
@@ -371,9 +377,9 @@ function ChangeTable({ title, note, rows }: { title: string; note: string; rows:
                   <div className="h-1.5 rounded" style={{ width: `${(b / max) * 100}%`, background: SIDES[1].colour }} />
                 </div>
               </td>
-              <td className="ret-cell text-xs">{pct1(a)}</td>
-              <td className="ret-cell text-xs font-semibold">{pct1(b)}</td>
-              <td className="ret-cell text-xs"><Delta v={b - a} /></td>
+              <td className="ret-cell text-xs">{has[0] ? pct1(a) : '—'}</td>
+              <td className="ret-cell text-xs font-semibold">{has[1] ? pct1(b) : '—'}</td>
+              <td className="ret-cell text-xs">{has[0] && has[1] ? <Delta v={b - a} /> : ''}</td>
             </tr>
           ))}
         </tbody>
