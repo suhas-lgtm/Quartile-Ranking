@@ -28,6 +28,7 @@ import { openPortfolioReport } from '../utils/portfolioReport'
 import type { SheetSpec } from '../utils/xlsx'
 import type { FundsIndex } from '../types'
 import FundLink from '../components/FundLink'
+import { leftOutOfMatrices } from '../utils/equityOnly'
 
 const MAX_FUNDS = 15
 const MAX_BUYS = 3
@@ -199,7 +200,9 @@ function PortfolioEditor({ storeKey, label }: { storeKey: string; label: string 
   const codeByLabel = useMemo(() => new Map((index?.funds ?? []).map(f => [labelOf(f), f.c])), [index])
   const { end, results, tot, loading, error, sipAmount, sipStart } = usePortfolioCalc(pf, latest, fundByCode)
 
-  const isDebt = (code: string) => meta?.categories.find(c => c.slug === fundByCode.get(code)?.s)?.asset_class === 'Debt'
+  // Correlation and overlap compare domestic active equity funds only (no debt, hybrid, index or international).
+  const isDebt = (code: string) =>
+    leftOutOfMatrices(meta?.categories.find(c => c.slug === fundByCode.get(code)?.s)?.asset_class, fundByCode.get(code)?.n ?? '')
   // Full NAV history per holding, for the correlation table (fetched once each).
   const codes = useMemo(() => pf.holdings.map(h => h.code), [pf.holdings])
   const [series, setSeries] = useState<Record<string, NavSeries | null>>({})

@@ -17,6 +17,7 @@ import CorrelationMatrix, { adjustSplits, type NavSeries } from './CorrelationMa
 import { capSplit, useStockCaps, CAP_COLOURS } from './CapSplit'
 import { useLookThrough, type LookRow } from './LookThrough'
 import { BenchmarkPicker, useBenchmarkChoice } from '../sections/PortfolioBuilder'
+import { leftOutOfMatrices } from '../utils/equityOnly'
 import { categoryPath } from '../config/dataPaths'
 import { closeAt, indexTrailing, useIndexSeries } from '../utils/benchmark'
 import { isoMinus } from '../utils/navMath'
@@ -174,8 +175,9 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
   const two = shown.length === 2
   // The side the fund-to-fund tables (overlap, correlation) are for: the proposal when there is one.
   const focus = shown[shown.length - 1]
-  // Debt funds are left out: their correlation and stock overlap with equity funds say nothing useful.
-  const isDebt = (code: string) => meta?.categories.find(c => c.slug === fundByCode.get(code)?.s)?.asset_class === 'Debt'
+  // Correlation and overlap compare domestic active equity funds only (utils/equityOnly).
+  const isDebt = (code: string) =>
+    leftOutOfMatrices(meta?.categories.find(c => c.slug === fundByCode.get(code)?.s)?.asset_class, name(code))
   // Correlation and overlap: one side at a time, chosen with a switch (the proposal by default).
   const [fxPick, setFxPick] = useState<number | null>(null)
   const fx = shown.find(x => x.i === fxPick) ?? focus
@@ -468,7 +470,7 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
       <SideSwitch title="Correlation between funds" sides={shown} pick={fx?.i} onPick={setFxPick} count={x => fundsOf(x.s).length} two={two} />
       {debtLeftOut > 0 && (
         <p className="text-[11px] mb-2" style={{ color: 'var(--text-low)' }}>
-          {debtLeftOut} debt fund{debtLeftOut === 1 ? '' : 's'} left out of the correlation table.
+          {debtLeftOut} fund{debtLeftOut === 1 ? '' : 's'} left out of the correlation table (debt, hybrid, index and international funds).
         </p>
       )}
       {focusFunds.length > 1 ? (
@@ -478,14 +480,14 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
         </div>
       ) : (
         <p className="text-xs mb-4" style={{ color: 'var(--text-mid)' }}>
-          The {fx?.s.label.toLowerCase()} portfolio has fewer than two equity-oriented funds, so there is nothing to correlate.
+          The {fx?.s.label.toLowerCase()} portfolio has fewer than two equity funds (debt, hybrid, index and international funds are left out), so there is nothing to correlate.
         </p>
       )}
 
       <SideSwitch title="Portfolio overlap between funds" sides={shown} pick={ov?.i} onPick={setOvPick} count={x => fundsOf(x.s).length} two={two} />
       {ovDebt > 0 && (
         <p className="text-[11px] mb-2" style={{ color: 'var(--text-low)' }}>
-          {ovDebt} debt fund{ovDebt === 1 ? '' : 's'} left out of the overlap table.
+          {ovDebt} fund{ovDebt === 1 ? '' : 's'} left out of the overlap table (debt, hybrid, index and international funds).
         </p>
       )}
       {ovFunds.length > 1 ? (
@@ -495,7 +497,7 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
         </div>
       ) : (
         <p className="text-xs mb-4" style={{ color: 'var(--text-mid)' }}>
-          The {ov?.s.label.toLowerCase()} portfolio has fewer than two equity-oriented funds, so there is no overlap to show.
+          The {ov?.s.label.toLowerCase()} portfolio has fewer than two equity funds (debt, hybrid, index and international funds are left out), so there is no overlap to show.
         </p>
       )}
 
