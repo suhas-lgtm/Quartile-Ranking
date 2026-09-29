@@ -1,23 +1,39 @@
 // src/components/HeroHeader.tsx — Gradient hero header with logo, navigation, theme toggle, and status
 
 import { fmtDate } from '../utils/format'
-import { visibleTabs } from '../config/profile'
+import type { TabDef } from '../config/spaces'
 import { currentDesk } from '../config/products'
 import HeaderFundSearch from './HeaderFundSearch'
 
 interface Props {
   asOf: string | null
+  /** The tabs of the section open in the left sidebar. */
+  tabs: TabDef[]
+  /** Its name, shown before the tabs ("Mutual Funds", "SIF", "Rahul"). */
+  spaceName: string
   activeTab: string
   onChangeTab: (tab: string) => void
   theme: 'light' | 'dark'
   onChangeTheme: (theme: 'light' | 'dark') => void
+  /** Which section is open: the Mutual Funds desk, SIF, or a person. */
+  space: string
+  onGoMutualFunds: () => void
+  /** Opens the SIF or Employees panel. */
+  onOpenDrawer: (kind: 'sif' | 'people') => void
 }
 
 export default function HeroHeader({
-  asOf, activeTab, onChangeTab, theme, onChangeTheme,
+  asOf, tabs, spaceName, activeTab, onChangeTab, theme, onChangeTheme, space, onGoMutualFunds, onOpenDrawer,
 }: Props) {
+  const navBtn = (label: string, on: boolean, onClick: () => void, title: string) => (
+    <button onClick={onClick} title={title}
+            className="text-[11px] sm:text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap"
+            style={{ color: on ? '#04121A' : '#fff', background: on ? 'var(--accent-a)' : 'rgba(255,255,255,0.08)',
+                     border: '1px solid rgba(255,255,255,0.18)', cursor: 'pointer' }}>
+      {label}
+    </button>
+  )
   const desk = currentDesk()
-  const tabs = visibleTabs()
 
   return (
     <header
@@ -59,6 +75,11 @@ export default function HeroHeader({
               For Internal Research Use Only
             </div>
           </div>
+          <div className="flex items-center gap-1.5 ml-1 sm:ml-3">
+            {navBtn('📈 Mutual Funds', space === 'mf', onGoMutualFunds, 'The main mutual fund dashboard')}
+            {navBtn('🧭 SIF', space === 'sif', () => onOpenDrawer('sif'), 'Specialised Investment Funds — opens the SIF menu')}
+            {navBtn('👥 Employees', space.startsWith('person:'), () => onOpenDrawer('people'), 'Pages for each team member')}
+          </div>
         </div>
 
         {/* Right: Data badge + Theme toggle + Internal badge */}
@@ -90,6 +111,10 @@ export default function HeroHeader({
 
       {/* Bottom row: Nav tabs */}
       <nav className="max-w-screen-2xl mx-auto px-4 sm:px-6 pb-1 flex items-center gap-1 overflow-x-auto nav-tabs scrollbar-none">
+        <span className="shrink-0 text-[11px] font-bold uppercase tracking-wide px-2 py-1 mr-1 rounded"
+              style={{ color: 'var(--accent-a)', background: 'rgba(34,211,238,0.10)' }}>
+          {spaceName}
+        </span>
         {tabs.map(t => (
           <button
             key={t.id}

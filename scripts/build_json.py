@@ -1385,6 +1385,85 @@ def build_amfi_extras():
         log.warning("nfo.json skipped (%s)", exc)
 
 
+SIF_RETURN_PERIODS = {"1D": 1, "1W": 7, "1M": 30, "3M": 91, "6M": 182, "1Y": 365}
+
+
+def build_sif():
+    """
+    sif.json and sif_nfo.json — the SIF desk. Latest NAVs from AMFI; the history
+    is what earlier runs stored in Neon (scripts/sif_data.store_and_read), so
+    period returns appear once enough days have been collected. "Since launch"
+    is measured from the ₹10 NFO price.
+    """
+    try:
+        from scripts import sif_data
+        rows = sif_data.fetch_latest()
+    except Exception as exc:
+        log.warning("SIF skipped (%s)", exc)
+        return
+    if not rows:
+        log.warning("SIF skipped: AMFI returned no SIF NAVs")
+        return
+    try:
+        hist = sif_data.store_and_read(rows)
+    except Exception as exc:
+        log.warning("SIF history unavailable (%s) — latest NAVs only", exc)
+        hist = {r["id"]: {r["date"]: r["nav"]} for r in rows if r["date"]}
+
+    def ret(series: dict[str, float], end: str, days: int):
+        from datetime import timedelta as _td
+        if days == 1:                      # 1D: against the previous stored NAV
+            prev = [d for d in series if d < end]
+            return fmt(series[end] / series[max(prev)] - 1) if prev else None
+        start = (date.fromisoformat(end) - _td(days=days)).isoformat()
+        before = [d for d in series if d <= start]
+        if not before or min(series) > start:
+            return None
+        d0 = max(before)
+        # A start close more than a week before the target date is too stale.
+        if (date.fromisoformat(start) - date.fromisoformat(d0)).days > 7:
+            return None
+        return fmt(series[end] / series[d0] - 1)
+
+    # Regular plans only (the desk shows what clients buy through us); every plan's
+    # NAV is still stored, so Direct can be shown later without losing history.
+    def is_direct(r):
+        return (r.get("plan") or "").lower().startswith("direct") or "direct plan" in (r.get("name") or "").lower()
+
+    plans = []
+    for r in rows:
+        if is_direct(r):
+            continue
+        h = dict(hist.get(r["id"]) or {})
+        if r["date"]:
+            h[r["date"]] = r["nav"]
+        end = max(h) if h else None
+        plans.append({
+            **r,
+            "since_launch": fmt(sif_data.since_launch(r["nav"])),
+            "returns": {p: (ret(h, end, d) if end else None) for p, d in SIF_RETURN_PERIODS.items()},
+            "history_from": min(h) if h else None,
+            "history": sorted([d, v] for d, v in h.items()),
+        })
+    plans.sort(key=lambda p: (p["strategy"], p["house"] or "", p["name"]))
+    write_json(out("sif.json"), {
+        "fetched": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "as_of": max((p["date"] for p in plans if p["date"]), default=None),
+        "nfo_price": sif_data.NFO_PRICE,
+        "plans": plans,
+    })
+    log.info("✓ sif.json (%d plans, history from %s)", len(plans),
+             min((p["history_from"] for p in plans if p["history_from"]), default="-"))
+    try:
+        nfo = sif_data.fetch_nfo()
+        if nfo is not None:
+            write_json(out("sif_nfo.json"), {"fetched": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                                             "offers": nfo})
+            log.info("✓ sif_nfo.json (%d offers)", len(nfo))
+    except Exception as exc:
+        log.warning("sif_nfo.json skipped (%s)", exc)
+
+
 def build_funds_index(conn):
     """
     Every active fund with its category, for pickers (the Blacklist "Add fund"
@@ -1865,6 +1944,14 @@ def main():
         if asset_class in ("Equity", "Hybrid") or slug in PASSIVE_SLUGS:
             build_calendar(conn, slug)
     build_amfi_extras()
+    build_sif()
+    try:                                   # IDCW payouts, derived from NAVs (scripts/dividends.py)
+        from scripts import dividends
+        slugs = {slug for _, slug, ac in categories if ac in ("Equity", "Hybrid")}
+        write_json(out("dividends.json"), dividends.build(conn, slugs))
+        log.info("✓ dividends.json")
+    except Exception as exc:
+        log.warning("dividends.json skipped (%s)", exc)
 
     build_index_series(conn)
 

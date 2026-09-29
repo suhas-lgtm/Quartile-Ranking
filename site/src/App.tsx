@@ -23,17 +23,31 @@ import CalendarReturns from './sections/CalendarReturns'
 import AumFlows        from './sections/AumFlows'
 import IndustryFlows   from './sections/IndustryFlows'
 import NewFundOffers   from './sections/NewFundOffers'
+import Sidebar, { type DrawerKind } from './components/Sidebar'
+import SifSection      from './sections/sif/SifSection'
+import Dividends       from './sections/Dividends'
 import { useMeta }     from './hooks/useData'
-import { defaultTab, tabAllowed } from './config/profile'
 import { currentDesk } from './config/products'
 import { setDataRoot } from './config/dataPaths'
+import { spaceAllowed, spaceLabel, tabsForSpace, type SpaceId } from './config/spaces'
 
 const TAB_STORAGE_KEY = 'mfrc_active_tab'
+const SPACE_STORAGE_KEY = 'mfrc_space'
 
-/** The tab to open on load, ignoring a saved id this build no longer has. */
-function initialTab(): string {
-  const saved = localStorage.getItem(TAB_STORAGE_KEY)
-  return saved && tabAllowed(saved) ? saved : defaultTab()
+function initialSpace(): SpaceId {
+  try {
+    const saved = localStorage.getItem(SPACE_STORAGE_KEY)
+    return saved && spaceAllowed(saved) ? saved : 'mf'
+  } catch { return 'mf' }
+}
+
+/** The tab to open in a space: the one last used there, else its first. */
+function tabFor(space: SpaceId): string {
+  const tabs = tabsForSpace(space)
+  let saved: string | null = null
+  try { saved = localStorage.getItem(`${TAB_STORAGE_KEY}:${space}`) ?? (space === 'mf' ? localStorage.getItem(TAB_STORAGE_KEY) : null) }
+  catch { /* storage unavailable */ }
+  return saved && tabs.some(t => t.id === saved) ? saved : (tabs[0]?.id ?? 'market-pulse')
 }
 
 function StatusPage() {
@@ -80,18 +94,35 @@ export default function App() {
   // time any request goes out.
   setDataRoot(desk.dataPrefix || 'data')
 
-  const [activeTab, setActiveTab] = useState(initialTab)
+  const [space, setSpaceState] = useState<SpaceId>(initialSpace)
+  const [activeTab, setActiveTab] = useState(() => tabFor(initialSpace()))
+  const [drawer, setDrawer] = useState<DrawerKind | null>(null)
+  const goTo = (s: SpaceId, tab?: string) => { setSpaceState(s); setActiveTab(tab ?? tabFor(s)) }
   const [theme, setTheme] = useState<'light' | 'dark'>(
     () => (localStorage.getItem('mfrc_theme') as 'light' | 'dark') || 'dark',
   )
 
   useEffect(() => {
-    localStorage.setItem(TAB_STORAGE_KEY, activeTab)
+    try {
+      localStorage.setItem(SPACE_STORAGE_KEY, space)
+      localStorage.setItem(`${TAB_STORAGE_KEY}:${space}`, activeTab)
+    } catch { /* storage unavailable */ }
     // Switching tabs while scrolled halfway down used to drop you into the
     // middle of the next section. Jump — not smooth-scroll, which fights the
     // fade and takes longer than the transition itself.
     window.scrollTo({ top: 0, behavior: 'auto' })
-  }, [activeTab])
+  }, [activeTab, space])
+
+  // The page starts just under the header, whose height depends on the width.
+  useEffect(() => {
+    const h = document.getElementById('app-header')
+    if (!h) return
+    const set = () => document.documentElement.style.setProperty('--header-h', `${h.offsetHeight}px`)
+    set()
+    const ro = new ResizeObserver(set)
+    ro.observe(h)
+    return () => ro.disconnect()
+  }, [])
 
   useEffect(() => {
     localStorage.setItem('mfrc_theme', theme)
@@ -112,16 +143,22 @@ export default function App() {
          style={{ background: 'var(--bg-base)', color: 'var(--text-hi)' }}>
       <HeroHeader
         asOf={meta?.as_of ?? null}
+        tabs={tabsForSpace(space)}
+        spaceName={spaceLabel(space)}
         activeTab={activeTab}
         onChangeTab={setActiveTab}
         theme={theme}
         onChangeTheme={setTheme}
+        space={space}
+        onGoMutualFunds={() => goTo('mf')}
+        onOpenDrawer={setDrawer}
       />
+      <Sidebar kind={drawer} space={space} activeTab={activeTab} onPick={goTo} onClose={() => setDrawer(null)} />
 
       {/* The key makes React remount on a tab change, which replays the
           .view-enter animation so switching sections fades in rather than
           snapping. */}
-      <main key={activeTab} className="pt-[128px] pb-12 view-enter">
+      <main key={`${space}:${activeTab}`} className="pb-12 view-enter" style={{ paddingTop: 'calc(var(--header-h, 118px) + 10px)' }}>
         {activeTab === 'market-pulse' && <MarketPulse />}
 
         {/* Live Market first on the other two, so the day's context is read
@@ -181,6 +218,10 @@ export default function App() {
         {activeTab === 'industry' && <IndustryFlows />}
 
         {activeTab === 'nfo' && <NewFundOffers />}
+
+        {activeTab === 'dividends' && <Dividends />}
+
+        {activeTab.startsWith('sif-') && <SifSection tab={activeTab} />}
       </main>
 
       {/* The fund page, opened by clicking any fund name (components/FundLink). */}

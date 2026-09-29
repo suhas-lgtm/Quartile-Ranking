@@ -8,10 +8,10 @@
 // adding it to SectionId and ALL_TABS, and rendering it in App.tsx.
 
 export type SectionId = 'market-pulse' | 'quartile' | 'risk' | 'calendar' | 'p2p' | 'portfolio' | 'compare'
-  | 'aum' | 'industry' | 'nfo' | 'watchlist' | 'whitelist' | 'blacklist' | 'alerts'
+  | 'aum' | 'industry' | 'nfo' | 'dividends' | 'watchlist' | 'whitelist' | 'blacklist' | 'alerts'
 
 /** In the order they appear in the header. */
-const ALL_TABS: ReadonlyArray<{ id: SectionId; label: string }> = [
+export const ALL_TABS: ReadonlyArray<{ id: SectionId; label: string }> = [
   { id: 'market-pulse', label: 'Market Pulse' },
   { id: 'quartile',     label: 'Quartile Ranking' },
   { id: 'risk',         label: 'Risk & Returns' },
@@ -22,6 +22,7 @@ const ALL_TABS: ReadonlyArray<{ id: SectionId; label: string }> = [
   { id: 'aum',          label: 'AUM & Flows' },
   { id: 'industry',     label: 'Industry Flows' },
   { id: 'nfo',          label: 'NFOs' },
+  { id: 'dividends',    label: 'Dividends' },
   { id: 'watchlist',    label: 'Fund Signals' },
   { id: 'whitelist',    label: 'Whitelist Screener' },
   { id: 'blacklist',    label: 'Blacklist' },
