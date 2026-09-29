@@ -1422,7 +1422,18 @@ h1, h2, h3, h4, h5, h6 {
 .fund-link:hover { color: var(--accent-a); text-decoration-color: var(--accent-a); }
 
 /* ── PDF download (components/PdfSections.tsx) ── */
+/* Rows / columns left out of the PDF: dimmed on screen, dropped in print. */
+.pdf-row-off, .pdf-cell-off { opacity: 0.32; }
+.pdf-row-off > td { text-decoration: line-through; }
+.pdf-picking [data-pdf] table thead th,
+.pdf-picking [data-pdf] table tbody tr { cursor: pointer; }
+.pdf-picking [data-pdf] table tbody tr:hover { outline: 1px dashed var(--accent-a); outline-offset: -1px; }
+.pdf-picking [data-pdf] table thead th::before,
+.pdf-picking [data-pdf] table tbody tr > :first-child::before { content: '☑ '; color: var(--accent-a); font-weight: 700; }
+.pdf-picking [data-pdf] table thead th.pdf-cell-off::before,
+.pdf-picking [data-pdf] table tbody tr.pdf-row-off > :first-child::before { content: '☐ '; color: var(--text-low); }
 @media print {
+  .pdf-row-off, .pdf-cell-off { display: none !important; }
   @page { size: A4 landscape; margin: 10mm; }
   html, body { background: #fff !important; }
   header, nav, .print\:hidden, .no-print { display: none !important; }

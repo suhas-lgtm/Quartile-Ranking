@@ -165,6 +165,10 @@ def store_and_read(rows: list[dict]) -> dict[str, dict[str, float]]:
             cur.executemany(
                 "INSERT INTO sif_nav (sd_id, nav_date, nav) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
                 [(r["id"], r["date"], r["nav"]) for r in rows if r["date"]])
+        # Any day a run missed (failure, Sunday skip, holiday catch-up) in the last
+        # two weeks is taken from AMFI's history, so returns never have holes.
+        from datetime import timedelta
+        fill_history(conn, date.today() - timedelta(days=14), date.today() - timedelta(days=1))
         hist: dict[str, dict[str, float]] = {}
         for sd, d, v in conn.execute("SELECT sd_id, nav_date, nav FROM sif_nav ORDER BY nav_date"):
             hist.setdefault(sd, {})[d.isoformat()] = v
@@ -176,9 +180,70 @@ def since_launch(nav: float) -> float:
     return nav / NFO_PRICE - 1
 
 
+# ── back-filling the history from AMFI's SIF NAV history ─────────────────────
+# /api/sif-nav-history?query_type=all_for_date&from_date=YYYY-MM-DD returns every
+# SIF plan's NAV on that day (the endpoint behind AMFI's SIF NAV-history page).
+
+FIRST_SIF_DAY = date(2025, 9, 16)     # the first SIF NAVs
+
+
+def fetch_for_date(day: str) -> list[tuple[str, str, float]]:
+    """(sd_id, date, nav) for every SIF plan with a NAV on `day`; empty on holidays."""
+    d = requests.get(f"{BASE}/sif-nav-history", params={"query_type": "all_for_date", "from_date": day},
+                     headers=UA, timeout=60).json()
+    out = []
+    for house in d.get("data") or []:
+        for s in house.get("schemes") or []:
+            for n in s.get("navs") or []:
+                try:
+                    v = float(n.get("hNAV_Amt"))
+                except (TypeError, ValueError):
+                    continue
+                dt = (n.get("hNAV_Date") or "")[:10]
+                if n.get("SD_ID") and v > 0 and dt:
+                    out.append((n["SD_ID"], dt, v))
+    return out
+
+
+def fill_history(conn, start: date, end: date) -> int:
+    """Store AMFI's NAVs for every weekday from start to end not already stored."""
+    from datetime import timedelta
+    have = {d for (d,) in conn.execute("SELECT DISTINCT nav_date FROM sif_nav")}
+    added, day = 0, start
+    while day <= end:
+        if day.weekday() < 5 and day not in have:
+            try:
+                rows = fetch_for_date(day.isoformat())
+            except Exception as exc:          # one bad day must not stop the rest
+                log.warning("SIF history %s: %s", day, exc)
+                rows = []
+            if rows:
+                with conn.cursor() as cur:
+                    cur.executemany("INSERT INTO sif_nav (sd_id, nav_date, nav) VALUES (%s, %s, %s) "
+                                    "ON CONFLICT DO NOTHING", rows)
+                added += len(rows)
+        day += timedelta(days=1)
+    if added:
+        log.info("SIF history: back-filled %d NAVs from %s to %s", added, start, end)
+    return added
+
+
 if __name__ == "__main__":
+    import argparse
     logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(message)s", datefmt="%H:%M:%S")
-    rows = fetch_latest()
-    for r in rows[:5]:
-        print(r)
-    print(fetch_nfo())
+    ap = argparse.ArgumentParser(description="SIF data from AMFI")
+    ap.add_argument("--backfill", nargs="?", const=FIRST_SIF_DAY.isoformat(), metavar="FROM",
+                    help=f"store AMFI's SIF NAV history from this date (default {FIRST_SIF_DAY}) to yesterday")
+    args = ap.parse_args()
+    if args.backfill:
+        from datetime import timedelta
+        import psycopg
+        from scripts import neon_store as db
+        with psycopg.connect(db.DSN) as conn:
+            conn.execute(DDL)
+            fill_history(conn, date.fromisoformat(args.backfill), date.today() - timedelta(days=1))
+    else:
+        rows = fetch_latest()
+        for r in rows[:5]:
+            print(r)
+        print(fetch_nfo())
