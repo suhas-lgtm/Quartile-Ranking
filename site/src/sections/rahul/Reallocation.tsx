@@ -119,8 +119,10 @@ export default function Reallocation() {
   const existingSip = useMemo(() => {
     const m = new Map<string, number>()
     for (const r of cur.rows) if (!r.skip && r.code && r.sip) m.set(r.code, (m.get(r.code) ?? 0) + r.sip)
+    // SIPs running in funds the client holds nothing of yet (from the SIP Summary).
+    for (const x of cur.info?.extraSips ?? []) if (x.code) m.set(x.code, (m.get(x.code) ?? 0) + x.amount)
     return m
-  }, [cur.rows])
+  }, [cur.rows, cur.info])
   const fundChanges = useMemo(() => new Map(switches.map(x => [x.code, x.pr - x.ex])), [switches])
   const gainTotal = switches.every(x => x.gain != null || x.sold === 0) ? switches.reduce((s, x) => s + (x.gain ?? 0), 0) : null
   const boughtTotal = switches.reduce((s, x) => s + x.bought, 0)

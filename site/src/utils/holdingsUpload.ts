@@ -111,7 +111,9 @@ export function matchFund(funds: IndexFund[], name: string): { code: string | nu
 
 /** Find the header row and the columns we need. */
 function locate(rows: unknown[][], sipColumn?: string | null) {
-  for (let i = 0; i < Math.min(rows.length, 40); i++) {
+  for (let i = 0; i < Math.min(rows.length, 200); i++) {
+    // A table under a "SIP Summary" title is the SIP list, not the holdings.
+    if (rows.slice(Math.max(0, i - 3), i).some(r => (r ?? []).some(c => SIP_TITLE.test(String(c ?? ''))))) continue
     const cells = rows[i].map(c => String(c ?? '').trim())
     const name = cells.findIndex(c => NAME_RE.test(c) && !FOLIO_RE.test(c))
     if (name < 0) continue
@@ -130,6 +132,54 @@ function locate(rows: unknown[][], sipColumn?: string | null) {
     }
   }
   return null
+}
+
+const cellsOf = (r: unknown[]) => (r ?? []).map(c => String(c ?? '').trim())
+const filled = (r: unknown[]) => cellsOf(r).filter(Boolean)
+/** A titled section ("SIP Summary", "Transaction Details"…): one or two text cells and no numbers. */
+function isSectionTitle(r: unknown[]) {
+  const f = filled(r)
+  return f.length > 0 && f.length <= 2 && f.every(c => num(c) == null) &&
+    /summary|details|statement|transactions?|register|\bsip\b|systematic|redemption|dividend|switch|stp|swp|report/i.test(f.join(' '))
+}
+/** A second header row (a new table starts). */
+const isHeaderRow = (r: unknown[]) => cellsOf(r).some(c => /^(scheme|fund)\s*name$|^scheme$|^fund$/i.test(c))
+const SIP_TITLE = /\bsip\b.*(summary|details|register|book|list)|systematic\s+investment|sip\s*summary/i
+const CEASED = /ceas|cancel|stop|terminat|inactive|closed|expir|paused|revok/i
+
+/**
+ * The "SIP Summary" table of a statement: a title row saying so, a header row
+ * under it (scheme name, SIP amount / installment, folio, status…), then one
+ * row per SIP until the next section. SIPs marked ceased / cancelled / stopped
+ * are left out.
+ */
+function sipSummary(rows: unknown[][]) {
+  const found: { raw: string; folio: string | null; amount: number }[] = []
+  let header: string | null = null
+  for (let t = 0; t < rows.length; t++) {
+    if (!filled(rows[t]).some(c => SIP_TITLE.test(c)) || filled(rows[t]).length > 3) continue
+    for (let i = t + 1; i < Math.min(rows.length, t + 7); i++) {
+      const cells = cellsOf(rows[i])
+      const name = cells.findIndex(c => NAME_RE.test(c) && !FOLIO_RE.test(c))
+      if (name < 0) continue
+      let amt = cells.findIndex(isSipCol)
+      if (amt < 0) amt = cells.findIndex(c => /amount|amt|instal/i.test(c) && !/date|units/i.test(c))
+      if (amt < 0) break
+      const folio = cells.findIndex(c => FOLIO_RE.test(c))
+      const status = cells.findIndex(c => /status/i.test(c))
+      header = cells[amt]
+      for (const r of rows.slice(i + 1)) {
+        if (isSectionTitle(r) || isHeaderRow(r)) break
+        const raw = String(r[name] ?? '').replace(/\s+/g, ' ').trim()
+        const amount = num(r[amt])
+        if (!raw || TOTAL_RE.test(raw) || amount == null || amount <= 0 || num(raw) != null) continue
+        if (status >= 0 && CEASED.test(String(r[status] ?? ''))) continue
+        found.push({ raw, folio: folio >= 0 ? (String(r[folio] ?? '').trim() || null) : null, amount })
+      }
+      break
+    }
+  }
+  return found.length ? { header: header ?? 'Amount', rows: found } : null
 }
 
 /** A sheet listing SIPs (scheme name and SIP amount), when the statement keeps them apart from holdings. */
@@ -163,6 +213,8 @@ export interface UploadInfo {
   headers: string[]
   /** The files read. */
   files: string[]
+  /** Running SIPs in funds the client does not hold yet (from the SIP Summary). */
+  extraSips?: { code: string | null; raw: string; amount: number }[]
 }
 
 /** Read the file (xlsx / xls / csv) into holdings rows matched to our funds. */
@@ -197,6 +249,8 @@ export async function readHoldingsFiles(files: File[], funds: IndexFund[], sipCo
     if (!at) continue
     const out: UploadedRow[] = []
     for (const r of grid.slice(at.header + 1)) {
+      // The holdings table ends where the next section (SIP Summary, transactions…) or table begins.
+      if (isSectionTitle(r) || isHeaderRow(r)) break
       const raw = String(r[at.name] ?? '').replace(/\s+/g, ' ').trim()
       const value = num(r[at.value])
       if (!raw || TOTAL_RE.test(raw) || value == null || value <= 0) continue
@@ -224,26 +278,47 @@ export async function readHoldingsFiles(files: File[], funds: IndexFund[], sipCo
     throw new Error('No holdings found. The file needs a header row with the scheme name and its current / market value.')
   }
 
-  // No SIP column beside the holdings: look for a sheet that lists the SIPs and bring the amounts across,
-  // matched by folio + fund where the folio is given, else by fund. Several SIPs in one fund add up.
-  if (!best.rows.some(r => r.sip)) {
+  // Bring SIP amounts across onto the holdings, matched by fund + folio where both give a folio,
+  // else by fund. Several SIPs in one fund add up. Returns how many SIPs found no holding.
+  const applySips = (list: { raw: string; folio: string | null; amount: number }[]) => {
+    const byKey = new Map<string, number>()
+    for (const r of list) {
+      const code = matchFund(funds, r.raw).code ?? r.raw
+      for (const k of [`${code}|${r.folio ?? ''}`, `${code}|`]) byKey.set(k, (byKey.get(k) ?? 0) + r.amount)
+    }
+    const used = new Set<string>()
+    for (const row of best.rows) row.sip = null
+    for (const row of best.rows) {
+      const code = row.code ?? row.raw
+      const k = row.folio && byKey.has(`${code}|${row.folio}`) ? `${code}|${row.folio}` : `${code}|`
+      if (!byKey.has(k) || used.has(k)) continue
+      row.sip = byKey.get(k)!
+      used.add(k)
+      if (k.endsWith('|') === false) used.add(`${code}|`)
+    }
+    const extra = list.filter(r => {
+      const code = matchFund(funds, r.raw).code ?? r.raw
+      return !best.rows.some(x => (x.code ?? x.raw) === code)
+    })
+    best.info!.extraSips = extra.map(r => ({ code: matchFund(funds, r.raw).code, raw: r.raw, amount: r.amount }))
+    return extra.length
+  }
+
+  // 1. A "SIP Summary" table anywhere in the upload — the statement's own list of running SIPs — unless the
+  //    user picked a column by hand.
+  const summaries = sipColumn ? [] : grids.map(g => ({ sheet: g.sheet, t: sipSummary(g.grid) })).filter(x => x.t)
+  if (summaries.length) {
+    const all = summaries.flatMap(x => x.t!.rows)
+    const missed = applySips(all)
+    best.info.columns.sip = `"${summaries[0].t!.header}" in the SIP Summary table (${summaries.map(x => x.sheet).join(', ')}) — ${all.length} SIP${all.length === 1 ? '' : 's'}`
+      + (missed ? `, ${missed} in funds not in the holdings` : '')
+  } else if (!best.rows.some(r => r.sip)) {
+    // 2. No SIP column beside the holdings: a sheet or file that lists the SIPs.
     for (const { sheet, grid } of grids) {
       if (sheet === best.sheet) continue
       const ss = sipSheet(grid, sheet)
       if (!ss || !ss.rows.length) continue
-      const byKey = new Map<string, number>()
-      for (const r of ss.rows) {
-        const code = matchFund(funds, r.raw).code ?? r.raw
-        for (const k of [`${code}|${r.folio ?? ''}`, `${code}|`]) byKey.set(k, (byKey.get(k) ?? 0) + r.amount)
-      }
-      const used = new Set<string>()
-      for (const row of best.rows) {
-        const code = row.code ?? row.raw
-        const k = byKey.has(`${code}|${row.folio ?? ''}`) && row.folio ? `${code}|${row.folio}` : `${code}|`
-        if (!byKey.has(k) || used.has(k)) continue
-        row.sip = byKey.get(k)!
-        used.add(k)
-      }
+      applySips(ss.rows)
       best.info.columns.sip = `${ss.header} (sheet "${sheet}")`
       break
     }
