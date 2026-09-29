@@ -9,7 +9,7 @@
 // existing vs suggested: allocation, holdings, returns, SIP returns and ratios,
 // then the SIF part. Kept in this browser, one per client.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { nextMilestone } from '../../components/Milestone'
 import { PdfButton, PdfProvider, PdfSection } from '../../components/PdfSections'
 import { useJson } from '../../hooks/useData'
@@ -17,7 +17,7 @@ import FundPicker from '../../components/FundPicker'
 import FundLink from '../../components/FundLink'
 import PortfolioReview, { inr, inrShort, pct1 } from '../../components/PortfolioReview'
 import { SifAnalysis, SifEditor, type SifLine } from '../../components/SifPlan'
-import { readHoldingsFile, type UploadInfo, type UploadedRow } from '../../utils/holdingsUpload'
+import { readHoldingsFiles, type UploadInfo, type UploadedRow } from '../../utils/holdingsUpload'
 import { fmtPct, retColor } from '../../utils/format'
 import { inputStyle, type MfLine } from './ClientPlan'
 import SuggestedEditor from '../../components/SuggestedEditor'
@@ -61,13 +61,18 @@ export default function Reallocation() {
   const [err, setErr] = useState<string | null>(null)
   const [fix, setFix] = useState<Record<number, string>>({})
 
-  const onFile = async (file: File | undefined) => {
-    if (!file) return
+  // The files of the last upload, kept for this visit so a picked SIP column can re-read them.
+  const lastFiles = useRef<File[]>([])
+  const onFiles = async (list: FileList | File[] | null | undefined, sipColumn?: string | null) => {
+    const files = [...(list ?? [])]
+    if (!files.length) return
     if (!funds.length) { setErr('Fund list still loading — try again in a moment.'); return }
     setBusy(true); setErr(null)
     try {
-      const { rows, info } = await readHoldingsFile(file, funds)
-      update({ file: file.name, rows, info })
+      const { rows, info } = await readHoldingsFiles(files, funds, sipColumn)
+      lastFiles.current = files
+      const name = files.length === 1 ? files[0].name : `${files.length} files`
+      update({ file: name, rows, info })
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     } finally { setBusy(false) }
@@ -174,9 +179,14 @@ export default function Reallocation() {
             <input value={cur.client} onChange={e => update({ client: e.target.value })} placeholder="Client name"
                    className="block mt-1 px-2 py-1.5 rounded text-sm" style={{ ...inputStyle, width: 220 }} />
           </label>
-          <label className="tab-btn active cursor-pointer text-xs" style={{ padding: '8px 14px' }}>
-            {busy ? 'Reading…' : '⬆ Upload existing holdings (MFBOX Excel / CSV)'}
-            <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={e => { onFile(e.target.files?.[0]); e.target.value = '' }} />
+          <label className="tab-btn active cursor-pointer text-xs" style={{ padding: '8px 14px' }} title="One statement, or several files at once (e.g. holdings and SIPs)">
+            {busy ? 'Reading…' : '⬆ Upload files (MFBOX Excel / CSV)'}
+            <input type="file" accept=".xlsx,.xls,.xlsm,.csv" multiple className="hidden" onChange={e => { onFiles(e.target.files); e.target.value = '' }} />
+          </label>
+          <label className="tab-btn cursor-pointer text-xs" style={{ padding: '8px 14px' }} title="Every Excel / CSV file in a folder">
+            📁 Upload folder
+            <input type="file" className="hidden" onChange={e => { onFiles(e.target.files); e.target.value = '' }}
+                   {...({ webkitdirectory: '', directory: '' } as Record<string, string>)} />
           </label>
           {cur.file && <span className="text-xs pb-2" style={{ color: 'var(--text-mid)' }}>{cur.file} · {cur.rows.length} lines</span>}
         </div>
@@ -190,7 +200,21 @@ export default function Reallocation() {
             ))}
             {!cur.info.columns.sip && (
               <span style={{ color: '#F59E0B' }}>
-                No SIP column found — type the SIP amounts in the SIP column below, or send us the column name MFBOX uses.
+                No SIP column found automatically.
+              </span>
+            )}
+            {cur.info.headers?.length > 0 && (
+              <span className="flex items-center gap-1.5">
+                SIP column:
+                <select value={cur.info.columns.sip && cur.info.headers.includes(cur.info.columns.sip) ? cur.info.columns.sip : ''}
+                        onChange={e => {
+                          if (!lastFiles.current.length) { setErr('Upload the file(s) again to change the SIP column.'); return }
+                          onFiles(lastFiles.current, e.target.value || null)
+                        }}
+                        className="px-2 py-0.5 rounded text-[11px]" style={inputStyle}>
+                  <option value="">{cur.info.columns.sip ? '— as found —' : '— pick the column with the SIP amount —'}</option>
+                  {cur.info.headers.map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
               </span>
             )}
           </div>
@@ -416,15 +440,22 @@ export default function Reallocation() {
 
       {/* ── action plan: SIP changes, switches and STPs ── */}
       {(existing.size > 0 || cur.proposed.length > 0) && (
-        <PdfSection id="actions" page label="Action plan (SIP changes, switches & STPs)" kicker="What to do" title="Action Plan — SIPs, Switches &amp; STPs">
-          <div className="card p-4 mb-4">
-            <SipChanges existing={existingSip} suggested={cur.sipPlan ?? {}} onChange={sipPlan => update({ sipPlan })} inputStyle={inputStyle} />
-          </div>
-          <div className="card p-4 mb-4">
-            <SwitchPlan rows={cur.moves ?? []} onChange={moves => update({ moves })} changes={fundChanges} inputStyle={inputStyle}
-                        fromFunds={[...new Set([...existing.keys(), ...cur.proposed.map(l => l.code)])]} />
-          </div>
-        </PdfSection>
+        <>
+          <PdfSection id="actions" page label="Action plan — SIP changes" kicker="What to do" title="SIP Changes">
+            <div className="card p-4 mb-4">
+              <SipChanges existing={existingSip} suggested={cur.sipPlan ?? {}} onChange={sipPlan => update({ sipPlan })} inputStyle={inputStyle} />
+            </div>
+          </PdfSection>
+          {(['switch', 'stp'] as const).map(kind => (
+            <PdfSection key={kind} id={`moves-${kind}`} label={kind === 'switch' ? 'Action plan — switches' : 'Action plan — STPs'}
+                        kicker="What to do" title={kind === 'switch' ? 'Switches' : 'STPs — Systematic Transfer Plans'}>
+              <div className={`card p-4 mb-4 ${kind === 'stp' && !(cur.moves ?? []).some(m => m.type === 'stp') ? 'print:hidden' : ''}`}>
+                <SwitchPlan kind={kind} rows={cur.moves ?? []} onChange={moves => update({ moves })} changes={fundChanges} inputStyle={inputStyle}
+                            fromFunds={[...new Set([...existing.keys(), ...cur.proposed.map(l => l.code)])]} />
+              </div>
+            </PdfSection>
+          ))}
+        </>
       )}
 
       <PortfolioReview title="Mutual funds — existing vs suggested" sides={[

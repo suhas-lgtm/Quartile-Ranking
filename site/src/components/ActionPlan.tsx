@@ -105,83 +105,101 @@ export function SipChanges({ existing, suggested, onChange, inputStyle }: {
   )
 }
 
-/** Switches and STPs, fund to fund. */
-export function SwitchPlan({ rows, onChange, fromFunds, changes, inputStyle }: {
+/**
+ * One of the two move tables: Switches (one-time amounts) or STPs (a monthly
+ * amount for a number of months). Both edit the same list of moves; a row can
+ * be sent to the other table with the same total (a ₹6 L switch = ₹1 L × 6).
+ */
+export function SwitchPlan({ kind, rows, onChange, fromFunds, changes, inputStyle }: {
+  kind: 'switch' | 'stp'
+  /** All moves, switches and STPs. */
   rows: SwitchRow[]
   onChange: (r: SwitchRow[]) => void
-  /** Funds that can be switched out of (existing and suggested). */
+  /** Funds that can be moved out of (existing and suggested). */
   fromFunds: string[]
-  /** Amount each fund goes down (negative) or up (positive) in the suggested portfolio, for auto-fill. */
+  /** Amount each fund goes down (negative) or up (positive) in the suggested portfolio. */
   changes: Map<string, number>
   inputStyle: React.CSSProperties
 }) {
   const { funds, byCode, assetOf } = useFunds()
   const [toPick, setToPick] = useState<Record<string, string>>({})
+  const mine = rows.filter(r => r.type === kind)
+  const stp = kind === 'stp'
   const set = (id: string, patch: Partial<SwitchRow>) => onChange(rows.map(r => (r.id === id ? { ...r, ...patch } : r)))
   const total = (r: SwitchRow) => (r.amount ?? 0) * (r.type === 'stp' ? (r.months ?? 0) : 1)
+  const moveTo = (r: SwitchRow) => {
+    const months = r.months ?? 6
+    set(r.id, r.type === 'switch'
+      ? { type: 'stp', months, amount: r.amount == null ? null : Math.round(r.amount / months) }
+      : { type: 'switch', months: null, amount: r.amount == null ? null : r.amount * months })
+  }
 
-  // Pair the sells with the buys, largest first: each sell is switched into the buys until it is used up.
+  // Switches built from the suggested portfolio: each sell goes into the buys, largest first,
+  // after whatever the STPs already move. STP rows are kept as they are.
   const autoFill = () => {
-    const sells = [...changes].filter(([, d]) => d < -0.5).map(([c, d]) => ({ c, left: -d })).sort((a, b) => b.left - a.left)
-    const buys = [...changes].filter(([, d]) => d > 0.5).map(([c, d]) => ({ c, left: d })).sort((a, b) => b.left - a.left)
-    const out: SwitchRow[] = []
+    const left = new Map(changes)
+    for (const r of rows) if (r.type === 'stp') {
+      left.set(r.from, (left.get(r.from) ?? 0) + total(r))
+      left.set(r.to, (left.get(r.to) ?? 0) - total(r))
+    }
+    const sells = [...left].filter(([, d]) => d < -0.5).map(([c, d]) => ({ c, left: -d })).sort((a, b) => b.left - a.left)
+    const buys = [...left].filter(([, d]) => d > 0.5).map(([c, d]) => ({ c, left: d })).sort((a, b) => b.left - a.left)
+    const made: SwitchRow[] = []
     for (const s of sells) for (const b of buys) {
       if (s.left < 1 || b.left < 1) continue
       const amt = Math.round(Math.min(s.left, b.left))
-      out.push({ id: newId(), type: 'switch', from: s.c, to: b.c, amount: amt })
+      made.push({ id: newId(), type: 'switch', from: s.c, to: b.c, amount: amt })
       s.left -= amt; b.left -= amt
     }
-    onChange(out)
+    onChange([...rows.filter(r => r.type === 'stp'), ...made])
   }
-  const out = new Map<string, number>(), into = new Map<string, number>()
-  for (const r of rows) { out.set(r.from, (out.get(r.from) ?? 0) + total(r)); into.set(r.to, (into.get(r.to) ?? 0) + total(r)) }
   const moveLabel = (a: string, b: string) => (a === '—' || b === '—' ? '' : a === b ? a : `${a} → ${b}`)
+  const colour = stp ? '#F59E0B' : '#A78BFA'
 
   return (
     <div>
       <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
-        <div className="font-display font-bold text-sm" style={{ color: '#A78BFA' }}>Switches &amp; STPs</div>
+        <div className="font-display font-bold text-sm" style={{ color: colour }}>
+          {stp ? 'STPs — Systematic Transfer Plans' : 'Switches'}
+          <span className="ml-2 text-[11px] font-normal" style={{ color: 'var(--text-low)' }}>
+            {stp ? 'a fixed amount moved every month, e.g. from a liquid / debt fund into equity' : 'a one-time move from one fund to another'}
+          </span>
+        </div>
         <div className="flex items-center gap-2 text-xs print:hidden">
-          <button className="tab-btn" title="Pair the suggested portfolio's sells with its buys" onClick={() => {
-            if (!rows.length || window.confirm('Replace the switches with ones built from the suggested portfolio?')) autoFill()
-          }}>⚡ Auto-fill from suggested changes</button>
-          <button className="tab-btn" onClick={() => onChange([...rows, { id: newId(), type: 'switch', from: fromFunds[0] ?? '', to: '', amount: null }])}>+ Switch</button>
-          <button className="tab-btn" onClick={() => onChange([...rows, { id: newId(), type: 'stp', from: fromFunds[0] ?? '', to: '', amount: null, months: 6 }])}>+ STP</button>
+          {!stp && (
+            <button className="tab-btn" title="Pair the suggested portfolio's sells with its buys" onClick={() => {
+              if (!mine.length || window.confirm('Replace the switches with ones built from the suggested portfolio?')) autoFill()
+            }}>⚡ Auto-fill from suggested changes</button>
+          )}
+          <button className="tab-btn" onClick={() => onChange([...rows, stp
+            ? { id: newId(), type: 'stp', from: fromFunds[0] ?? '', to: '', amount: null, months: 6 }
+            : { id: newId(), type: 'switch', from: fromFunds[0] ?? '', to: '', amount: null }])}>
+            + {stp ? 'STP' : 'Switch'}
+          </button>
         </div>
       </div>
-      {!rows.length ? (
+      {!mine.length ? (
         <div className="text-xs py-2" style={{ color: 'var(--text-mid)' }}>
-          No switches yet. <b>Auto-fill</b> builds them from the suggested portfolio (what is sold goes into what is bought);
-          or add a <b>Switch</b> (one-time) or an <b>STP</b> (a monthly transfer, e.g. from a liquid or debt fund into equity).
+          {stp
+            ? <>No STPs. Add one with <b>+ STP</b>, or move a switch here with its <b>→ STP</b> button.</>
+            : <>No switches yet. <b>Auto-fill</b> builds them from the suggested portfolio (what is sold goes into what is bought), or add one with <b>+ Switch</b>.</>}
         </div>
       ) : (
         <div className="table-scroll">
           <table className="data-table">
             <thead><tr>
-              <th className="text-left">Type</th><th className="text-left">From</th><th className="text-left">To</th>
-              <th className="text-left">Asset class</th>
-              <th style={{ textAlign: 'right' }}>Amount ₹</th><th style={{ textAlign: 'right' }}>Months</th>
-              <th style={{ textAlign: 'right' }}>Total moved</th><th />
+              <th className="text-left">From</th><th className="text-left">To</th><th className="text-left">Asset class</th>
+              <th style={{ textAlign: 'right' }}>{stp ? '₹ / month' : 'Amount ₹'}</th>
+              {stp && <th style={{ textAlign: 'right' }}>Months</th>}
+              {stp && <th style={{ textAlign: 'right' }}>Total moved</th>}
+              <th className="print:hidden" /><th className="print:hidden" />
             </tr></thead>
             <tbody>
-              {rows.map(r => {
+              {mine.map(r => {
                 const move = r.to ? moveLabel(assetOf(r.from), assetOf(r.to)) : ''
                 return (
                   <tr key={r.id}>
-                    <td style={{ width: 110 }}>
-                      <span className="hidden print:inline text-xs font-semibold">{r.type === 'stp' ? 'STP (monthly)' : 'Switch'}</span>
-                      <select value={r.type} onChange={e => {
-                        // Same total either way: a switch of ₹6 L becomes an STP of ₹1 L a month for 6 months, and back.
-                        const toStp = e.target.value === 'stp', months = r.months ?? 6
-                        set(r.id, toStp
-                          ? { type: 'stp', months, amount: r.amount == null ? null : Math.round(r.amount / months) }
-                          : { type: 'switch', months: null, amount: r.amount == null ? null : r.amount * months })
-                      }}
-                              className="px-2 py-1 rounded text-xs print:hidden" style={inputStyle}>
-                        <option value="switch">Switch</option><option value="stp">STP (monthly)</option>
-                      </select>
-                    </td>
-                    <td style={{ minWidth: 220 }}>
+                    <td style={{ minWidth: 230 }}>
                       <span className="hidden print:inline text-xs">{byCode.get(r.from)?.n ?? '—'}</span>
                       <select value={r.from} onChange={e => set(r.id, { from: e.target.value })} className="px-2 py-1 rounded text-xs w-full print:hidden" style={inputStyle}>
                         {!fromFunds.includes(r.from) && <option value={r.from}>{byCode.get(r.from)?.n ?? '— pick —'}</option>}
@@ -191,7 +209,7 @@ export function SwitchPlan({ rows, onChange, fromFunds, changes, inputStyle }: {
                     <td style={{ minWidth: 240 }}>
                       {r.to && toPick[r.id] == null ? (
                         <div className="flex items-center gap-1.5 text-xs">
-                          <span className="truncate" style={{ maxWidth: 240 }}><FundLink code={r.to} name={byCode.get(r.to)?.n ?? r.to} /></span>
+                          <span className="truncate" style={{ maxWidth: 260 }}><FundLink code={r.to} name={byCode.get(r.to)?.n ?? r.to} /></span>
                           <button className="text-[10px] print:hidden" onClick={() => setToPick(x => ({ ...x, [r.id]: '' }))}
                                   style={{ background: 'none', border: 'none', color: 'var(--accent-a)', cursor: 'pointer' }}>change</button>
                         </div>
@@ -199,28 +217,30 @@ export function SwitchPlan({ rows, onChange, fromFunds, changes, inputStyle }: {
                         <div className="print:hidden">
                           <FundPicker funds={funds} value={toPick[r.id] ?? ''} onChange={v => setToPick(x => ({ ...x, [r.id]: v }))} autoFocus={toPick[r.id] != null}
                                       onPick={f => { set(r.id, { to: f.c }); setToPick(x => { const y = { ...x }; delete y[r.id]; return y }) }}
-                                      placeholder="Switch into… type a fund" style={inputStyle} />
+                                      placeholder={stp ? 'Transfer into… type a fund' : 'Switch into… type a fund'} style={inputStyle} />
                         </div>
                       )}
                     </td>
-                    <td className="text-xs font-semibold" style={{ color: move.includes('→') ? '#A78BFA' : 'var(--text-mid)' }}>{move || '—'}</td>
-                    <td style={{ width: 140, textAlign: 'right' }}>
-                      <span className="hidden print:inline text-xs font-semibold">{r.amount ? `${inr(r.amount)}${r.type === 'stp' ? ' / month' : ''}` : '—'}</span>
-                      <input type="number" min={0} step={r.type === 'stp' ? 5000 : 10000} value={r.amount ?? ''} placeholder={r.type === 'stp' ? '₹ / month' : '₹'}
+                    <td className="text-xs font-semibold" style={{ color: move.includes('→') ? colour : 'var(--text-mid)' }}>{move || '—'}</td>
+                    <td style={{ width: 150, textAlign: 'right' }}>
+                      <span className="hidden print:inline text-xs font-semibold">{r.amount ? inr(r.amount) : '—'}</span>
+                      <input type="number" min={0} step={stp ? 5000 : 10000} value={r.amount ?? ''} placeholder={stp ? '₹ / month' : '₹'}
                              onChange={e => set(r.id, { amount: e.target.value === '' ? null : Math.max(0, +e.target.value) })}
                              className="px-2 py-1 rounded text-xs w-full text-right print:hidden" style={inputStyle} />
                     </td>
-                    <td style={{ width: 80, textAlign: 'right' }}>
-                      {r.type === 'stp' ? (
-                        <>
-                          <span className="hidden print:inline text-xs">{r.months ?? '—'}</span>
-                          <input type="number" min={1} max={60} value={r.months ?? ''} onChange={e => set(r.id, { months: e.target.value === '' ? null : Math.max(1, Math.min(60, +e.target.value)) })}
-                                 className="px-2 py-1 rounded text-xs w-full text-right print:hidden" style={inputStyle} />
-                        </>
-                      ) : <span className="text-xs" style={{ color: 'var(--text-low)' }}>—</span>}
+                    {stp && (
+                      <td style={{ width: 80, textAlign: 'right' }}>
+                        <span className="hidden print:inline text-xs">{r.months ?? '—'}</span>
+                        <input type="number" min={1} max={60} value={r.months ?? ''} onChange={e => set(r.id, { months: e.target.value === '' ? null : Math.max(1, Math.min(60, +e.target.value)) })}
+                               className="px-2 py-1 rounded text-xs w-full text-right print:hidden" style={inputStyle} />
+                      </td>
+                    )}
+                    {stp && <td className="ret-cell text-xs font-semibold">{total(r) ? inr(total(r)) : '—'}</td>}
+                    <td className="print:hidden" style={{ width: 70 }}>
+                      <button className="text-[10px]" onClick={() => moveTo(r)} title={stp ? 'Make it a one-time switch (same total)' : 'Make it a monthly STP (same total)'}
+                              style={{ background: 'none', border: 'none', color: 'var(--accent-a)', cursor: 'pointer' }}>{stp ? '→ Switch' : '→ STP'}</button>
                     </td>
-                    <td className="ret-cell text-xs font-semibold">{total(r) ? inr(total(r)) : '—'}</td>
-                    <td style={{ width: 28 }}>
+                    <td className="print:hidden" style={{ width: 28 }}>
                       <button title="Remove" onClick={() => onChange(rows.filter(x => x.id !== r.id))}
                               style={{ background: 'none', border: 'none', color: 'var(--text-low)', cursor: 'pointer' }}>✕</button>
                     </td>
@@ -228,24 +248,29 @@ export function SwitchPlan({ rows, onChange, fromFunds, changes, inputStyle }: {
                 )
               })}
               <tr className="benchmark-row">
-                <td colSpan={6} className="text-xs font-semibold">
-                  Total · {rows.filter(r => r.type === 'switch').length} switch{rows.filter(r => r.type === 'switch').length === 1 ? '' : 'es'},{' '}
-                  {rows.filter(r => r.type === 'stp').length} STP{rows.filter(r => r.type === 'stp').length === 1 ? '' : 's'}
-                </td>
-                <td className="ret-cell text-xs font-semibold">{inr(rows.reduce((s, r) => s + total(r), 0))}</td><td />
+                <td colSpan={3} className="text-xs font-semibold">Total · {mine.length} {stp ? `STP${mine.length === 1 ? '' : 's'}` : `switch${mine.length === 1 ? '' : 'es'}`}</td>
+                {stp ? (
+                  <>
+                    <td className="ret-cell text-xs font-semibold">{inr(mine.reduce((s, r) => s + (r.amount ?? 0), 0))} / month</td><td />
+                    <td className="ret-cell text-xs font-semibold">{inr(mine.reduce((s, r) => s + total(r), 0))}</td>
+                  </>
+                ) : <td className="ret-cell text-xs font-semibold">{inr(mine.reduce((s, r) => s + total(r), 0))}</td>}
+                <td className="print:hidden" /><td className="print:hidden" />
               </tr>
             </tbody>
           </table>
         </div>
       )}
-      {rows.length > 0 && (() => {
-        // Does each fund move as much as the suggested portfolio says it should?
+      {!stp && rows.length > 0 && (() => {
+        // Do the switches and STPs together move each fund as much as the suggested portfolio says?
+        const out = new Map<string, number>(), into = new Map<string, number>()
+        for (const r of rows) { out.set(r.from, (out.get(r.from) ?? 0) + total(r)); into.set(r.to, (into.get(r.to) ?? 0) + total(r)) }
         const off = [...changes].map(([c, d]) => ({ c, d, moved: (into.get(c) ?? 0) - (out.get(c) ?? 0) }))
           // Rounding (an STP split into equal months) is not a mismatch: allow ₹100 or 1%.
           .filter(x => Math.abs(x.moved - x.d) > Math.max(100, Math.abs(x.d) * 0.01) && (x.d !== 0 || x.moved !== 0))
         return off.length > 0 && (
           <p className="text-[11px] mt-2 print:hidden" style={{ color: '#F59E0B' }}>
-            Not matching the suggested portfolio yet: {off.slice(0, 6).map(x => `${byCode.get(x.c)?.n ?? x.c} (needs ${x.d >= 0 ? '+' : '−'}${inrShort(Math.abs(x.d))}, switches give ${x.moved >= 0 ? '+' : '−'}${inrShort(Math.abs(x.moved))})`).join(' · ')}
+            Switches + STPs not matching the suggested portfolio yet: {off.slice(0, 6).map(x => `${byCode.get(x.c)?.n ?? x.c} (needs ${x.d >= 0 ? '+' : '−'}${inrShort(Math.abs(x.d))}, moves give ${x.moved >= 0 ? '+' : '−'}${inrShort(Math.abs(x.moved))})`).join(' · ')}
             {off.length > 6 ? ` · +${off.length - 6} more` : ''}. The rest can come from fresh money or be left in cash.
           </p>
         )

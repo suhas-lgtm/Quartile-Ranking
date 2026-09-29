@@ -110,7 +110,7 @@ export function matchFund(funds: IndexFund[], name: string): { code: string | nu
 }
 
 /** Find the header row and the columns we need. */
-function locate(rows: unknown[][]) {
+function locate(rows: unknown[][], sipColumn?: string | null) {
   for (let i = 0; i < Math.min(rows.length, 40); i++) {
     const cells = rows[i].map(c => String(c ?? '').trim())
     const name = cells.findIndex(c => NAME_RE.test(c) && !FOLIO_RE.test(c))
@@ -124,7 +124,8 @@ function locate(rows: unknown[][]) {
       invested: cells.findIndex(c => INV_RE.test(c)),
       units: cells.findIndex(c => UNITS_RE.test(c)),
       folio: cells.findIndex(c => FOLIO_RE.test(c)),
-      sip: cells.findIndex(isSipCol),
+      // A SIP column picked by the user wins over the guess.
+      sip: sipColumn && cells.includes(sipColumn) ? cells.indexOf(sipColumn) : cells.findIndex(isSipCol),
       headers: cells,
     }
   }
@@ -158,17 +159,41 @@ export interface UploadInfo {
   sheet: string
   /** Which column each value was read from; null = not in the file. */
   columns: { name: string; value: string; invested: string | null; units: string | null; folio: string | null; sip: string | null }
+  /** Every column heading of the holdings sheet, so the SIP column can be picked by hand. */
+  headers: string[]
+  /** The files read. */
+  files: string[]
 }
 
 /** Read the file (xlsx / xls / csv) into holdings rows matched to our funds. */
-export async function readHoldingsFile(file: File, funds: IndexFund[]): Promise<{ rows: UploadedRow[]; sheet: string; info: UploadInfo }> {
+export async function readHoldingsFile(file: File, funds: IndexFund[], sipColumn?: string | null) {
+  return readHoldingsFiles([file], funds, sipColumn)
+}
+
+/**
+ * Read one or more files (a statement, or a folder with holdings and SIPs in
+ * separate files). The sheet with the most holdings rows is the portfolio; the
+ * SIP amounts come from its SIP column, the column the user picked, or a
+ * sheet / file that lists the SIPs.
+ */
+export async function readHoldingsFiles(files: File[], funds: IndexFund[], sipColumn?: string | null): Promise<{ rows: UploadedRow[]; sheet: string; info: UploadInfo }> {
   const XLSX = await import('xlsx')
-  const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' })
+  const grids: { sheet: string; grid: unknown[][] }[] = []
+  for (const file of files.filter(f => /\.(xlsx|xls|xlsm|csv)$/i.test(f.name))) {
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' })
+    for (const sheet of wb.SheetNames) {
+      grids.push({
+        // With several files the sheet is named with its file, so "SIP report.xlsx › Sheet1" still reads as a SIP list.
+        sheet: files.length > 1 ? `${file.name} › ${sheet}` : sheet,
+        grid: XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[sheet], { header: 1, raw: true, blankrows: false }),
+      })
+    }
+  }
+  if (!grids.length) throw new Error('No Excel or CSV file found. Upload .xlsx, .xls or .csv files.')
   // The sheet with the most holdings rows wins (statements often have a summary sheet first).
-  let best: { rows: UploadedRow[]; sheet: string; info: UploadInfo | null } = { rows: [], sheet: wb.SheetNames[0] ?? '', info: null }
-  const grids = wb.SheetNames.map(sheet => ({ sheet, grid: XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[sheet], { header: 1, raw: true, blankrows: false }) }))
+  let best: { rows: UploadedRow[]; sheet: string; info: UploadInfo | null } = { rows: [], sheet: grids[0].sheet, info: null }
   for (const { sheet, grid } of grids) {
-    const at = locate(grid)
+    const at = locate(grid, sipColumn)
     if (!at) continue
     const out: UploadedRow[] = []
     for (const r of grid.slice(at.header + 1)) {
@@ -189,7 +214,10 @@ export async function readHoldingsFile(file: File, funds: IndexFund[]): Promise<
     const h = (k: number) => (k >= 0 ? at.headers[k] || null : null)
     if (out.length > best.rows.length) best = {
       rows: out, sheet,
-      info: { sheet, columns: { name: at.headers[at.name], value: at.headers[at.value], invested: h(at.invested), units: h(at.units), folio: h(at.folio), sip: h(at.sip) } },
+      info: {
+        sheet, columns: { name: at.headers[at.name], value: at.headers[at.value], invested: h(at.invested), units: h(at.units), folio: h(at.folio), sip: h(at.sip) },
+        headers: at.headers.filter(Boolean), files: files.map(f => f.name),
+      },
     }
   }
   if (!best.rows.length || !best.info) {
