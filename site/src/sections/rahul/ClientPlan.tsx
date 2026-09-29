@@ -10,7 +10,7 @@
 // in this browser, one per client.
 
 import { useEffect, useMemo, useState } from 'react'
-import Milestone from '../../components/Milestone'
+import Milestone, { nextMilestone } from '../../components/Milestone'
 import { PdfButton, PdfProvider, PdfSection } from '../../components/PdfSections'
 import { useJson } from '../../hooks/useData'
 import FundPicker from '../../components/FundPicker'
@@ -204,7 +204,7 @@ export default function ClientPlan() {
         </div>
       </div>
 
-      <div className="grid gap-3 grid-cols-2 lg:grid-cols-6 mb-4">
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-7 mb-4">
         <Stat label="MF lump sum" value={inrShort(mfLump)} colour={MF_COLOUR} />
         <Stat label="MF SIP / month" value={inr(mfSip)} colour={MF_COLOUR} sub={`${plan.mf.filter(l => l.sip).length} SIP${plan.mf.filter(l => l.sip).length === 1 ? '' : 's'}`} />
         <Stat label="SIF lump sum" value={inrShort(sifLump)} colour={SIF_COLOUR} />
@@ -213,6 +213,11 @@ export default function ClientPlan() {
         <Stat label={left == null ? 'Plan size' : left >= 0 ? 'Still to allocate' : 'Over the plan size'}
               value={left == null ? '—' : inrShort(Math.abs(left))} colour={left != null && left < 0 ? '#F87171' : undefined}
               sub={plan.target ? `of ${inrShort(plan.target)}` : undefined} />
+        {(() => {
+          // Next round milestone above what the plan puts in over its SIP period.
+          const m = planned > 0 ? nextMilestone(planned) : null
+          return m && <Stat label="Next milestone" value={`${inrShort(m.more)} more`} sub={`to reach ${inrShort(m.at)} (planned ${inrShort(planned)})`} />
+        })()}
       </div>
 
       {mfW + sifW > 0 && (

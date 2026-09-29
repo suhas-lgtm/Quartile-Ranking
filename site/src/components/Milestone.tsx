@@ -29,6 +29,12 @@ interface Goal { target: number | null; years: number; mode: RateMode; custom: n
 const MAX_YEARS = 50
 /** Round milestones advisors talk in: ₹10 L … ₹100 Cr. */
 const LADDER = [1e6, 2.5e6, 5e6, 7.5e6, 1e7, 1.5e7, 2e7, 2.5e7, 3e7, 5e7, 7.5e7, 1e8, 1.5e8, 2e8, 2.5e8, 5e8, 7.5e8, 1e9]
+
+/** The next round milestone above a value, and how much more it needs. */
+export function nextMilestone(value: number): { at: number; more: number } | null {
+  const at = LADDER.find(m => m > value)
+  return at == null ? null : { at, more: at - value }
+}
 const pctIn = (v: number) => `${(v * 100).toFixed(2)}%`
 
 /** Value after `months` of growth at annual rate r: lump compounding plus a SIP paid at the start of each month, stepped up yearly. */

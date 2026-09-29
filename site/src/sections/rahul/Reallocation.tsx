@@ -10,7 +10,7 @@
 // then the SIF part. Kept in this browser, one per client.
 
 import { useEffect, useMemo, useState } from 'react'
-import Milestone from '../../components/Milestone'
+import { nextMilestone } from '../../components/Milestone'
 import { PdfButton, PdfProvider, PdfSection } from '../../components/PdfSections'
 import { useJson } from '../../hooks/useData'
 import FundPicker from '../../components/FundPicker'
@@ -163,16 +163,6 @@ export default function Reallocation() {
         </p>
       </div>
 
-      {/* ── milestone (same box as the Plan tab: always shown, up top) ── */}
-      <PdfSection id="milestone" label="Milestone (goal, existing vs suggested projection)">
-        <Milestone storeKey={`rahul_realloc_goal:${store.current}`} askSip sides={[
-          { label: 'Existing', colour: EX_COLOUR, lump: exTotal, sip: 0,
-            lines: [...existing.entries()].map(([code, x]) => ({ code, amount: x.value })) },
-          { label: 'Suggested', colour: PR_COLOUR, lump: prMf + prSif, sip: 0,
-            lines: cur.proposed.map(l => ({ code: l.code, amount: l.lump ?? 0 })) },
-        ].filter(s => s.lump > 0)} />
-      </PdfSection>
-
       {cur.rows.length > 0 && (
         <PdfSection id="existing" label="Existing holdings (from the upload)">
         <div className="card overflow-hidden mb-4">
@@ -258,7 +248,7 @@ export default function Reallocation() {
 
       {(exTotal > 0 || prMf + prSif > 0) && (
         <PdfSection id="totals" label="Totals (existing, suggested, amount to sell and buy, profit booked)">
-        <div className="grid gap-3 grid-cols-2 lg:grid-cols-4 mb-3">
+        <div className="grid gap-3 grid-cols-2 lg:grid-cols-6 mb-3">
           <Card label="Existing portfolio value" value={inrShort(exTotal)} colour={EX_COLOUR} />
           <Card label="Suggested — mutual funds" value={inrShort(prMf)} colour={PR_COLOUR} />
           <Card label="Suggested — SIF" value={inrShort(prSif)} colour={SIF_COLOUR} />
@@ -267,6 +257,13 @@ export default function Reallocation() {
                     sub="suggested total − existing value" />
             : <Card label="Money left over (not reinvested)" value={inrShort(exTotal - prMf - prSif)} colour="#F59E0B"
                     sub="existing value − suggested total" />}
+          {([['Existing', exTotal, EX_COLOUR], ['Suggested', prMf + prSif, PR_COLOUR]] as const).map(([l, v, c]) => {
+            const m = v > 0 ? nextMilestone(v) : null
+            return m && (
+              <Card key={l} label={`${l} — next milestone`} value={`${inrShort(m.more)} more`} colour={c}
+                    sub={`to reach ${inrShort(m.at)} (now ${inrShort(v)})`} />
+            )
+          })}
         </div>
         {soldTotal > 0 && (
           <div className="card p-4 mb-4">
