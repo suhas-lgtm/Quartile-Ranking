@@ -17,10 +17,11 @@ import FundLink from '../components/FundLink'
 import PortfolioReview, { inr, pct1 } from '../components/PortfolioReview'
 import SuggestedEditor from '../components/SuggestedEditor'
 import { categoryColor } from '../config/categoryColors'
+import { inrShort } from '../components/PortfolioReview'
 import type { FundsIndex } from '../types'
 
 interface Line { code: string; amount: number | null }
-interface Review { existing: Line[]; proposed: Line[] }
+interface Review { existing: Line[]; proposed: Line[]; client?: string }
 const STORE = 'pc_review_v1'
 const EX_COLOUR = '#94A3B8', SG_COLOUR = '#22D3EE'
 
@@ -42,18 +43,30 @@ export default function PortfolioComparison() {
   const inputStyle = { background: 'var(--bg-raised)', border: '1px solid var(--line)', color: 'var(--text-hi)', outline: 'none' }
 
   return (
-    <PdfProvider pageKey="pcompare">
+    <PdfProvider pageKey="pcompare" doc={{
+      kicker: 'Portfolio review', title: 'Portfolio Comparison', client: rv.client || undefined,
+      stats: [
+        { label: 'Existing portfolio', value: inrShort(exTotal) },
+        { label: 'Suggested portfolio', value: inrShort(rv.proposed.reduce((s, l) => s + (l.amount ?? 0), 0)) },
+        { label: 'Funds', value: `${rv.existing.filter(l => (l.amount ?? 0) > 0).length} → ${rv.proposed.filter(l => (l.amount ?? 0) > 0).length}` },
+        { label: 'Change', value: inrShort(Math.abs(rv.proposed.reduce((s, l) => s + (l.amount ?? 0), 0) - exTotal)) },
+      ],
+    }}>
     <section id="portfolio-comparison" className="px-4 sm:px-6 py-6 max-w-screen-2xl mx-auto">
       <div className="section-header">
         <span>Portfolio Comparison</span>
-        <span className="ml-auto print:hidden"><PdfButton title="Portfolio Comparison" /></span>
+        <span className="ml-auto flex items-center gap-2 print:hidden">
+          <input value={rv.client ?? ''} onChange={e => setRv(r => ({ ...r, client: e.target.value }))} placeholder="Client name (for the PDF)"
+                 className="px-2 py-1 rounded text-xs" style={{ ...inputStyle, width: 200 }} />
+          <PdfButton title="Portfolio Comparison" />
+        </span>
       </div>
       <p className="text-xs mb-3" style={{ color: 'var(--text-mid)' }}>
         Enter the client&apos;s existing funds with today&apos;s value, then <b>⧉ Duplicate existing</b> into the suggested portfolio
         and remove, add or change funds. Every change stays listed, and the analysis below shows what it does to the portfolio.
       </p>
 
-      <PdfSection id="inputs" page label="Existing & suggested fund lists">
+      <PdfSection id="inputs" page label="Existing & suggested fund lists" kicker="Where you stand and what we recommend" title="Existing &amp; Suggested Portfolio">
       <div className="grid gap-4 xl:grid-cols-2 mb-4">
         {/* ── existing ── */}
         <div className="card p-4">
@@ -77,9 +90,10 @@ export default function PortfolioComparison() {
                       <div className="text-[10px]" style={{ color: f ? categoryColor(f.s) : 'var(--text-low)' }}>{f?.k}</div>
                     </td>
                     <td style={{ width: 130 }}>
+                      <span className="hidden print:inline text-xs font-semibold">{l.amount ? inr(l.amount) : '—'}</span>
                       <input type="number" min={0} step={10000} value={l.amount ?? ''} placeholder="₹ amount"
                              onChange={e => setExisting(rv.existing.map((x, j) => j === i ? { ...x, amount: e.target.value === '' ? null : Math.max(0, +e.target.value) } : x))}
-                             className="px-2 py-1 rounded text-xs w-full text-right" style={inputStyle} />
+                             className="px-2 py-1 rounded text-xs w-full text-right print:hidden" style={inputStyle} />
                     </td>
                     <td className="ret-cell text-[11px]" style={{ width: 50, color: 'var(--text-low)' }}>{exTotal && l.amount ? pct1(l.amount / exTotal) : ''}</td>
                     <td style={{ width: 24 }}>

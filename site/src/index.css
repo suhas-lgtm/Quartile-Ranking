@@ -1467,8 +1467,13 @@ h1, h2, h3, h4, h5, h6 {
   [data-pdf] { margin-top: 26px; }
   [data-pdf].pdf-newpage { break-before: page; margin-top: 0; }
   .pdf-slide-head { display: block; border-bottom: 2px solid #C9CBD6; padding-bottom: 10px; margin-bottom: 18px; break-after: avoid; }
-  .pdf-slide-head.sub { border-bottom-width: 1px; padding-bottom: 6px; margin-bottom: 12px; }
-  .pdf-slide-head.sub .pdf-title { font-size: 26px; }
+  /* Every section heading looks the same, whether it opens a page or follows on one. */
+  .pdf-slide-head.sub { margin-top: 10px; }
+  .pdf-title { font-size: 34px !important; }
+  /* Card headings inside a section: one style, Armstrong navy, whatever colour the screen gives them. */
+  .pdf-doc .card .font-display, .pdf-doc .card .font-display * { color: #262D6B !important; font-size: 17px !important; font-weight: 700 !important; }
+  /* Side labels (Existing / Suggested) keep a colour cue, but in the report's palette. */
+  .pdf-doc .data-table thead th[style*="color"] { color: #fff !important; }
   /* A section that follows on a page moves whole to the next page rather than leaving its heading behind
      (one taller than a page still breaks inside, as it must). */
   [data-pdf]:not(.pdf-newpage) { break-inside: avoid; }

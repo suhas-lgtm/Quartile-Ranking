@@ -168,7 +168,16 @@ export default function ClientPlan() {
   }
 
   return (
-    <PdfProvider pageKey="rahul-plan">
+    <PdfProvider pageKey="rahul-plan" doc={{
+      kicker: 'Investment plan', title: 'Client Investment Plan', client: plan.client || undefined,
+      advisor: { name: 'Rahul', mobile: '+91 98091 10073' },
+      stats: [
+        { label: 'Plan size', value: plan.target ? inrShort(plan.target) : '—' },
+        { label: 'Lump sum', value: inrShort(mfLump + sifLump) },
+        { label: 'SIP / month', value: inr(mfSip + sifSip) },
+        { label: `Planned over ${plan.years} yr${plan.years === 1 ? '' : 's'}`, value: inrShort(planned) },
+      ],
+    }}>
     <section id="client-plan" className="px-4 sm:px-6 py-6 max-w-screen-2xl mx-auto">
       <div className="section-header">
         <span>Client Plan</span>
@@ -190,8 +199,8 @@ export default function ClientPlan() {
       </div>
 
       {/* ── the plan ── */}
-      <PdfSection id="plan" page label="Plan summary (client, lump sums, SIPs, MF vs SIF)">
-      <div className="card p-4 mb-4">
+      <PdfSection id="plan" page label="Plan summary (client, lump sums, SIPs, MF vs SIF)" kicker="The plan" title="Plan Summary">
+      <div className="card p-4 mb-4 print:hidden">
         <div className="flex flex-wrap items-end gap-4">
           <label className="text-xs" style={{ color: 'var(--text-mid)' }}>Client
             <input value={plan.client} onChange={e => update({ client: e.target.value })} placeholder="Client name"
@@ -238,7 +247,7 @@ export default function ClientPlan() {
 
       </PdfSection>
 
-      <PdfSection id="milestone" label="Milestone (goal, projection, SIP needed)">
+      <PdfSection id="milestone" label="Milestone (goal, projection, SIP needed)" kicker="The goal" title="Milestone">
         <Milestone storeKey={`rahul_plan_goal:${store.current}`} sides={[{
           label: 'This plan', colour: MF_COLOUR, lump: mfLump + sifLump, sip: mfSip + sifSip,
           lines: plan.mf.map(l => ({ code: l.code, amount: w(l) })),
@@ -246,7 +255,7 @@ export default function ClientPlan() {
       </PdfSection>
 
       {/* ── mutual funds ── */}
-      <PdfSection id="mf-list" page label="Mutual fund list (lump sum & SIP per fund)">
+      <PdfSection id="mf-list" page label="Mutual fund list (lump sum & SIP per fund)" kicker="What we recommend" title="Mutual Funds — Lump Sum &amp; SIP">
       <div className="card p-4 mb-4">
         <div className="font-display font-bold text-sm mb-2" style={{ color: MF_COLOUR }}>Mutual funds</div>
         <MfEditor lines={plan.mf} onChange={mf => update({ mf })} weightOf={w} />
@@ -256,7 +265,7 @@ export default function ClientPlan() {
                        sides={[{ label: 'Mutual funds', colour: MF_COLOUR, lines: plan.mf.map(l => ({ code: l.code, amount: w(l) || null })) }]} />
 
       {/* ── SIF ── */}
-      <PdfSection id="sif-list" label="SIF list (lump sum & SIP per strategy)">
+      <PdfSection id="sif-list" label="SIF list (lump sum & SIP per strategy)" kicker="What we recommend" title="SIF — Lump Sum &amp; SIP">
       <div className="card p-4 mb-4 mt-6">
         <div className="font-display font-bold text-sm mb-2" style={{ color: SIF_COLOUR }}>SIF (Specialised Investment Funds)</div>
         <SifEditor lines={plan.sif} onChange={sif => update({ sif })} inputStyle={inputStyle} weightOf={w} />

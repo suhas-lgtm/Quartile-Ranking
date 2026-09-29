@@ -121,7 +121,14 @@ export default function Milestone({ sides: given, storeKey, askSip }: {
         <span className="font-display font-bold text-sm" style={{ color: 'var(--text-hi)' }}>🎯 Milestone</span>
         <span className="text-[11px]" style={{ color: 'var(--text-low)' }}>the client&apos;s goal and what it takes to reach it</span>
       </div>
-      <div className="flex flex-wrap items-end gap-4 mb-3 text-xs" style={{ color: 'var(--text-mid)' }}>
+      {/* On paper: the goal in one line instead of the input boxes. */}
+      <div className="hidden print:block text-sm mb-3" style={{ color: 'var(--text-hi)' }}>
+        Goal <b>{T ? inrShort(T) : '—'}</b> in <b>{goal.years} year{goal.years === 1 ? '' : 's'}</b>
+        {goal.stepUp ? <> · SIP stepped up <b>{Math.round(goal.stepUp * 100)}%</b> a year</> : null}
+        {askSip && goal.sip ? <> · monthly SIP from now <b>{inr(goal.sip)}</b></> : null}
+        {' '}· expected return: {goal.mode === 'custom' ? <b>{(goal.custom * 100).toFixed(2)}% a year</b> : <>the funds&apos; own <b>{goal.mode}</b> return, weighted by amount</>}
+      </div>
+      <div className="flex flex-wrap items-end gap-4 mb-3 text-xs print:hidden" style={{ color: 'var(--text-mid)' }}>
         <label>Milestone ₹
           <input type="number" min={0} step={1000000} value={goal.target ?? ''} onChange={e => setGoal(g => ({ ...g, target: e.target.value === '' ? null : Math.max(0, +e.target.value) }))}
                  className="block mt-1 px-2 py-1.5 rounded text-sm text-right" style={{ ...inputStyle, width: 150 }} />
