@@ -699,13 +699,13 @@ function PortfolioCompare() {
 
 const BENCH_KEY = 'pb_bench_v1'
 
-function useBenchmarkChoice() {
+export function useBenchmarkChoice() {
   const [id, setId] = useState<number>(() => { try { return Number(localStorage.getItem(BENCH_KEY)) || 5 } catch { return 5 } })
   useEffect(() => { try { localStorage.setItem(BENCH_KEY, String(id)) } catch { /* optional */ } }, [id])
   return [id, setId] as const
 }
 
-function BenchmarkPicker({ id, onChange }: { id: number; onChange: (id: number) => void }) {
+export function BenchmarkPicker({ id, onChange }: { id: number; onChange: (id: number) => void }) {
   const { data: meta } = useMeta()
   const list = [...(meta?.benchmarks ?? [])].sort((a, b) => a.index_name.localeCompare(b.index_name))
   return (
@@ -776,7 +776,7 @@ function PortfolioVsBenchmark({ flows, tot, end }: {
 // ── Fund returns & ratios side by side (no dates) ────────────────────────────
 
 /** Each fund's row in its category's risk file (trailing returns and ratios). */
-function useFundRisk(codes: string[], fundByCode: Map<string, FundsIndex['funds'][number]>) {
+export function useFundRisk(codes: string[], fundByCode: Map<string, FundsIndex['funds'][number]>) {
   const [rows, setRows] = useState<Record<string, RiskFundRow | null>>({})
   const slugs = [...new Set(codes.map(c => fundByCode.get(c)?.s).filter((x): x is string => !!x))]
   useEffect(() => {

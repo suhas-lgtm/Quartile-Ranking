@@ -26,6 +26,7 @@ import NewFundOffers   from './sections/NewFundOffers'
 import Sidebar, { type DrawerKind } from './components/Sidebar'
 import SifSection      from './sections/sif/SifSection'
 import Dividends       from './sections/Dividends'
+import PortfolioComparison from './sections/PortfolioComparison'
 import { useMeta }     from './hooks/useData'
 import { currentDesk } from './config/products'
 import { setDataRoot } from './config/dataPaths'
@@ -221,6 +222,8 @@ export default function App() {
         {activeTab === 'nfo' && <NewFundOffers />}
 
         {activeTab === 'dividends' && <Dividends />}
+
+        {activeTab === 'pcompare' && <PortfolioComparison />}
 
         {activeTab.startsWith('sif-') && <SifSection tab={activeTab} />}
       </main>
