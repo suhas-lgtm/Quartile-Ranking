@@ -1,0 +1,147 @@
+[
+  {
+    "scheme_code": "100281",
+    "scheme_name": "Kotak Gilt Fund",
+    "reason": "AMFI names it 'Kotak Gilt Fund -Investment  Provident Fund and Trust-Growth'"
+  },
+  {
+    "scheme_code": "100319",
+    "scheme_name": "LIC MF Gilt Fund",
+    "reason": "AMFI names it 'LIC MF Gilt Fund-PF Plan-Growth'"
+  },
+  {
+    "scheme_code": "100845",
+    "scheme_name": "Nippon India Liquid Fund",
+    "reason": "smaller duplicate of 100851 (AUM 0 vs 8085.82 Cr)"
+  },
+  {
+    "scheme_code": "101084",
+    "scheme_name": "HDFC Gilt Fund",
+    "reason": "AMFI names it 'HDFC Gilt Fund - IDCW Plan'"
+  },
+  {
+    "scheme_code": "101408",
+    "scheme_name": "BARODA BNP PARIBAS LIQUID FUND",
+    "reason": "AMFI names it 'Baroda BNP Paribas LIQUID FUND- Defunct Plan -Growth Option'"
+  },
+  {
+    "scheme_code": "101932",
+    "scheme_name": "SBI GILT FUND",
+    "reason": "AMFI names it 'SBI GILT FUND -  GROWTH - PF (Regular) Option'"
+  },
+  {
+    "scheme_code": "101934",
+    "scheme_name": "SBI GILT FUND",
+    "reason": "AMFI names it 'SBI GILT FUND -  GROWTH - PF (Fixed Period - 3 Yrs) Option'"
+  },
+  {
+    "scheme_code": "104488",
+    "scheme_name": "Invesco India Liquid Fund",
+    "reason": "smaller duplicate of 104486 (AUM 1.77 vs 1589.56 Cr)"
+  },
+  {
+    "scheme_code": "104728",
+    "scheme_name": "Invesco India Ultra Short to Short Term Fund",
+    "reason": "smaller duplicate of 104726 (AUM 0.64 vs 305.66 Cr)"
+  },
+  {
+    "scheme_code": "105189",
+    "scheme_name": "Invesco India Short Term Fund",
+    "reason": "AMFI names it 'Invesco India Short Term Fund - Plan B - Growth'"
+  },
+  {
+    "scheme_code": "105274",
+    "scheme_name": "SBI LIQUID FUND",
+    "reason": "AMFI names it 'SBI Liquid Fund - Institutional - Growth'"
+  },
+  {
+    "scheme_code": "106217",
+    "scheme_name": "SBI Ultra Short to Short Term Fund",
+    "reason": "AMFI names it 'SBI Ultra Short to Short Term Fund - Ultra Short Term Fund - Institutional Plan - Growth'"
+  },
+  {
+    "scheme_code": "106227",
+    "scheme_name": "SBI SHORT TERM FUND",
+    "reason": "AMFI names it 'SBI SHORT TERM FUND-SHORT TERM FUND - RETAIL - GROWTH'"
+  },
+  {
+    "scheme_code": "110599",
+    "scheme_name": "BANK OF INDIA LARGE & MID CAP FUND",
+    "reason": "AMFI names it 'BANK OF INDIA Large & Mid Cap Fund Eco Plan- Growth'"
+  },
+  {
+    "scheme_code": "111709",
+    "scheme_name": "BANK OF INDIA ELSS TAX SAVER FUND",
+    "reason": "AMFI names it 'BANK OF INDIA ELSS Tax Saver FUND -ECO Plan-Growth'"
+  },
+  {
+    "scheme_code": "111715",
+    "scheme_name": "BANK OF INDIA CONSERVATIVE HYBRID FUND",
+    "reason": "AMFI names it 'BANK OF INDIA Conservative Hybrid Fund-ECO Plan-Growth'"
+  },
+  {
+    "scheme_code": "112120",
+    "scheme_name": "Invesco India Money Market Fund",
+    "reason": "smaller duplicate of 112123 (AUM 0.58 vs 410.9 Cr)"
+  },
+  {
+    "scheme_code": "112713",
+    "scheme_name": "Axis Liquid Fund",
+    "reason": "AMFI names it 'Axis Liquid Fund - Retail Plan - Growth Option'"
+  },
+  {
+    "scheme_code": "112717",
+    "scheme_name": "Axis Ultra Short to Short Term Fund",
+    "reason": "AMFI names it 'Axis Treasury Advantage Fund - Retail Plan - Growth Option'"
+  },
+  {
+    "scheme_code": "112721",
+    "scheme_name": "Axis Short Term Fund",
+    "reason": "AMFI names it 'Axis Short Duration Fund - Retail Plan - Growth Option'"
+  },
+  {
+    "scheme_code": "118907",
+    "scheme_name": "HSBC Liquid Fund",
+    "reason": "smaller duplicate of 118902 (AUM 2.73 vs 1972.83 Cr)"
+  },
+  {
+    "scheme_code": "122711",
+    "scheme_name": "360 ONE Dynamic Term Fund",
+    "reason": "AMFI names it '360 ONE Dynamic Term Fund Regular Plan Bonus'"
+  },
+  {
+    "scheme_code": "134356",
+    "scheme_name": "Sundaram Banking and PSU Debt Fund (Formerly Known as Sundaram Banking and PSU Fund)",
+    "reason": "smaller duplicate of 100784 (AUM 0 vs 166.81 Cr)"
+  },
+  {
+    "scheme_code": "150160",
+    "scheme_name": "BARODA BNP PARIBAS ULTRA SHORT TO SHORT TERM FUND",
+    "reason": "AMFI names it 'BARODA BNP PARIBAS Ultra Short to Short Term Fund-Defunct Plan-Growth Option'"
+  },
+  {
+    "scheme_code": "150172",
+    "scheme_name": "Baroda BNP Paribas Dynamic Term Fund",
+    "reason": "AMFI names it 'Baroda BNP Paribas Dynamic Term Fund-Defunct Plan - Growth Option'"
+  },
+  {
+    "scheme_code": "150229",
+    "scheme_name": "BARODA BNP PARIBAS CORPORATE BOND FUND",
+    "reason": "AMFI names it 'BARODA BNP PARIBAS Corporate Bond Fund - Defunct Plan - Growth Option'"
+  },
+  {
+    "scheme_code": "151292",
+    "scheme_name": "HSBC Multi Cap Fund",
+    "reason": "AMFI names it 'HSBC Multi Cap Fund - Regular - IDCW'"
+  },
+  {
+    "scheme_code": "152967",
+    "scheme_name": "Motilal Oswal Digital India Fund",
+    "reason": "AMFI names it 'Motilal Oswal Digital India Fund - Regular Plan - IDCW'"
+  },
+  {
+    "scheme_code": "154604",
+    "scheme_name": "UTI Nifty 500 Index Fund",
+    "reason": "smaller duplicate of 154603 (AUM 0 vs 0 Cr)"
+  }
+]

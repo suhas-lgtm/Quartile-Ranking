@@ -102,6 +102,28 @@ def fetch_aum_history(quarters: int = QUARTERS) -> tuple[list[dict], dict[str, l
     return periods, history
 
 
+def plan_names() -> dict[str, tuple[str, float]]:
+    """
+    {AMFI code: (plan name as the AMC reports it, that plan's own AUM in crores)}
+    for the latest quarter. AMFI's daily NAV file sometimes labels an IDCW,
+    Institutional, Retail or "Eco"/"Defunct" plan as "Regular Plan - Growth";
+    the AUM report names each plan properly, which is how duplicates are told
+    apart (export_catalogue.dedupe_share_classes).
+    """
+    for fy in _get({"strType": "Categorywise", "MF_ID": 0}) or []:
+        for p in (_get({"fyId": fy["id"], "strType": "Categorywise", "MF_ID": 0}) or {}).get("periods") or []:
+            groups = _get({"strType": "Categorywise", "fyId": fy["id"], "periodId": p["id"], "MF_ID": 0}, 180) or []
+            out = {}
+            for g in groups:
+                for sc in g.get("schemes") or []:
+                    a = sc.get("AverageAumForTheMonth") or {}
+                    lakhs = sum(v for v in a.values() if isinstance(v, (int, float)))
+                    out[str(sc.get("AMFI_Code"))] = (sc.get("SchemeNAVName") or "", round(lakhs / 100, 2))
+            if out:
+                return out
+    return {}
+
+
 # Filled by facts_for_catalogue: the quarters behind aum_history, newest first.
 PERIODS: list[dict] = []
 

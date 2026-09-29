@@ -133,6 +133,70 @@ def verify_against_api(catalogue: dict) -> bool:
     return not missing
 
 
+
+# ── Duplicate share classes AMFI mislabels as Regular-Growth ─────────────────
+#
+# AMFI's daily NAV file sometimes files an IDCW, Institutional, Retail, "Eco",
+# "Defunct", PF or Bonus plan as "Regular Plan / Growth" under the SAME name as
+# the real one (Motilal Oswal Digital India, HSBC Multi Cap, SBI Liquid, ...),
+# so the fund showed twice everywhere. AMFI's AUM report names every plan
+# properly; within a group of catalogue entries sharing one name:
+#   1. drop codes whose AUM-report name is a non-Regular-Growth class;
+#   2. if two genuine ones remain with different AUM-report names (Axis
+#      Children's Lock-in / No Lock-in), keep both and name them apart;
+#   3. otherwise keep the largest plan by AUM (a legacy plan holds ~nothing),
+#      or the lowest code when AMFI has no AUM for either yet.
+
+_NOT_REGULAR_GROWTH = re.compile(
+    r"\b(idcw|dividend|institutional|retail|eco\b|defunct|bonus|provident|pf\b|pf plan|"
+    r"plan\s*[abc]\b|super\s*institutional|daily|weekly|monthly|quarterly|payout|reinvest)", re.I)
+_PLAN_TAIL = re.compile(r"\s*-?\s*(regular|growth)(\s*plan)?(\s*-?\s*growth)?(\s*option)?\s*$", re.I)
+
+
+def _base_from_aum_name(name: str) -> str:
+    """'Axis Children's Fund - Lock in - Regular Growth' -> 'Axis Children's Fund - Lock in'."""
+    n = re.sub(r"\s+", " ", name or "").strip()
+    for _ in range(3):
+        n = _PLAN_TAIL.sub("", n).strip(" -")
+    return n
+
+
+def dedupe_share_classes(merged: dict[str, dict], plans: dict[str, tuple[str, float]]) -> dict[str, str]:
+    """
+    Remove / rename duplicates in `merged` (code -> entry) in place.
+    Returns {code: reason} for every code removed, for the log and audit file.
+    """
+    groups: dict[tuple, list[str]] = {}
+    for code, e in merged.items():
+        groups.setdefault(((e.get("amc_name") or "").lower(), (e.get("scheme_name") or "").strip().lower()), []).append(code)
+    removed: dict[str, str] = {}
+    for key, codes in groups.items():
+        if len(codes) < 2:
+            continue
+        keep = [c for c in codes if not _NOT_REGULAR_GROWTH.search(plans.get(c, ("", 0))[0])]
+        for c in codes:
+            if c not in keep:
+                removed[c] = f"AMFI names it '{plans[c][0]}'"
+        if not keep:                                  # everything looked non-growth: keep the biggest
+            keep = [max(codes, key=lambda c: plans.get(c, ("", 0))[1])]
+            removed.pop(keep[0], None)
+        if len(keep) > 1:
+            bases = {c: _base_from_aum_name(plans.get(c, ("", 0))[0]) for c in keep}
+            distinct = len({b.lower() for b in bases.values() if b}) == len(keep)
+            if distinct and all(bases.values()):
+                for c in keep:                         # genuinely different funds: name them apart
+                    merged[c]["scheme_name"] = bases[c]
+                continue
+            best = max(keep, key=lambda c: (plans.get(c, ("", 0))[1], -int(c)))
+            for c in keep:
+                if c != best:
+                    removed[c] = (f"smaller duplicate of {best} "
+                                  f"(AUM {plans.get(c, ('', 0))[1]} vs {plans.get(best, ('', 0))[1]} Cr)")
+    for c in removed:
+        merged.pop(c, None)
+    return removed
+
+
 def refresh_from_amfi(existing: dict | None) -> dict:
     """
     Merge newly launched funds from AMFI's live NAV file into the catalogue.
@@ -347,6 +411,20 @@ def refresh_from_amfi(existing: dict | None) -> dict:
 
         for c in legacy:
             del merged[c]
+
+    # AMFI's mislabelled duplicate share classes (see dedupe_share_classes).
+    try:
+        from scripts.amfi_facts import plan_names
+        plans = plan_names()
+    except Exception as exc:                     # never block the refresh on this
+        log.warning("AMFI plan names unavailable (%s) — duplicates not checked", exc)
+        plans = {}
+    if plans:
+        dupes = dedupe_share_classes(merged, plans)
+        if dupes:
+            log.warning("Removed %d duplicate share class(es) AMFI labels as Regular-Growth:", len(dupes))
+            for c, why in sorted(dupes.items()):
+                log.warning("   %s  %s", c, why)
 
     schemes = [merged[c] for c in sorted(merged, key=lambda x: int(x))]
 
