@@ -93,14 +93,20 @@ export default function Reallocation() {
       const pr = cur.proposed.find(l => l.code === code)?.lump ?? 0
       const inv = existing.get(code)?.invested ?? null
       const action = ex === 0 ? 'New' : pr === 0 ? 'Exit' : pr < ex - 1 ? 'Reduce' : pr > ex + 1 ? 'Add' : 'Keep'
-      // Gain realised on the part sold, in proportion to the fund's gain.
+      // Selling part of a fund books profit in proportion to that fund's overall gain:
+      // sell ₹4 L of a fund worth ₹10 L that cost ₹6 L → ₹2.4 L is cost coming back, ₹1.6 L is profit.
       const sold = Math.max(0, ex - pr)
+      const bought = Math.max(0, pr - ex)
       const gain = inv != null && ex > 0 ? sold * (1 - inv / ex) : null
-      return { code, ex, pr, action, sold, gain, inv }
+      const cost = gain != null ? sold - gain : null
+      return { code, ex, pr, action, sold, bought, gain, cost, inv }
     }).sort((a, b) => ['Exit', 'Reduce', 'Keep', 'Add', 'New'].indexOf(a.action) - ['Exit', 'Reduce', 'Keep', 'Add', 'New'].indexOf(b.action) || b.ex - a.ex)
   }, [existing, cur.proposed])
   const soldTotal = switches.reduce((s, x) => s + x.sold, 0)
   const gainTotal = switches.every(x => x.gain != null || x.sold === 0) ? switches.reduce((s, x) => s + (x.gain ?? 0), 0) : null
+  const boughtTotal = switches.reduce((s, x) => s + x.bought, 0)
+  const sellCount = switches.filter(x => x.sold > 0).length
+  const buyCount = switches.filter(x => x.bought > 0).length
 
   const saved = Object.keys(store.items).filter(k => k)
   const saveAs = () => {
@@ -241,39 +247,57 @@ export default function Reallocation() {
       </PdfSection>
 
       {(exTotal > 0 || prMf + prSif > 0) && (
-        <PdfSection id="totals" label="Totals (existing, suggested, fresh money, gain realised)">
-        <div className="grid gap-3 grid-cols-2 lg:grid-cols-5 mb-4">
-          {[
-            ['Existing', inrShort(exTotal), EX_COLOUR],
-            ['Suggested MF', inrShort(prMf), PR_COLOUR],
-            ['Suggested SIF', inrShort(prSif), SIF_COLOUR],
-            [prMf + prSif - exTotal >= 0 ? 'Fresh money needed' : 'Not yet reinvested', inrShort(Math.abs(prMf + prSif - exTotal)),
-             Math.abs(prMf + prSif - exTotal) < 1 ? undefined : '#F59E0B'],
-            ['Sold · gain realised', `${inrShort(soldTotal)}${gainTotal != null && soldTotal ? ` · ${inrShort(gainTotal)}` : ''}`, undefined],
-          ].map(([l, v, c]) => (
-            <div key={l} className="card p-3">
-              <div className="text-[11px]" style={{ color: 'var(--text-low)' }}>{l}</div>
-              <div className="font-display font-bold text-lg" style={{ color: c ?? 'var(--text-hi)' }}>{v}</div>
-            </div>
-          ))}
+        <PdfSection id="totals" label="Totals (existing, suggested, amount to sell and buy, profit booked)">
+        <div className="grid gap-3 grid-cols-2 lg:grid-cols-4 mb-3">
+          <Card label="Existing portfolio value" value={inrShort(exTotal)} colour={EX_COLOUR} />
+          <Card label="Suggested — mutual funds" value={inrShort(prMf)} colour={PR_COLOUR} />
+          <Card label="Suggested — SIF" value={inrShort(prSif)} colour={SIF_COLOUR} />
+          {prMf + prSif - exTotal >= 0
+            ? <Card label="Fresh money needed" value={inrShort(prMf + prSif - exTotal)} colour={prMf + prSif - exTotal > 1 ? '#F59E0B' : undefined}
+                    sub="suggested total − existing value" />
+            : <Card label="Money left over (not reinvested)" value={inrShort(exTotal - prMf - prSif)} colour="#F59E0B"
+                    sub="existing value − suggested total" />}
         </div>
+        {soldTotal > 0 && (
+          <div className="card p-4 mb-4">
+            <div className="text-xs font-semibold mb-2" style={{ color: 'var(--text-hi)' }}>What the switch involves</div>
+            <div className="grid gap-3 grid-cols-2 lg:grid-cols-4 mb-2">
+              <Card label="① Amount to sell (redeem)" value={inrShort(soldTotal)} colour="#F87171"
+                    sub={`from ${sellCount} fund${sellCount === 1 ? '' : 's'} (exits and reductions)`} />
+              <Card label="② of which: your original investment" value={gainTotal == null ? '—' : inrShort(soldTotal - gainTotal)}
+                    sub="the money put in, coming back" />
+              <Card label="③ of which: profit booked" value={gainTotal == null ? '—' : inrShort(gainTotal)}
+                    colour={gainTotal != null && gainTotal < 0 ? '#F87171' : '#34D399'} sub="capital gain — taxable on sale" />
+              <Card label="④ Amount to buy" value={inrShort(boughtTotal + prSif)} colour={PR_COLOUR}
+                    sub={`into ${buyCount} fund${buyCount === 1 ? '' : 's'}${prSif ? ' + SIF' : ''} (new and increased)`} />
+            </div>
+            <p className="text-[11px]" style={{ color: 'var(--text-mid)' }}>
+              ① = ② + ③. Selling {inrShort(soldTotal)} gives back {gainTotal == null ? 'the money put in' : `${inrShort(soldTotal - gainTotal)} of the client's own money`} plus
+              {gainTotal == null ? ' the profit on it' : ` ${inrShort(gainTotal)} of profit`}; that profit is what capital-gains tax applies to
+              (short or long term depends on how long each purchase was held — check before switching, along with exit loads).
+              {gainTotal == null && ' Profit needs the invested amount in the uploaded file.'}
+            </p>
+          </div>
+        )}
         </PdfSection>
       )}
 
       {/* ── switches ── */}
       {existing.size > 0 && cur.proposed.length > 0 && (
-        <PdfSection id="switches" label="Switches to make & gain realised">
+        <PdfSection id="switches" label="Switches to make (sell, buy, profit booked per fund)">
         <div className="card overflow-hidden mb-4">
-          <div className="px-4 pt-3 font-display font-bold text-sm" style={{ color: 'var(--text-hi)' }}>Switches to make &amp; gain realised</div>
+          <div className="px-4 pt-3 font-display font-bold text-sm" style={{ color: 'var(--text-hi)' }}>Switches to make — fund by fund</div>
           <div className="px-4 text-[10px]" style={{ color: 'var(--text-low)' }}>
-            Gain realised = the part sold × the fund&apos;s gain (from the invested amount in the file). Check exit loads and tax before switching.
+            Sell = existing − suggested. Of what is sold, &ldquo;your cost&rdquo; is the original investment coming back and &ldquo;profit booked&rdquo; the gain on it
+            (in the same proportion as the fund&apos;s overall gain in the uploaded file). Check exit loads and tax before switching.
           </div>
           <div className="table-scroll">
             <table className="data-table">
               <thead><tr>
                 <th className="text-left">Fund</th><th className="text-left">Action</th>
-                <th style={{ textAlign: 'right' }}>Existing</th><th style={{ textAlign: 'right' }}>Suggested</th>
-                <th style={{ textAlign: 'right' }}>Change</th><th style={{ textAlign: 'right' }}>Gain realised</th>
+                <th style={{ textAlign: 'right' }}>Existing value</th><th style={{ textAlign: 'right' }}>Suggested value</th>
+                <th style={{ textAlign: 'right' }}>Sell ₹</th><th style={{ textAlign: 'right' }}>Buy ₹</th>
+                <th style={{ textAlign: 'right' }}>of sale: your cost</th><th style={{ textAlign: 'right' }}>of sale: profit booked</th>
               </tr></thead>
               <tbody>
                 {switches.map(s => {
@@ -287,11 +311,22 @@ export default function Reallocation() {
                       <td className="text-xs font-semibold" style={{ color: colour }}>{s.action}</td>
                       <td className="ret-cell text-xs">{s.ex ? inr(s.ex) : '—'}</td>
                       <td className="ret-cell text-xs">{s.pr ? inr(s.pr) : '—'}</td>
-                      <td className="ret-cell text-xs" style={{ color: colour }}>{s.pr - s.ex === 0 ? '—' : `${s.pr > s.ex ? '+' : '−'}${inr(Math.abs(s.pr - s.ex))}`}</td>
+                      <td className="ret-cell text-xs font-semibold" style={{ color: s.sold ? '#F87171' : 'var(--text-low)' }}>{s.sold ? inr(s.sold) : '—'}</td>
+                      <td className="ret-cell text-xs font-semibold" style={{ color: s.bought ? '#34D399' : 'var(--text-low)' }}>{s.bought ? inr(s.bought) : '—'}</td>
+                      <td className="ret-cell text-xs">{s.sold ? (s.cost == null ? '—' : inr(s.cost)) : ''}</td>
                       <td className={`ret-cell text-xs ${retColor(s.gain)}`}>{s.sold ? (s.gain == null ? '—' : inr(s.gain)) : ''}</td>
                     </tr>
                   )
                 })}
+                <tr className="benchmark-row">
+                  <td className="text-xs font-semibold">Total</td><td />
+                  <td className="ret-cell text-xs font-semibold">{inr(exTotal)}</td>
+                  <td className="ret-cell text-xs font-semibold">{inr(prMf)}</td>
+                  <td className="ret-cell text-xs font-semibold" style={{ color: '#F87171' }}>{inr(soldTotal)}</td>
+                  <td className="ret-cell text-xs font-semibold" style={{ color: '#34D399' }}>{inr(boughtTotal)}</td>
+                  <td className="ret-cell text-xs font-semibold">{gainTotal == null ? '—' : inr(soldTotal - gainTotal)}</td>
+                  <td className={`ret-cell text-xs font-semibold ${retColor(gainTotal)}`}>{gainTotal == null ? '—' : inr(gainTotal)}</td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -323,5 +358,15 @@ export default function Reallocation() {
       )}
     </section>
     </PdfProvider>
+  )
+}
+
+function Card({ label, value, sub, colour }: { label: string; value: string; sub?: string; colour?: string }) {
+  return (
+    <div className="card p-3">
+      <div className="text-[11px]" style={{ color: 'var(--text-low)' }}>{label}</div>
+      <div className="font-display font-bold text-lg" style={{ color: colour ?? 'var(--text-hi)' }}>{value}</div>
+      {sub && <div className="text-[10px]" style={{ color: 'var(--text-mid)' }}>{sub}</div>}
+    </div>
   )
 }

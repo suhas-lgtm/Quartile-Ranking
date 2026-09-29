@@ -27,6 +27,8 @@ type RateMode = '5Y' | '3Y' | 'custom'
 interface Goal { target: number | null; years: number; mode: RateMode; custom: number; stepUp: number; sip?: number }
 
 const MAX_YEARS = 50
+/** Round milestones advisors talk in: ₹10 L … ₹100 Cr. */
+const LADDER = [1e6, 2.5e6, 5e6, 7.5e6, 1e7, 1.5e7, 2e7, 2.5e7, 3e7, 5e7, 7.5e7, 1e8, 1.5e8, 2e8, 2.5e8, 5e8, 7.5e8, 1e9]
 const pctIn = (v: number) => `${(v * 100).toFixed(2)}%`
 
 /** Value after `months` of growth at annual rate r: lump compounding plus a SIP paid at the start of each month, stepped up yearly. */
@@ -99,7 +101,11 @@ export default function Milestone({ sides: given, storeKey, askSip }: {
     const perRupeeSip = projectValue(0, 1, r, months, goal.stepUp).value
     const extraSip = gap > 0 && perRupeeSip > 0 ? gap / perRupeeSip : 0
     const extraLump = gap > 0 ? gap / Math.pow(1 + r, goal.years) : 0
-    return { s, r, at, reach, gap, extraSip, extraLump }
+    // The round milestones just above today's value (and the client's own goal), with what is still to go.
+    const now = s.lump
+    const marks = [...new Set([...LADDER.filter(m => m > now).slice(0, 4), ...(T > now ? [T] : [])])].sort((a, b) => a - b).slice(0, 5)
+    const ladder = marks.map(m => ({ m, need: m - now, months: monthsToReach(s.lump, s.sip, r, m, goal.stepUp), goal: m === T }))
+    return { s, r, at, reach, gap, extraSip, extraLump, ladder }
   })
   const pathYears = Array.from({ length: Math.min(goal.years, 30) }, (_, i) => i + 1)
 
@@ -179,6 +185,34 @@ export default function Milestone({ sides: given, storeKey, askSip }: {
                       </div>
                     ))}
                   </>
+                )}
+                {x.r != null && x.ladder && x.ladder.length > 0 && (
+                  <div className="mt-3">
+                    <div className="text-[11px] font-semibold mb-1" style={{ color: 'var(--text-hi)' }}>
+                      Next milestones from today&apos;s {inrShort(x.s.lump)}
+                    </div>
+                    <table className="w-full text-[11px]">
+                      <thead><tr style={{ color: 'var(--text-low)' }}>
+                        <th className="text-left font-normal">Milestone</th>
+                        <th className="text-right font-normal">Still to go</th>
+                        <th className="text-right font-normal">Reached in</th>
+                      </tr></thead>
+                      <tbody>
+                        {x.ladder.map(l => (
+                          <tr key={l.m}>
+                            <td className="py-0.5" style={{ color: l.goal ? '#F59E0B' : 'var(--text-hi)' }}>
+                              {inrShort(l.m)}{l.goal ? ' 🎯 goal' : ''}
+                            </td>
+                            <td className="text-right font-semibold" style={{ color: 'var(--text-hi)' }}>{inrShort(l.need)} more</td>
+                            <td className="text-right" style={{ color: 'var(--text-mid)' }}>
+                              {l.months == null ? `over ${MAX_YEARS} yrs` : l.months < 12 ? `${l.months} month${l.months === 1 ? '' : 's'}` : `${(l.months / 12).toFixed(1)} yrs`}
+                              {l.months != null && <span style={{ color: 'var(--text-low)' }}> ({new Date(Date.now() + l.months * 30.44 * 86400000).getFullYear()})</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
             ))}
