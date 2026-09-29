@@ -13,7 +13,6 @@ repository, which is public:
     BREVO_SENDER_EMAIL   a sender verified in Brevo
     BREVO_SENDER_NAME    optional, default "MF Research Alerts"
     ALERT_RECIPIENTS     comma-separated email addresses
-    SITE_URL             optional, linked at the end of the email
 
 Usage:
   python scripts/send_alerts.py --dry-run                 # print the email, send nothing
@@ -40,10 +39,9 @@ if ROOT_DIR not in sys.path:
 log = logging.getLogger("send_alerts")
 
 BREVO_URL = "https://api.brevo.com/v3/smtp/email"
-DEFAULT_SITE = "https://armstrong-mf-dashboard.pages.dev"
 PERIOD_NAMES = {"1D": "1 Day", "1W": "1 Week", "1M": "1 Month", "3M": "3 Months",
                 "6M": "6 Months", "12M": "1 Year"}
-_KEYS = ("BREVO_API_KEY", "BREVO_SENDER_EMAIL", "BREVO_SENDER_NAME", "ALERT_RECIPIENTS", "SITE_URL")
+_KEYS = ("BREVO_API_KEY", "BREVO_SENDER_EMAIL", "BREVO_SENDER_NAME", "ALERT_RECIPIENTS")
 
 
 def load_settings() -> dict[str, str]:
@@ -115,7 +113,7 @@ def criteria(alerts: dict, as_of: str) -> list[str]:
     ]
 
 
-def compose(alerts: dict, site_url: str) -> tuple[str, str, str] | None:
+def compose(alerts: dict) -> tuple[str, str, str] | None:
     """(subject, plain-text body, HTML body), or None when nothing breached."""
     funds = alerts.get("funds") or []
     if not funds:
@@ -146,8 +144,8 @@ def compose(alerts: dict, site_url: str) -> tuple[str, str, str] | None:
             lines.append(f"    - {f['scheme_name']}: {_pct(r['fund'])} vs average "
                          f"{_pct(r['average'])}  →  {r['gap']:+.2f} pts")
         lines.append("")
-    lines += [f"Full list: {site_url} (Auto Mailing tab)", "",
-              "This is an automated message from the MF Research dashboard."]
+    # No dashboard link in the email: the site is internal.
+    lines += ["This is an automated message from the MF Research dashboard."]
     text = "\n".join(lines)
 
     # ── HTML: one table per period, grouped by category ──
@@ -198,9 +196,7 @@ def compose(alerts: dict, site_url: str) -> tuple[str, str, str] | None:
                 f'<td style="{cell}text-align:right;color:{RED};font-weight:bold">{r["gap"]:+.2f} pts</td>'
                 "</tr>")
         parts.append("</table>")
-    parts += [f'<p style="margin-top:22px">Full list: <a href="{escape(site_url)}">{escape(site_url)}</a> '
-              f'(Auto Mailing tab)</p>',
-              f'<p style="color:{GREY};font-size:12px">Green = positive return, red = negative return; '
+    parts += [f'<p style="margin-top:22px;color:{GREY};font-size:12px">Green = positive return, red = negative return; '
               f'Gap = fund return minus category average, in percentage points. Sectoral/Thematic funds '
               f'are compared with their own sector; index funds, ETFs and domestic FoFs with funds '
               f'tracking the same index.<br>This is an automated message from the MF Research '
@@ -240,7 +236,7 @@ def main() -> int:
     args = ap.parse_args()
 
     settings = load_settings()
-    msg = compose(load_alerts(args.file), settings.get("SITE_URL") or DEFAULT_SITE)
+    msg = compose(load_alerts(args.file))
     if msg is None:
         log.info("No fund breaches a threshold — no email sent.")
         return 0
