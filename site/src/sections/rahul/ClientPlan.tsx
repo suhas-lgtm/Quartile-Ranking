@@ -9,7 +9,8 @@
 // weighted, overlap and correlation, then the same for the SIFs. Plans are kept
 // in this browser, one per client.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSavedClients } from '../../utils/savedClients'
 import Milestone, { nextMilestone } from '../../components/Milestone'
 import { PdfButton, PdfProvider, PdfSection } from '../../components/PdfSections'
 import { useJson } from '../../hooks/useData'
@@ -156,7 +157,15 @@ export default function ClientPlan() {
   const mfW = plan.mf.reduce((s, l) => s + w(l), 0), sifW = plan.sif.reduce((s, l) => s + w(l), 0)
   const left = plan.target ? plan.target - planned : null
 
-  const saved = Object.keys(store.plans).filter(k => k)
+  // Saved clients live on the server too, so they open on any computer (utils/savedClients).
+  const putLocal = useCallback((name: string, data: typeof plan) =>
+    setStore(s => ({ current: name, plans: { ...s.plans, [name]: data } })), [])
+  const dropLocal = useCallback((name: string) => setStore(s => {
+    const plans = { ...s.plans }; delete plans[name]
+    return { current: s.current === name ? '' : s.current, plans: { '': EMPTY, ...plans } }
+  }), [])
+  const cloud = useSavedClients({ kind: 'rahul-plan', current: store.current, local: store.plans, putLocal, dropLocal })
+  const saved = cloud.names
   const saveAs = () => {
     const nm = plan.client.trim()
     if (!nm) { window.alert('Enter the client name first.'); return }
@@ -165,6 +174,7 @@ export default function ClientPlan() {
       if (s.current === '') plans[''] = EMPTY
       return { current: nm, plans }
     })
+    cloud.save(nm, { ...plan, client: nm })
   }
 
   return (
@@ -182,7 +192,7 @@ export default function ClientPlan() {
       <div className="section-header">
         <span>Client Plan</span>
         <span className="ml-auto flex items-center gap-2 text-xs print:hidden">
-          <select value={store.current} onChange={e => setStore(s => ({ ...s, current: e.target.value }))}
+          <select value={store.current} onChange={e => { const v = e.target.value; setStore(s => ({ ...s, current: v })); cloud.open(v) }}
                   className="px-2 py-1 rounded text-xs" style={inputStyle}>
             <option value="">New plan</option>
             {saved.map(k => <option key={k} value={k}>{k}</option>)}
@@ -190,12 +200,18 @@ export default function ClientPlan() {
           <button className="tab-btn" onClick={saveAs}>Save for this client</button>
           {store.current && (
             <button className="tab-btn" onClick={() => {
-              if (!window.confirm(`Delete the plan for ${store.current}?`)) return
-              setStore(s => { const plans = { ...s.plans }; delete plans[s.current]; return { current: '', plans: { '': EMPTY, ...plans } } })
+              if (!window.confirm(`Delete the plan for ${store.current}? It is removed for the whole team.`)) return
+              cloud.remove(store.current)
             }}>Delete</button>
           )}
           <PdfButton title={plan.client || 'Client Plan'} />
         </span>
+      </div>
+      <div className="text-[11px] -mt-2 mb-3 print:hidden" style={{ color: cloud.status === 'offline' ? '#F59E0B' : 'var(--text-low)' }}>
+        {cloud.status === 'offline'
+          ? 'Saved clients server not reachable — saving in this browser only for now.'
+          : cloud.note ?? `Saved clients are shared by the team and open on any computer${saved.length ? ` · ${saved.length} saved` : ''}.`}
+        {store.current && cloud.status === 'online' && ' · changes save automatically'}
       </div>
 
       {/* ── the plan ── */}

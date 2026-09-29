@@ -9,6 +9,7 @@
 import { route, readFile } from '../../server/neonFiles'
 import { handleAuth, isProtected, readCookie, sessionValid, SESSION_COOKIE } from '../../server/auth'
 import { handleBlacklist } from '../../server/lists'
+import { handleClients } from '../../server/clients'
 import { handleHoldings, handleNav, handleSeries } from '../../server/navLookup'
 
 export interface Env {
@@ -110,6 +111,13 @@ export async function serveApi(req: Request, env: Env): Promise<Response> {
         'content-type': 'application/json', 'cache-control': r.status === 200 ? PUBLIC : 'no-store',
       } })
     })
+  }
+
+  // Saved clients (behind the dashboard password, like every /api call).
+  if (action === 'clients') {
+    const r = await handleClients(url.searchParams, req.method, () => req.text(), env.DATABASE_URL)
+      .catch(err => { console.error('clients', err); return { status: 502, body: '{"error":"database error"}' } })
+    return new Response(r.body, { status: r.status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } })
   }
 
   const out: { status: number; body: string; setCookie?: string } =

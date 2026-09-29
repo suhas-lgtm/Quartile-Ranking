@@ -5,6 +5,7 @@ import path from 'path'
 import { route, readFile } from './server/neonFiles'
 import { handleAuth, isProtected, readCookie, sessionValid, SESSION_COOKIE } from './server/auth'
 import { handleBlacklist } from './server/lists'
+import { handleClients } from './server/clients'
 import { handleHoldings, handleNav, handleSeries } from './server/navLookup'
 import { siteGate } from './server/siteGate'
 
@@ -85,6 +86,14 @@ function neonData(): Plugin {
         if (readers[action]) {
           const r = await readers[action](new URL(req.url ?? '', 'http://localhost').searchParams, databaseUrl)
             .catch(err => { console.error('[vite] nav', err); return { status: 502, body: '{"error":"database error"}' } })
+          res.statusCode = r.status
+          res.setHeader('content-type', 'application/json')
+          return res.end(r.body)
+        }
+        if (action === 'clients') {
+          const read = () => new Promise<string>(resolve => { let b = ''; req.on('data', c => { b += c }); req.on('end', () => resolve(b)) })
+          const r = await handleClients(new URL(req.url ?? '', 'http://localhost').searchParams, req.method ?? 'GET', read, databaseUrl)
+            .catch(err => { console.error('[vite] clients', err); return { status: 502, body: '{"error":"database error"}' } })
           res.statusCode = r.status
           res.setHeader('content-type', 'application/json')
           return res.end(r.body)

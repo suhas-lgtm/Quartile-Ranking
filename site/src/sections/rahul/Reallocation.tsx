@@ -9,7 +9,8 @@
 // existing vs suggested: allocation, holdings, returns, SIP returns and ratios,
 // then the SIF part. Kept in this browser, one per client.
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSavedClients } from '../../utils/savedClients'
 import { nextMilestone } from '../../components/Milestone'
 import { PdfButton, PdfProvider, PdfSection } from '../../components/PdfSections'
 import { useJson } from '../../hooks/useData'
@@ -129,7 +130,15 @@ export default function Reallocation() {
   const sellCount = switches.filter(x => x.sold > 0).length
   const buyCount = switches.filter(x => x.bought > 0).length
 
-  const saved = Object.keys(store.items).filter(k => k)
+  // Saved clients live on the server too, so they open on any computer (utils/savedClients).
+  const putLocal = useCallback((name: string, data: typeof cur) =>
+    setStore(s => ({ current: name, items: { ...s.items, [name]: data } })), [])
+  const dropLocal = useCallback((name: string) => setStore(s => {
+    const items = { ...s.items }; delete items[name]
+    return { current: s.current === name ? '' : s.current, items: { '': EMPTY, ...items } }
+  }), [])
+  const cloud = useSavedClients({ kind: 'rahul-realloc', current: store.current, local: store.items, putLocal, dropLocal })
+  const saved = cloud.names
   const saveAs = () => {
     const nm = cur.client.trim()
     if (!nm) { window.alert('Enter the client name first.'); return }
@@ -138,6 +147,7 @@ export default function Reallocation() {
       if (s.current === '') items[''] = EMPTY
       return { current: nm, items }
     })
+    cloud.save(nm, { ...cur, client: nm })
   }
   const setRow = (i: number, patch: Partial<UploadedRow>) => update({ rows: cur.rows.map((r, j) => (j === i ? { ...r, ...patch } : r)) })
 
@@ -158,7 +168,7 @@ export default function Reallocation() {
       <div className="section-header">
         <span>Portfolio Reallocation</span>
         <span className="ml-auto flex items-center gap-2 text-xs print:hidden">
-          <select value={store.current} onChange={e => setStore(s => ({ ...s, current: e.target.value }))}
+          <select value={store.current} onChange={e => { const v = e.target.value; setStore(s => ({ ...s, current: v })); cloud.open(v) }}
                   className="px-2 py-1 rounded text-xs" style={inputStyle}>
             <option value="">New client</option>
             {saved.map(k => <option key={k} value={k}>{k}</option>)}
@@ -166,12 +176,18 @@ export default function Reallocation() {
           <button className="tab-btn" onClick={saveAs}>Save for this client</button>
           {store.current && (
             <button className="tab-btn" onClick={() => {
-              if (!window.confirm(`Delete ${store.current}?`)) return
-              setStore(s => { const items = { ...s.items }; delete items[s.current]; return { current: '', items: { '': EMPTY, ...items } } })
+              if (!window.confirm(`Delete ${store.current}? It is removed for the whole team.`)) return
+              cloud.remove(store.current)
             }}>Delete</button>
           )}
           <PdfButton title={cur.client || 'Portfolio Reallocation'} />
         </span>
+      </div>
+      <div className="text-[11px] -mt-2 mb-3 print:hidden" style={{ color: cloud.status === 'offline' ? '#F59E0B' : 'var(--text-low)' }}>
+        {cloud.status === 'offline'
+          ? 'Saved clients server not reachable — saving in this browser only for now.'
+          : cloud.note ?? `Saved clients are shared by the team and open on any computer${saved.length ? ` · ${saved.length} saved` : ''}.`}
+        {store.current && cloud.status === 'online' && ' · changes save automatically'}
       </div>
 
       {/* ── upload ── */}
