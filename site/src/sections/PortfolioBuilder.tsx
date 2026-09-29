@@ -199,6 +199,7 @@ function PortfolioEditor({ storeKey, label }: { storeKey: string; label: string 
   const codeByLabel = useMemo(() => new Map((index?.funds ?? []).map(f => [labelOf(f), f.c])), [index])
   const { end, results, tot, loading, error, sipAmount, sipStart } = usePortfolioCalc(pf, latest, fundByCode)
 
+  const isDebt = (code: string) => meta?.categories.find(c => c.slug === fundByCode.get(code)?.s)?.asset_class === 'Debt'
   // Full NAV history per holding, for the correlation table (fetched once each).
   const codes = useMemo(() => pf.holdings.map(h => h.code), [pf.holdings])
   const [series, setSeries] = useState<Record<string, NavSeries | null>>({})
@@ -519,8 +520,9 @@ function PortfolioEditor({ storeKey, label }: { storeKey: string; label: string 
         {error && <div className="p-3 text-xs" style={{ color: 'var(--loss)' }}>Could not load NAVs ({error}).</div>}
       </div>
 
-      <CorrelationMatrix funds={pf.holdings.map(h => ({ code: h.code, name: fundByCode.get(h.code)?.n ?? h.code, series: series[h.code] }))} />
-      <OverlapMatrix funds={pf.holdings.map(h => ({ code: h.code, name: fundByCode.get(h.code)?.n ?? h.code }))} />
+      {/* Debt funds left out: correlation and stock overlap are for the equity-oriented funds. */}
+      <CorrelationMatrix funds={pf.holdings.filter(h => !isDebt(h.code)).map(h => ({ code: h.code, name: fundByCode.get(h.code)?.n ?? h.code, series: series[h.code] }))} />
+      <OverlapMatrix funds={pf.holdings.filter(h => !isDebt(h.code)).map(h => ({ code: h.code, name: fundByCode.get(h.code)?.n ?? h.code }))} />
       <LookThrough funds={results.filter(r => r.value > 0).map(r => ({ code: r.h.code, name: r.name, value: r.value }))} />
       <PortfolioVsBenchmark flows={results.flatMap(r => r.flows.filter(f => f.amount < 0))} tot={tot} end={end} />
       <p className="text-[11px]" style={{ color: 'var(--text-low)' }}>

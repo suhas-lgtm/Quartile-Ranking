@@ -16,7 +16,8 @@ import CorrelationMatrix, { type NavSeries } from './CorrelationMatrix'
 import { capSplit, useStockCaps, CAP_COLOURS } from './CapSplit'
 import { useLookThrough, type LookRow } from './LookThrough'
 import { BenchmarkPicker, useBenchmarkChoice, useFundRisk } from '../sections/PortfolioBuilder'
-import { indexTrailing, useIndexSeries } from '../utils/benchmark'
+import { closeAt, indexTrailing, useIndexSeries } from '../utils/benchmark'
+import { isoMinus } from '../utils/navMath'
 import { categoryColor } from '../config/categoryColors'
 import { fmtPct, retColor } from '../utils/format'
 import type { FundsIndex, RiskFundRow } from '../types'
@@ -103,7 +104,12 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
   const risk = useFundRisk([...new Set([...A.lines, ...B.lines].map(l => l.code))], fundByCode)
   const caps = useStockCaps()
   const [benchId, setBenchId] = useBenchmarkChoice()
-  const bench = indexTrailing(useIndexSeries(benchId))
+  const benchSeries = useIndexSeries(benchId)
+  const bench: Record<string, number | null> = { ...indexTrailing(benchSeries) }
+  if (benchSeries?.length) {
+    const end = benchSeries[benchSeries.length - 1], start = closeAt(benchSeries, isoMinus(end[0], 120))
+    bench['10Y'] = start ? Math.pow(end[1] / start, 1 / 10) - 1 : null
+  }
   const benchName = meta?.benchmarks.find(b => b.index_id === benchId)?.index_name ?? 'Index'
   const [allHold, setAllHold] = useState<Record<number, boolean>>({})
 
@@ -112,7 +118,10 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
   const two = shown.length === 2
   // The side the fund-to-fund tables (overlap, correlation) are for: the proposal when there is one.
   const focus = shown[shown.length - 1]
-  const focusFunds = focus ? priced(focus.s).map(l => ({ code: l.code, name: name(l.code) })) : []
+  // Debt funds are left out: their correlation and stock overlap with equity funds say nothing useful.
+  const isDebt = (code: string) => meta?.categories.find(c => c.slug === fundByCode.get(code)?.s)?.asset_class === 'Debt'
+  const focusFunds = focus ? priced(focus.s).filter(l => !isDebt(l.code)).map(l => ({ code: l.code, name: name(l.code) })) : []
+  const debtLeftOut = focus ? priced(focus.s).filter(l => isDebt(l.code)).length : 0
   const series = useSeries(focusFunds.map(f => f.code))
 
   if (!shown.length) {
@@ -152,9 +161,6 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
     <div>
       <div className="section-header" style={{ marginTop: 8 }}>
         <span>{title}</span>
-        <span className="ml-auto flex items-center gap-2 text-xs" style={{ color: 'var(--text-mid)' }}>
-          Benchmark <BenchmarkPicker id={benchId} onChange={setBenchId} />
-        </span>
       </div>
 
       {/* ── summary ── */}
@@ -164,6 +170,12 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
         { label: 'Number of stocks (through the funds)', vals: shown.map(x => String(x.lt.rows.filter(r => r.asset_class === 'Equity').length)) },
         { label: 'Top 10 stocks, share of portfolio', vals: shown.map(x => pct1(top10(x.lt))),
           change: two ? <Delta v={top10(shown[1].lt) - top10(shown[0].lt)} /> : null },
+        ...(two ? [
+          { label: 'Funds in both', vals: (() => { const k = String(priced(shown[0].s).filter(l => priced(shown[1].s).some(m => m.code === l.code)).length); return [k, k] })() },
+          { label: 'Stock overlap between the two (common weight)', vals: [pct1(stockOverlap(shown[0].lt.rows, shown[1].lt.rows)), ''] },
+          { label: 'Stocks only in ' + shown[0].s.label.toLowerCase(), vals: [String(onlyIn(shown[0].lt.rows, shown[1].lt.rows).length), ''] },
+          { label: 'Stocks only in ' + shown[1].s.label.toLowerCase(), vals: ['', String(onlyIn(shown[1].lt.rows, shown[0].lt.rows).length)] },
+        ] : []),
         { label: 'Average fund size (AUM, weighted)', vals: shown.map(x => { const v = weightedAum(x.s); return v == null ? '—' : `₹${Math.round(v).toLocaleString('en-IN')} Cr` }) },
       ]} />
 
@@ -194,7 +206,12 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
 
       {/* ── returns & ratios ── */}
       <div className="card overflow-hidden mb-4">
-        <div className="px-4 pt-3 font-display font-bold text-sm" style={{ color: 'var(--text-hi)' }}>Returns &amp; ratios (weighted by amount)</div>
+        <div className="px-4 pt-3 flex items-center flex-wrap gap-2">
+          <span className="font-display font-bold text-sm" style={{ color: 'var(--text-hi)' }}>Returns &amp; ratios (weighted by amount)</span>
+          <span className="ml-auto flex items-center gap-2 text-xs" style={{ color: 'var(--text-mid)' }}>
+            Compare with <BenchmarkPicker id={benchId} onChange={setBenchId} />
+          </span>
+        </div>
         <div className="px-4 text-[10px]" style={{ color: 'var(--text-low)' }}>
           Returns up to 1Y absolute, 3Y+ annualised. SIP = XIRR of a monthly SIP. Ratios over 3 years.
         </div>
@@ -293,6 +310,8 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
         ))}
       </div>
 
+      {two && <StockChanges a={shown[0]} b={shown[1]} />}
+
       {/* ── fund level ── */}
       {shown.map(({ s, i }) => (
         <div key={i} className="card overflow-hidden mb-4">
@@ -331,6 +350,11 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
         </div>
       ))}
 
+      {debtLeftOut > 0 && (
+        <p className="text-[11px] mb-2" style={{ color: 'var(--text-low)' }}>
+          {debtLeftOut} debt fund{debtLeftOut === 1 ? '' : 's'} left out of the correlation and overlap tables.
+        </p>
+      )}
       {focusFunds.length > 1 && (
         <>
           <CorrelationMatrix funds={focusFunds.map(f => ({ ...f, series: series[f.code] }))} />
@@ -408,6 +432,72 @@ export function SplitTable({ title, note, cols, two, rows, sub }: {
           ))}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+/** Weight the two portfolios hold in common: the sum, stock by stock, of the smaller weight. */
+function stockOverlap(a: LookRow[], b: LookRow[]) {
+  const m = new Map(b.filter(r => r.asset_class === 'Equity').map(r => [r.isin, r.weight]))
+  return a.filter(r => r.asset_class === 'Equity').reduce((s, r) => s + Math.min(r.weight, m.get(r.isin) ?? 0), 0)
+}
+function onlyIn(a: LookRow[], b: LookRow[]) {
+  const have = new Set(b.map(r => r.isin))
+  return a.filter(r => r.asset_class === 'Equity' && !have.has(r.isin))
+}
+
+/** Biggest stock-level moves from one portfolio to the other, new and exited stocks marked. */
+function StockChanges({ a, b }: { a: { s: ReviewSide; lt: { rows: LookRow[] } }; b: { s: ReviewSide; lt: { rows: LookRow[] } } }) {
+  const [n, setN] = useState(10)
+  const ma = new Map(a.lt.rows.filter(r => r.asset_class === 'Equity').map(r => [r.isin, r]))
+  const mb = new Map(b.lt.rows.filter(r => r.asset_class === 'Equity').map(r => [r.isin, r]))
+  const all = [...new Set([...ma.keys(), ...mb.keys()])].map(isin => {
+    const x = ma.get(isin), y = mb.get(isin)
+    return { isin, name: (y ?? x)!.name, industry: (y ?? x)!.industry, a: x?.weight ?? 0, b: y?.weight ?? 0 }
+  })
+  const up = all.filter(r => r.b - r.a > 0.0001).sort((p, q) => (q.b - q.a) - (p.b - p.a))
+  const down = all.filter(r => r.a - r.b > 0.0001).sort((p, q) => (q.a - q.b) - (p.a - p.b))
+  const table = (rows: typeof all, head: string, colour: string) => (
+    <div className="card overflow-hidden">
+      <div className="px-4 pt-3 font-display font-bold text-sm" style={{ color: colour }}>{head}</div>
+      <table className="data-table">
+        <thead><tr>
+          <th className="text-left">Stock</th>
+          <th style={{ textAlign: 'right', color: a.s.colour }}>{a.s.label}</th>
+          <th style={{ textAlign: 'right', color: b.s.colour }}>{b.s.label}</th>
+          <th style={{ textAlign: 'right' }}>Change</th>
+        </tr></thead>
+        <tbody>
+          {rows.slice(0, n).map(r => (
+            <tr key={r.isin}>
+              <td className="text-xs" style={{ maxWidth: 240 }}>
+                <div className="truncate" title={r.name}>{r.name}
+                  {r.a === 0 && <span className="ml-1 text-[9px] px-1 rounded" style={{ background: 'rgba(34,211,238,0.15)', color: '#22D3EE' }}>NEW</span>}
+                  {r.b === 0 && <span className="ml-1 text-[9px] px-1 rounded" style={{ background: 'rgba(248,113,113,0.15)', color: '#F87171' }}>EXITED</span>}
+                </div>
+                <div className="text-[10px]" style={{ color: 'var(--text-low)' }}>{r.industry}</div>
+              </td>
+              <td className="ret-cell text-xs">{r.a ? `${(r.a * 100).toFixed(2)}%` : '—'}</td>
+              <td className="ret-cell text-xs">{r.b ? `${(r.b * 100).toFixed(2)}%` : '—'}</td>
+              <td className="ret-cell text-xs"><Delta v={r.b - r.a} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+  if (!up.length && !down.length) return null
+  return (
+    <div className="mb-4">
+      <div className="grid gap-4 lg:grid-cols-2">
+        {table(up, `Stocks increased (${up.length})`, '#34D399')}
+        {table(down, `Stocks reduced (${down.length})`, '#F87171')}
+      </div>
+      {Math.max(up.length, down.length) > 10 && (
+        <button className="tab-btn mt-2 text-xs" onClick={() => setN(v => (v === 10 ? 1000 : 10))}>
+          {n === 10 ? '▾ Show all stock changes' : '▴ Show top 10 only'}
+        </button>
+      )}
     </div>
   )
 }

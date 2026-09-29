@@ -13,6 +13,20 @@ import { fuzzyFilter } from '../utils/fuzzy'
 import { fmtDate, fmtPct, retColor } from '../utils/format'
 import type { SifData, SifPeriod, SifPlan } from '../sections/sif/types'
 import { inr, pct1 } from './PortfolioReview'
+import { BenchmarkPicker, useBenchmarkChoice } from '../sections/PortfolioBuilder'
+import { closeAt, useIndexSeries, type Series } from '../utils/benchmark'
+import { isoMinus } from '../utils/navMath'
+import { useMeta } from '../hooks/useData'
+
+/** An index's return over the SIF periods, to the index's latest close. */
+function indexSifReturns(series: Series | null): Partial<Record<SifPeriod, number | null>> {
+  if (!series || series.length < 2) return {}
+  const end = series[series.length - 1]
+  const days = (d: number) => new Date(Date.parse(end[0]) - d * 86400000).toISOString().slice(0, 10)
+  const at = (iso: string) => { const c = closeAt(series, iso); return c ? end[1] / c - 1 : null }
+  return { '1D': end[1] / series[series.length - 2][1] - 1, '1W': at(days(7)), '1M': at(isoMinus(end[0], 1)),
+           '3M': at(isoMinus(end[0], 3)), '6M': at(isoMinus(end[0], 6)), '1Y': at(isoMinus(end[0], 12)) }
+}
 
 export interface SifLine { id: string; lump: number | null; sip: number | null }
 
@@ -135,6 +149,10 @@ export function SifEditor({ lines, onChange, inputStyle, weightOf, showSip = tru
 /** Returns, risk and splits for the SIF part of a plan. */
 export function SifAnalysis({ lines, colour = '#A78BFA' }: { lines: { id: string; amount: number }[]; colour?: string }) {
   const { data, byId } = useSifPlans()
+  const { data: meta } = useMeta()
+  const [benchId, setBenchId] = useBenchmarkChoice()
+  const benchRet = indexSifReturns(useIndexSeries(benchId))
+  const benchName = meta?.benchmarks.find(b => b.index_id === benchId)?.index_name ?? 'Index'
   const rows = lines.filter(l => l.amount > 0 && byId.has(l.id)).map(l => ({ ...l, p: byId.get(l.id)!, risk: sifRisk(byId.get(l.id)!) }))
   const tot = rows.reduce((s, r) => s + r.amount, 0)
   if (!rows.length) {
@@ -188,7 +206,12 @@ export function SifAnalysis({ lines, colour = '#A78BFA' }: { lines: { id: string
       </div>
 
       <div className="card overflow-hidden mb-4">
-        <div className="px-4 pt-3 font-display font-bold text-sm" style={{ color: colour }}>SIF strategies — returns &amp; risk</div>
+        <div className="px-4 pt-3 flex items-center flex-wrap gap-2">
+          <span className="font-display font-bold text-sm" style={{ color: colour }}>SIF strategies — returns &amp; risk</span>
+          <span className="ml-auto flex items-center gap-2 text-xs" style={{ color: 'var(--text-mid)' }}>
+            Compare with <BenchmarkPicker id={benchId} onChange={setBenchId} />
+          </span>
+        </div>
         <div className="px-4 text-[10px]" style={{ color: 'var(--text-low)' }}>
           Returns from the NAVs collected since {fmtDate(data?.plans.map(p => p.history_from).filter(Boolean).sort()[0] ?? null)};
           since launch from the ₹{data?.nfo_price ?? 10} NFO price. Volatility (annualised) and max drawdown from the collected daily NAVs.
@@ -232,6 +255,12 @@ export function SifAnalysis({ lines, colour = '#A78BFA' }: { lines: { id: string
                 {[w(r => r.p.since_launch), w(r => r.p.since_launch_ann ?? null)].map((v, i) => <td key={i} className={`ret-cell text-xs ${retColor(v)}`}>{fmtPct(v)}</td>)}
                 {[w(r => r.risk.vol), w(r => r.risk.dd)].map((v, i) => <td key={i} className="ret-cell text-xs">{v == null ? '—' : pct1(v)}</td>)}
                 <td /><td />
+              </tr>
+              <tr>
+                <td className="sticky-col text-xs font-semibold" style={{ color: 'var(--accent-a)' }}>{benchName}</td>
+                <td /><td /><td />
+                {PERIODS.map(p => <td key={p} className={`ret-cell text-xs ${retColor(benchRet[p] ?? null)}`}>{fmtPct(benchRet[p] ?? null)}</td>)}
+                <td colSpan={6} />
               </tr>
             </tbody>
           </table>

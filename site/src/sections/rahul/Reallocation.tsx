@@ -1,12 +1,12 @@
 // src/sections/rahul/Reallocation.tsx — a client's existing mutual funds
-// (uploaded from an MFBOX export) against the proposed portfolio after
+// (uploaded from an MFBOX export) against the suggested portfolio after
 // reallocation, mutual funds and SIFs.
 //
 // Upload → each line is matched to our fund list (weak matches flagged, every
-// match can be changed) → the proposal starts as a copy of the existing funds
+// match can be changed) → the suggestion starts as a copy of the existing funds
 // and is edited → the page lists the switches to make (exit / reduce / add /
 // new), the gain being realised on what is sold, and the full analysis of
-// existing vs proposed: allocation, holdings, returns, SIP returns and ratios,
+// existing vs suggested: allocation, holdings, returns, SIP returns and ratios,
 // then the SIF part. Kept in this browser, one per client.
 
 import { useEffect, useMemo, useState } from 'react'
@@ -17,7 +17,8 @@ import PortfolioReview, { inr, inrShort, pct1 } from '../../components/Portfolio
 import { SifAnalysis, SifEditor, type SifLine } from '../../components/SifPlan'
 import { readHoldingsFile, type UploadedRow } from '../../utils/holdingsUpload'
 import { fmtPct, retColor } from '../../utils/format'
-import { MfEditor, inputStyle, type MfLine } from './ClientPlan'
+import { inputStyle, type MfLine } from './ClientPlan'
+import SuggestedEditor from '../../components/SuggestedEditor'
 import type { FundsIndex } from '../../types'
 
 interface Realloc {
@@ -215,39 +216,27 @@ export default function Reallocation() {
         </div>
       )}
 
-      {/* ── proposal ── */}
-      <div className="grid gap-4 lg:grid-cols-2 mb-4">
-        <div className="card p-4">
-          <div className="flex items-center justify-between mb-2">
-            <div className="font-display font-bold text-sm" style={{ color: PR_COLOUR }}>Proposed mutual funds</div>
-            <div className="flex items-center gap-2 text-xs">
-              <span style={{ color: 'var(--text-mid)' }}>Total <b style={{ color: 'var(--text-hi)' }}>{inr(prMf)}</b></span>
-              {existing.size > 0 && (
-                <button className="tab-btn" title="Start the proposal from the existing funds and amounts"
-                        onClick={() => update({ proposed: [...existing.entries()].map(([code, x]) => ({ code, lump: Math.round(x.value), sip: null })) })}>
-                  Copy existing → proposed
-                </button>
-              )}
-              {cur.proposed.length > 0 && <button className="tab-btn" onClick={() => { if (window.confirm('Clear the proposed funds?')) update({ proposed: [] }) }}>Clear</button>}
-            </div>
-          </div>
-          <MfEditor lines={cur.proposed} onChange={proposed => update({ proposed })} weightOf={l => l.lump ?? 0} showSip={false} />
+      {/* ── suggested portfolio ── */}
+      <div className="card p-4 mb-4">
+        <SuggestedEditor existing={[...existing.entries()].map(([code, x]) => ({ code, amount: Math.round(x.value) }))}
+                         lines={cur.proposed.map(l => ({ code: l.code, amount: l.lump }))}
+                         onChange={ls => update({ proposed: ls.map(l => ({ code: l.code, lump: l.amount, sip: null })) })}
+                         inputStyle={inputStyle} colour={PR_COLOUR} title="Suggested portfolio — mutual funds" />
+      </div>
+      <div className="card p-4 mb-4">
+        <div className="flex items-center justify-between mb-2">
+          <div className="font-display font-bold text-sm" style={{ color: SIF_COLOUR }}>Suggested portfolio — SIF</div>
+          <span className="text-xs" style={{ color: 'var(--text-mid)' }}>Total <b style={{ color: 'var(--text-hi)' }}>{inr(prSif)}</b></span>
         </div>
-        <div className="card p-4">
-          <div className="flex items-center justify-between mb-2">
-            <div className="font-display font-bold text-sm" style={{ color: SIF_COLOUR }}>Proposed SIF</div>
-            <span className="text-xs" style={{ color: 'var(--text-mid)' }}>Total <b style={{ color: 'var(--text-hi)' }}>{inr(prSif)}</b></span>
-          </div>
-          <SifEditor lines={cur.sif} onChange={sif => update({ sif })} inputStyle={inputStyle} weightOf={l => l.lump ?? 0} showSip={false} />
-        </div>
+        <SifEditor lines={cur.sif} onChange={sif => update({ sif })} inputStyle={inputStyle} weightOf={l => l.lump ?? 0} showSip={false} />
       </div>
 
       {(exTotal > 0 || prMf + prSif > 0) && (
         <div className="grid gap-3 grid-cols-2 lg:grid-cols-5 mb-4">
           {[
             ['Existing', inrShort(exTotal), EX_COLOUR],
-            ['Proposed MF', inrShort(prMf), PR_COLOUR],
-            ['Proposed SIF', inrShort(prSif), SIF_COLOUR],
+            ['Suggested MF', inrShort(prMf), PR_COLOUR],
+            ['Suggested SIF', inrShort(prSif), SIF_COLOUR],
             [prMf + prSif - exTotal >= 0 ? 'Fresh money needed' : 'Not yet reinvested', inrShort(Math.abs(prMf + prSif - exTotal)),
              Math.abs(prMf + prSif - exTotal) < 1 ? undefined : '#F59E0B'],
             ['Sold · gain realised', `${inrShort(soldTotal)}${gainTotal != null && soldTotal ? ` · ${inrShort(gainTotal)}` : ''}`, undefined],
@@ -263,7 +252,7 @@ export default function Reallocation() {
       {/* ── switches ── */}
       {existing.size > 0 && cur.proposed.length > 0 && (
         <div className="card overflow-hidden mb-4">
-          <div className="px-4 pt-3 font-display font-bold text-sm" style={{ color: 'var(--text-hi)' }}>Switches to make</div>
+          <div className="px-4 pt-3 font-display font-bold text-sm" style={{ color: 'var(--text-hi)' }}>Switches to make &amp; gain realised</div>
           <div className="px-4 text-[10px]" style={{ color: 'var(--text-low)' }}>
             Gain realised = the part sold × the fund&apos;s gain (from the invested amount in the file). Check exit loads and tax before switching.
           </div>
@@ -271,7 +260,7 @@ export default function Reallocation() {
             <table className="data-table">
               <thead><tr>
                 <th className="text-left">Fund</th><th className="text-left">Action</th>
-                <th style={{ textAlign: 'right' }}>Existing</th><th style={{ textAlign: 'right' }}>Proposed</th>
+                <th style={{ textAlign: 'right' }}>Existing</th><th style={{ textAlign: 'right' }}>Suggested</th>
                 <th style={{ textAlign: 'right' }}>Change</th><th style={{ textAlign: 'right' }}>Gain realised</th>
               </tr></thead>
               <tbody>
@@ -297,14 +286,14 @@ export default function Reallocation() {
         </div>
       )}
 
-      <PortfolioReview title="Mutual funds — existing vs proposed" sides={[
+      <PortfolioReview title="Mutual funds — existing vs suggested" sides={[
         { label: 'Existing', colour: EX_COLOUR, lines: [...existing.entries()].map(([code, x]) => ({ code, amount: x.value })) },
-        { label: 'Proposed', colour: PR_COLOUR, lines: cur.proposed.map(l => ({ code: l.code, amount: l.lump })) },
+        { label: 'Suggested', colour: PR_COLOUR, lines: cur.proposed.map(l => ({ code: l.code, amount: l.lump })) },
       ].filter(s => s.lines.some(l => (l.amount ?? 0) > 0))} />
 
       {cur.sif.length > 0 && (
         <>
-          <div className="section-header" style={{ marginTop: 8 }}><span>Proposed SIF — analysis</span></div>
+          <div className="section-header" style={{ marginTop: 8 }}><span>Suggested SIF — analysis</span></div>
           <SifAnalysis lines={cur.sif.map(l => ({ id: l.id, amount: l.lump ?? 0 }))} colour={SIF_COLOUR} />
         </>
       )}
