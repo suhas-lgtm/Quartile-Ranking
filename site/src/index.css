@@ -39,14 +39,23 @@
 }
 
 :root[data-theme="light"] {
-  --bg-base:   #F3F4F6;
+  /* Bright and crisp: near-white page, white cards, darker greys and deeper accents that
+     read on white (the dark theme's pastel cyan / pink wash out on a light page). */
+  --bg-base:   #F6F8FC;
   --bg-card:   #FFFFFF;
-  --bg-raised: #E5E7EB;
-  --bg-hover:  rgba(0, 0, 0, 0.025);
-  --line:      #D1D5DB;
-  --text-hi:   #111827;
-  --text-mid:  #4B5563;
-  --text-low:  #9CA3AF;
+  --bg-raised: #EDF1F8;
+  --bg-hover:  rgba(37, 99, 235, 0.04);
+  --line:      #D9E0EC;
+  --text-hi:   #0F172A;
+  --text-mid:  #334155;
+  --text-low:  #64748B;
+
+  --equity:   #2563EB;
+  --hybrid:   #7C3AED;
+  --debt:     #0D9488;
+  --other:    #D97706;
+  --accent-a: #0891B2;
+  --accent-b: #DB2777;
 
   --gain:     #059669;
   --loss:     #DC2626;
@@ -56,9 +65,24 @@
   --q3: #9A3412;
   --q4: #991B1B;
 
-  --shadow-card:  0 4px 20px 0 rgba(0,0,0,0.06);
-  --shadow-glow:  0 0 20px 0 rgba(34,211,238,0.05);
+  --shadow-card:  0 2px 14px 0 rgba(15,23,42,0.08);
+  --shadow-glow:  0 0 20px 0 rgba(8,145,178,0.10);
 }
+
+/* The header keeps its dark blue in both themes, so it keeps the dark theme's text colours too. */
+:root[data-theme="light"] header {
+  --text-hi:   #F1F5FB;
+  --text-mid:  #C9D5EA;
+  --text-low:  #93A4C3;
+  --line:      rgba(255, 255, 255, 0.22);
+  --bg-raised: rgba(255, 255, 255, 0.10);
+  --bg-card:   rgba(255, 255, 255, 0.06);
+  --accent-a:  #22D3EE;
+}
+
+/* Pastel labels (index names, category colours) set inline for the dark page: deepen them on white. */
+:root[data-theme="light"] .on-light-deepen { filter: brightness(0.62) saturate(1.6); }
+:root[data-theme="light"] header .badge-internal { color: #FDE68A !important; border-color: rgba(253, 230, 138, 0.55) !important; background: rgba(245, 158, 11, 0.18) !important; }
 
 html {
   height: 100%;

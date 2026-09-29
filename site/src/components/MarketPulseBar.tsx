@@ -127,7 +127,7 @@ export default function MarketPulseBar() {
 
                       {/* Index name */}
                       <div
-                        className="text-xs font-semibold truncate mb-1 mt-0.5"
+                        className="text-xs font-semibold truncate mb-1 mt-0.5 on-light-deepen"
                         style={{ color: g2, fontSize: 10, letterSpacing: '0.04em' }}
                       >
                         {idx.index_name}
