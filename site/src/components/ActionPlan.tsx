@@ -123,6 +123,8 @@ export function SwitchPlan({ kind, rows, onChange, fromFunds, changes, inputStyl
 }) {
   const { funds, byCode, assetOf } = useFunds()
   const [toPick, setToPick] = useState<Record<string, string>>({})
+  // "From" searches all funds when the fund is not one of the client's (null = the quick list).
+  const [fromPick, setFromPick] = useState<Record<string, string>>({})
   const mine = rows.filter(r => r.type === kind)
   const stp = kind === 'stp'
   const set = (id: string, patch: Partial<SwitchRow>) => onChange(rows.map(r => (r.id === id ? { ...r, ...patch } : r)))
@@ -172,8 +174,8 @@ export function SwitchPlan({ kind, rows, onChange, fromFunds, changes, inputStyl
             }}>⚡ Auto-fill from suggested changes</button>
           )}
           <button className="tab-btn" onClick={() => onChange([...rows, stp
-            ? { id: newId(), type: 'stp', from: fromFunds[0] ?? '', to: '', amount: null, months: 6 }
-            : { id: newId(), type: 'switch', from: fromFunds[0] ?? '', to: '', amount: null }])}>
+            ? { id: newId(), type: 'stp', from: '', to: '', amount: null, months: 6 }
+            : { id: newId(), type: 'switch', from: '', to: '', amount: null }])}>
             + {stp ? 'STP' : 'Switch'}
           </button>
         </div>
@@ -199,12 +201,29 @@ export function SwitchPlan({ kind, rows, onChange, fromFunds, changes, inputStyl
                 const move = r.to ? moveLabel(assetOf(r.from), assetOf(r.to)) : ''
                 return (
                   <tr key={r.id}>
-                    <td style={{ minWidth: 230 }}>
+                    <td style={{ minWidth: 240 }}>
                       <span className="hidden print:inline text-xs">{byCode.get(r.from)?.n ?? '—'}</span>
-                      <select value={r.from} onChange={e => set(r.id, { from: e.target.value })} className="px-2 py-1 rounded text-xs w-full print:hidden" style={inputStyle}>
-                        {!fromFunds.includes(r.from) && <option value={r.from}>{byCode.get(r.from)?.n ?? '— pick —'}</option>}
-                        {fromFunds.map(c => <option key={c} value={c}>{byCode.get(c)?.n ?? c}</option>)}
-                      </select>
+                      {fromPick[r.id] != null ? (
+                        <div className="print:hidden">
+                          <FundPicker funds={funds} value={fromPick[r.id]} onChange={v => setFromPick(x => ({ ...x, [r.id]: v }))} autoFocus
+                                      onPick={f => { set(r.id, { from: f.c }); setFromPick(x => { const y = { ...x }; delete y[r.id]; return y }) }}
+                                      placeholder={stp ? 'Transfer out of… type any fund' : 'Switch out of… type any fund'} style={inputStyle} />
+                        </div>
+                      ) : (
+                        <select value={r.from} className="px-2 py-1 rounded text-xs w-full print:hidden" style={inputStyle}
+                                onChange={e => e.target.value === '__any'
+                                  ? setFromPick(x => ({ ...x, [r.id]: '' }))
+                                  : set(r.id, { from: e.target.value })}>
+                          <option value="">— pick a fund —</option>
+                          {r.from && !fromFunds.includes(r.from) && <option value={r.from}>{byCode.get(r.from)?.n ?? r.from}</option>}
+                          {fromFunds.length > 0 && (
+                            <optgroup label="Client's funds (existing & suggested)">
+                              {fromFunds.map(c => <option key={c} value={c}>{byCode.get(c)?.n ?? c}</option>)}
+                            </optgroup>
+                          )}
+                          <option value="__any">🔍 Any other fund… (search)</option>
+                        </select>
+                      )}
                     </td>
                     <td style={{ minWidth: 240 }}>
                       {r.to && toPick[r.id] == null ? (

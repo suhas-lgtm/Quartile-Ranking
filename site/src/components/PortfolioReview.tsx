@@ -159,11 +159,12 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
     bench['10Y'] = start ? Math.pow(end[1] / start, 1 / 10) - 1 : null
   }
   const benchName = meta?.benchmarks.find(b => b.index_id === benchId)?.index_name ?? 'Index'
-  // The benchmark's own SIP returns and ratios; against itself Beta is 1, Alpha 0 and both captures 100.
+  // The benchmark's own SIP returns and ratios. Beta, Alpha and the captures measure a fund against its
+  // benchmark, so for the benchmark itself they are left blank (they would only ever read 1, 0, 100, 100).
   const benchStats = seriesStats(benchTo, rf)
   const benchRow = benchStats ? {
     ...benchStats, returns: benchStats.returns as RiskFundRow['returns'],
-    alpha: 0, beta: 1, upside_capture: 100, downside_capture: 100, composite_score: null, recovery_days: null,
+    alpha: null, beta: null, upside_capture: null, downside_capture: null, composite_score: null, recovery_days: null,
     scheme_code: 'bench', scheme_name: benchName,
   } as RiskFundRow : null
   const [allHold, setAllHold] = useState<Record<number, boolean>>({})
