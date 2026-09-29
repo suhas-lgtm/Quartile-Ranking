@@ -78,14 +78,26 @@ export function useNavLookup(codes: string[], dates: string[]) {
     if (!codes.length) { setData({}); return }
     let cancelled = false
     setLoading(true); setError(null)
-    const batches: string[][] = []
-    for (let i = 0; i < codes.length; i += 250) batches.push(codes.slice(i, i + 250))
-    Promise.all(batches.map(b =>
-      fetch(`/api/nav?codes=${b.join(',')}&dates=${dates.join(',')}`)
+    // The server takes at most 300 funds and 200 dates a call. Several SIPs over
+    // a few years pass 200 dates easily (each instalment is a date), so both are
+    // batched and each fund's answers are merged.
+    const codeBatches: string[][] = [], dateBatches: string[][] = []
+    for (let i = 0; i < codes.length; i += 250) codeBatches.push(codes.slice(i, i + 250))
+    const ds = dates.length ? dates : ['']
+    for (let i = 0; i < ds.length; i += 150) dateBatches.push(ds.slice(i, i + 150))
+    const calls = codeBatches.flatMap(cb => dateBatches.map(db =>
+      fetch(`/api/nav?codes=${cb.join(',')}&dates=${db.filter(Boolean).join(',')}`)
         .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))))
+    Promise.all(calls)
       .then(parts => {
         if (cancelled) return
-        setData(Object.assign({}, ...parts.map(p => p.funds)))
+        const merged: Record<string, FundNavs> = {}
+        for (const p of parts) {
+          for (const [code, f] of Object.entries(p.funds as Record<string, FundNavs>)) {
+            merged[code] = merged[code] ? { ...merged[code], ...f, at: { ...merged[code].at, ...f.at } } : f
+          }
+        }
+        setData(merged)
         setLoading(false)
       })
       .catch(e => { if (!cancelled) { setError(String(e.message ?? e)); setLoading(false) } })

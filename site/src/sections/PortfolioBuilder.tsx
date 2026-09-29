@@ -83,10 +83,14 @@ function usePortfolioCalc(pf: Portfolio, latest: string, fundByCode: Map<string,
   const buyDate = (b: Buy) => b.date || pf.start
   const buyAmount = (b: Buy) => (b.amount ?? pf.amount ?? 0)
   const sipAmount = (h: Holding) => h.sip?.amount ?? pf.sipAmount ?? 0
+  // A SIP without its own start date starts with the portfolio's default date,
+  // else with the fund's first purchase; with neither it cannot run (flagged in the row).
+  const sipStart = (h: Holding) => h.sip?.start || pf.start ||
+    h.buys.map(b => b.date).filter((d): d is string => !!d).sort()[0] || ''
   const sipDates = (h: Holding) => {
-    if (!h.sip || !end || !(h.sip.start || pf.start)) return []
+    if (!h.sip || !end || !sipStart(h)) return []
     const to = h.sip.end && h.sip.end < end ? h.sip.end : end
-    return monthlyDates(h.sip.start || pf.start, to, 120)
+    return monthlyDates(sipStart(h), to, 120)
   }
   const codes = useMemo(() => pf.holdings.map(h => h.code), [pf.holdings])
   const dates = useMemo(() => {
@@ -151,7 +155,7 @@ function usePortfolioCalc(pf: Portfolio, latest: string, fundByCode: Map<string,
              irr: flows.length > 1 ? xirr(flows) : null }
   }, [results, end])
 
-  return { end, results, tot, loading, error, sipAmount }
+  return { end, results, tot, loading, error, sipAmount, sipStart }
 }
 
 type Calc = ReturnType<typeof usePortfolioCalc>
@@ -169,7 +173,7 @@ function PortfolioEditor({ storeKey, label }: { storeKey: string; label: string 
   const fundByCode = useMemo(() => new Map((index?.funds ?? []).map(f => [f.c, f])), [index])
   const labelOf = (f: FundsIndex['funds'][number]) => `${f.n} — ${f.k}`
   const codeByLabel = useMemo(() => new Map((index?.funds ?? []).map(f => [labelOf(f), f.c])), [index])
-  const { end, results, tot, loading, error, sipAmount } = usePortfolioCalc(pf, latest, fundByCode)
+  const { end, results, tot, loading, error, sipAmount, sipStart } = usePortfolioCalc(pf, latest, fundByCode)
 
   // Full NAV history per holding, for the correlation table (fetched once each).
   const codes = useMemo(() => pf.holdings.map(h => h.code), [pf.holdings])
@@ -207,7 +211,11 @@ function PortfolioEditor({ storeKey, label }: { storeKey: string; label: string 
   const removeFund = (hi: number) => setPf({ ...pf, holdings: pf.holdings.filter((_, i) => i !== hi) })
   const setSip = (hi: number, sip: Sip | null) => setPf({
     ...pf, holdings: pf.holdings.map((h, i) => (i !== hi ? h
-      : { ...h, sip, buys: !sip && h.buys.length === 0 ? [{ amount: null, date: null }] : h.buys })),
+      : { ...h, sip,
+          // Adding a SIP to a fund whose only purchase is still blank: drop that
+          // blank row so it does not ask for a date nobody meant to give.
+          buys: !sip && h.buys.length === 0 ? [{ amount: null, date: null }]
+            : sip && h.buys.length === 1 && h.buys[0].amount == null && h.buys[0].date == null ? [] : h.buys })),
   })
 
   const openReport = () => {
@@ -222,7 +230,7 @@ function PortfolioEditor({ storeKey, label }: { storeKey: string; label: string 
           ...r.buys.map(b => ({ label: 'Lump sum', date: fmtDate(b.d), amount: b.amt, units: b.units, value: b.val })),
           ...(r.h.sip && r.sip.count ? [{
             label: `SIP ₹${sipAmount(r.h).toLocaleString('en-IN')}/month × ${r.sip.count}`,
-            date: `${fmtDate(r.h.sip.start || pf.start)} →`, amount: r.sip.invested, units: r.sip.units, value: r.sip.value,
+            date: `${fmtDate(sipStart(r.h))} →`, amount: r.sip.invested, units: r.sip.units, value: r.sip.value,
           }] : []),
         ],
       })),
@@ -406,7 +414,7 @@ function PortfolioEditor({ storeKey, label }: { storeKey: string; label: string 
                                    onChange={e => setSip(hi, { ...r.h.sip!, amount: toAmount(e.target.value) })}
                                    className={`${small} w-24`} style={inputStyle} title="Monthly SIP amount (₹)" />
                             <span className="text-[11px]">/month from</span>
-                            <input type="date" value={r.h.sip.start ?? pf.start ?? ''} max={end}
+                            <input type="date" value={r.h.sip.start || sipStart(r.h)} max={end}
                                    onChange={e => setSip(hi, { ...r.h.sip!, start: e.target.value })}
                                    className={small} style={inputStyle} title="First instalment" />
                             <span className="text-[11px]">to</span>
@@ -419,6 +427,8 @@ function PortfolioEditor({ storeKey, label }: { storeKey: string; label: string 
                               {r.sip.count} instalment{r.sip.count === 1 ? '' : 's'} · {inr(r.sip.invested)} invested ·{' '}
                               {r.sip.units.toFixed(2)} units → {inr(r.sip.value)}
                               {r.sip.skipped > 0 && <span style={{ color: 'var(--loss)' }}> · {r.sip.skipped} before launch / no NAV skipped</span>}
+                              {!(sipAmount(r.h) > 0) && <span style={{ color: 'var(--loss)' }}> · enter the SIP amount</span>}
+                              {!sipStart(r.h) && <span style={{ color: 'var(--loss)' }}> · enter the SIP start date</span>}
                             </div>
                           </div>
                         )}
@@ -488,17 +498,22 @@ export default function PortfolioBuilder() {
   return (
     <>
       <div className="px-4 sm:px-6 pt-4 max-w-screen-2xl mx-auto">
-        <div className="tab-bar inline-flex gap-1">
-          {SLOTS.map(sl => (
-            <button key={sl.id} onClick={() => setView(sl.id)} className={`tab-btn${view === sl.id ? ' active accent' : ''}`}>{sl.label}</button>
-          ))}
-          <button onClick={() => setView('compare')} className={`tab-btn${view === 'compare' ? ' active accent' : ''}`}>
-            ⇄ Compare A vs B
-          </button>
+        <div className="flex items-end gap-1 border-b flex-wrap" style={{ borderColor: 'var(--line)' }}>
+          {([...SLOTS.map(sl => [sl.id, `📁 ${sl.label}`]), ['compare', '⇄ Portfolio Comparison (A vs B)']] as [typeof view, string][]).map(([id, text]) => {
+            const on = view === id
+            return (
+              <button key={id} onClick={() => setView(id)}
+                      className="px-4 py-2 text-sm font-semibold rounded-t-lg -mb-px"
+                      style={{ border: '1px solid', borderColor: on ? 'var(--line)' : 'transparent', borderBottomColor: on ? 'var(--bg-base)' : 'transparent',
+                               background: on ? 'var(--bg-base)' : 'transparent', color: on ? 'var(--accent-a)' : 'var(--text-mid)', cursor: 'pointer' }}>
+                {text}
+              </button>
+            )
+          })}
+          <span className="text-[11px] ml-auto pb-2" style={{ color: 'var(--text-low)' }}>
+            Build two portfolios (e.g. a client&apos;s current one and a proposal), then compare them.
+          </span>
         </div>
-        <span className="text-[11px] ml-3" style={{ color: 'var(--text-low)' }}>
-          Build two portfolios (e.g. the client&apos;s current one and a proposal) and compare them.
-        </span>
       </div>
       {view === 'compare' ? <PortfolioCompare />
         : SLOTS.filter(sl => sl.id === view).map(sl => <PortfolioEditor key={sl.id} storeKey={sl.key} label={sl.label} />)}
