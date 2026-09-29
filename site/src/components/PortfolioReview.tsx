@@ -201,11 +201,14 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
         ...(two ? [
           { label: 'Funds in both', vals: (() => { const k = String(priced(shown[0].s).filter(l => priced(shown[1].s).some(m => m.code === l.code)).length); return [k, k] })() },
           { label: 'Stock overlap between the two (common weight)', vals: [pct1(stockOverlap(shown[0].lt.rows, shown[1].lt.rows)), ''] },
-          { label: 'Stocks only in ' + shown[0].s.label.toLowerCase(), vals: [String(onlyIn(shown[0].lt.rows, shown[1].lt.rows).length), ''] },
-          { label: 'Stocks only in ' + shown[1].s.label.toLowerCase(), vals: ['', String(onlyIn(shown[1].lt.rows, shown[0].lt.rows).length)] },
+          { label: `Stocks going out (only in ${shown[0].s.label.toLowerCase()})`, vals: [String(onlyIn(shown[0].lt.rows, shown[1].lt.rows).length), ''] },
+          { label: `New stocks coming in (only in ${shown[1].s.label.toLowerCase()})`, vals: ['', String(onlyIn(shown[1].lt.rows, shown[0].lt.rows).length)] },
         ] : []),
         { label: 'Average fund size (AUM, weighted)', vals: shown.map(x => { const v = weightedAum(x.s); return v == null ? '—' : `₹${Math.round(v).toLocaleString('en-IN')} Cr` }) },
-      ]} />
+      ]} note={two ? <StocksExplained a={shown[0].s.label} b={shown[1].s.label}
+                                       out={onlyIn(shown[0].lt.rows, shown[1].lt.rows).length}
+                                       inn={onlyIn(shown[1].lt.rows, shown[0].lt.rows).length}
+                                       overlap={stockOverlap(shown[0].lt.rows, shown[1].lt.rows)} /> : null} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <SplitTable cols={cols} two={two} title="Market cap & asset class" note="% of the whole portfolio · SEBI Large/Mid/Small (AMFI list)"
@@ -403,9 +406,40 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
   )
 }
 
-export function ValueTable({ title, cols, two, rows }: {
+/** Plain-language note under the Summary: what "stocks going out / coming in" and overlap mean. */
+function StocksExplained({ a, b, out, inn, overlap }: { a: string; b: string; out: number; inn: number; overlap: number }) {
+  const A = a.toLowerCase(), B = b.toLowerCase()
+  return (
+    <div className="text-[11px] leading-relaxed" style={{ color: 'var(--text-mid)' }}>
+      <div className="font-semibold mb-1" style={{ color: 'var(--text-hi)' }}>What the stock rows mean</div>
+      <p className="mb-1">
+        A mutual fund invests the money in shares of companies (HDFC Bank, Reliance, Infosys…). So a client holding a few funds
+        actually owns small pieces of 100+ companies through them. These rows compare <b>which companies</b> the client owns
+        through the {A} funds and through the {b.toLowerCase()} funds.
+      </p>
+      <p className="mb-1">
+        <b>Example:</b> the {A} funds own HDFC Bank, Reliance, Infosys, <b>Tata Motors</b> and <b>ITC</b>; the {B} funds own
+        HDFC Bank, Reliance, Infosys, <b>Zomato</b> and <b>Trent</b>. Then <b>stocks going out = 2</b> (Tata Motors and ITC — owned
+        today, gone after the switch) and <b>new stocks coming in = 2</b> (Zomato and Trent — not owned today, added by the switch).
+        HDFC Bank, Reliance and Infosys are in both, so they are in neither count.
+      </p>
+      <p className="mb-1">
+        <b>Here:</b> {out} compan{out === 1 ? 'y' : 'ies'} the client owns today would go out, and {inn} new compan{inn === 1 ? 'y' : 'ies'} would
+        come in. <b>Stock overlap {pct1(overlap)}</b> means {pct1(overlap)} of the portfolio stays in the same companies after the
+        switch — the higher it is, the less the switch really changes what the client owns.
+      </p>
+      <p>
+        The names are in <b>Stocks increased / Stocks reduced</b> further down: <b>NEW</b> = coming in, <b>EXITED</b> = going out.
+      </p>
+    </div>
+  )
+}
+
+export function ValueTable({ title, cols, two, rows, note }: {
   title: string; cols: { label: string; colour: string }[]; two: boolean
   rows: { label: string; vals: string[]; change?: React.ReactNode | null }[]
+  /** Shown under the table. */
+  note?: React.ReactNode
 }) {
   return (
     <div className="card overflow-hidden mb-4">
@@ -426,6 +460,7 @@ export function ValueTable({ title, cols, two, rows }: {
           ))}
         </tbody>
       </table>
+      {note && <div className="px-4 py-3" style={{ borderTop: '1px solid var(--line)' }}>{note}</div>}
     </div>
   )
 }
