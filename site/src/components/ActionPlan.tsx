@@ -4,7 +4,9 @@
 //
 // SIPs: each fund's existing SIP (from the upload) beside the suggested SIP.
 // Switches: a one-time amount moved from a fund to another. STPs: an amount
-// moved every month for a number of months. "Auto-fill" pairs the suggested
+// moved every week for a number of weeks — typically back out of the debt fund a switch
+// moved into, when markets have corrected (switch equity → debt, then STP debt → equity).
+// "Auto-fill" pairs the suggested
 // portfolio's sells with its buys, largest first, so the switches add up to the
 // changes; every row can then be edited, turned into an STP, or removed.
 
@@ -15,7 +17,17 @@ import FundLink from './FundLink'
 import { inr, inrShort } from './PortfolioReview'
 import type { FundsIndex } from '../types'
 
-export interface SwitchRow { id: string; type: 'switch' | 'stp'; from: string; to: string; amount: number | null; months?: number | null }
+export interface SwitchRow {
+  id: string; type: 'switch' | 'stp'; from: string; to: string
+  /** Switch: the amount. STP: the amount each week. */
+  amount: number | null
+  /** STP: number of weekly instalments. */
+  weeks?: number | null
+  /** Older saves counted STPs in months. */
+  months?: number | null
+  /** STP set up to bring a switch back: the switch's id. */
+  after?: string
+}
 
 const newId = () => Math.random().toString(36).slice(2, 9)
 const SIP_COLOUR: Record<string, string> = { Start: '#22D3EE', Increase: '#34D399', Reduce: '#F59E0B', Stop: '#F87171', Same: 'var(--text-low)' }
@@ -106,9 +118,10 @@ export function SipChanges({ existing, suggested, onChange, inputStyle }: {
 }
 
 /**
- * One of the two move tables: Switches (one-time amounts) or STPs (a monthly
- * amount for a number of months). Both edit the same list of moves; a row can
- * be sent to the other table with the same total (a ₹6 L switch = ₹1 L × 6).
+ * One of the two move tables: Switches (one-time amounts) or STPs (a weekly
+ * amount for a number of weeks). Both edit the same list of moves. A switch can
+ * be followed by an STP back: from the fund the switch moved into, back into
+ * equity, week by week, for the whole switched amount.
  */
 export function SwitchPlan({ kind, rows, onChange, fromFunds, changes, inputStyle }: {
   kind: 'switch' | 'stp'
@@ -128,13 +141,19 @@ export function SwitchPlan({ kind, rows, onChange, fromFunds, changes, inputStyl
   const mine = rows.filter(r => r.type === kind)
   const stp = kind === 'stp'
   const set = (id: string, patch: Partial<SwitchRow>) => onChange(rows.map(r => (r.id === id ? { ...r, ...patch } : r)))
-  const total = (r: SwitchRow) => (r.amount ?? 0) * (r.type === 'stp' ? (r.months ?? 0) : 1)
-  const moveTo = (r: SwitchRow) => {
-    const months = r.months ?? 6
-    set(r.id, r.type === 'switch'
-      ? { type: 'stp', months, amount: r.amount == null ? null : Math.round(r.amount / months) }
-      : { type: 'switch', months: null, amount: r.amount == null ? null : r.amount * months })
+  const weeksOf = (r: SwitchRow) => r.weeks ?? (r.months ? r.months * 4 : null)
+  const total = (r: SwitchRow) => (r.amount ?? 0) * (r.type === 'stp' ? (weeksOf(r) ?? 0) : 1)
+  // After a switch (say equity → debt when markets correct), an STP that brings the money back:
+  // from where the switch landed, into the fund it left (changeable), week by week for 12 weeks.
+  const stpBack = (r: SwitchRow) => {
+    const weeks = 12
+    onChange([...rows, {
+      id: newId(), type: 'stp', from: r.to, to: r.from, weeks, after: r.id,
+      amount: r.amount == null ? null : Math.round(r.amount / weeks),
+    }])
   }
+  // STPs usually start where a switch landed: those funds come first in the From list.
+  const switchedInto = [...new Set(rows.filter(r => r.type === 'switch' && r.to).map(r => r.to))]
 
   // Switches built from the suggested portfolio: each sell goes into the buys, largest first,
   // after whatever the STPs already move. STP rows are kept as they are.
@@ -164,7 +183,7 @@ export function SwitchPlan({ kind, rows, onChange, fromFunds, changes, inputStyl
         <div className="font-display font-bold text-sm" style={{ color: colour }}>
           {stp ? 'STPs — Systematic Transfer Plans' : 'Switches'}
           <span className="ml-2 text-[11px] font-normal" style={{ color: 'var(--text-low)' }}>
-            {stp ? 'a fixed amount moved every month, e.g. from a liquid / debt fund into equity' : 'a one-time move from one fund to another'}
+            {stp ? 'a fixed amount moved every week — e.g. back from the debt fund a switch moved into, into equity' : 'a one-time move from one fund to another, e.g. equity → debt when markets correct'}
           </span>
         </div>
         <div className="flex items-center gap-2 text-xs print:hidden">
@@ -174,7 +193,7 @@ export function SwitchPlan({ kind, rows, onChange, fromFunds, changes, inputStyl
             }}>⚡ Auto-fill from suggested changes</button>
           )}
           <button className="tab-btn" onClick={() => onChange([...rows, stp
-            ? { id: newId(), type: 'stp', from: '', to: '', amount: null, months: 6 }
+            ? { id: newId(), type: 'stp', from: '', to: '', amount: null, weeks: 12 }
             : { id: newId(), type: 'switch', from: '', to: '', amount: null }])}>
             + {stp ? 'STP' : 'Switch'}
           </button>
@@ -183,7 +202,7 @@ export function SwitchPlan({ kind, rows, onChange, fromFunds, changes, inputStyl
       {!mine.length ? (
         <div className="text-xs py-2" style={{ color: 'var(--text-mid)' }}>
           {stp
-            ? <>No STPs. Add one with <b>+ STP</b>, or move a switch here with its <b>→ STP</b> button.</>
+            ? <>No STPs. Use <b>+ STP back</b> on a switch to bring that money back into equity week by week, or add one with <b>+ STP</b>.</>
             : <>No switches yet. <b>Auto-fill</b> builds them from the suggested portfolio (what is sold goes into what is bought), or add one with <b>+ Switch</b>.</>}
         </div>
       ) : (
@@ -191,8 +210,8 @@ export function SwitchPlan({ kind, rows, onChange, fromFunds, changes, inputStyl
           <table className="data-table">
             <thead><tr>
               <th className="text-left">From</th><th className="text-left">To</th><th className="text-left">Asset class</th>
-              <th style={{ textAlign: 'right' }}>{stp ? '₹ / month' : 'Amount ₹'}</th>
-              {stp && <th style={{ textAlign: 'right' }}>Months</th>}
+              <th style={{ textAlign: 'right' }}>{stp ? '₹ / week' : 'Amount ₹'}</th>
+              {stp && <th style={{ textAlign: 'right' }}>Weeks</th>}
               {stp && <th style={{ textAlign: 'right' }}>Total moved</th>}
               <th className="print:hidden" /><th className="print:hidden" />
             </tr></thead>
@@ -215,10 +234,16 @@ export function SwitchPlan({ kind, rows, onChange, fromFunds, changes, inputStyl
                                   ? setFromPick(x => ({ ...x, [r.id]: '' }))
                                   : set(r.id, { from: e.target.value })}>
                           <option value="">— pick a fund —</option>
-                          {r.from && !fromFunds.includes(r.from) && <option value={r.from}>{byCode.get(r.from)?.n ?? r.from}</option>}
-                          {fromFunds.length > 0 && (
+                          {r.from && !fromFunds.includes(r.from) && !(stp && switchedInto.includes(r.from)) &&
+                            <option value={r.from}>{byCode.get(r.from)?.n ?? r.from}</option>}
+                          {stp && switchedInto.length > 0 && (
+                            <optgroup label="Switched into (STP back from here)">
+                              {switchedInto.map(c => <option key={`s${c}`} value={c}>{byCode.get(c)?.n ?? c}</option>)}
+                            </optgroup>
+                          )}
+                          {fromFunds.filter(c => !(stp && switchedInto.includes(c))).length > 0 && (
                             <optgroup label="Client's funds (existing & suggested)">
-                              {fromFunds.map(c => <option key={c} value={c}>{byCode.get(c)?.n ?? c}</option>)}
+                              {fromFunds.filter(c => !(stp && switchedInto.includes(c))).map(c => <option key={c} value={c}>{byCode.get(c)?.n ?? c}</option>)}
                             </optgroup>
                           )}
                           <option value="__any">🔍 Any other fund… (search)</option>
@@ -243,21 +268,27 @@ export function SwitchPlan({ kind, rows, onChange, fromFunds, changes, inputStyl
                     <td className="text-xs font-semibold" style={{ color: move.includes('→') ? colour : 'var(--text-mid)' }}>{move || '—'}</td>
                     <td style={{ width: 150, textAlign: 'right' }}>
                       <span className="hidden print:inline text-xs font-semibold">{r.amount ? inr(r.amount) : '—'}</span>
-                      <input type="number" min={0} step={stp ? 5000 : 10000} value={r.amount ?? ''} placeholder={stp ? '₹ / month' : '₹'}
+                      <input type="number" min={0} step={stp ? 5000 : 10000} value={r.amount ?? ''} placeholder={stp ? '₹ / week' : '₹'}
                              onChange={e => set(r.id, { amount: e.target.value === '' ? null : Math.max(0, +e.target.value) })}
                              className="px-2 py-1 rounded text-xs w-full text-right print:hidden" style={inputStyle} />
                     </td>
                     {stp && (
                       <td style={{ width: 80, textAlign: 'right' }}>
-                        <span className="hidden print:inline text-xs">{r.months ?? '—'}</span>
-                        <input type="number" min={1} max={60} value={r.months ?? ''} onChange={e => set(r.id, { months: e.target.value === '' ? null : Math.max(1, Math.min(60, +e.target.value)) })}
+                        <span className="hidden print:inline text-xs">{weeksOf(r) ?? '—'}</span>
+                        <input type="number" min={1} max={260} value={weeksOf(r) ?? ''} onChange={e => set(r.id, { weeks: e.target.value === '' ? null : Math.max(1, Math.min(260, +e.target.value)), months: null })}
                                className="px-2 py-1 rounded text-xs w-full text-right print:hidden" style={inputStyle} />
                       </td>
                     )}
                     {stp && <td className="ret-cell text-xs font-semibold">{total(r) ? inr(total(r)) : '—'}</td>}
                     <td className="print:hidden" style={{ width: 70 }}>
-                      <button className="text-[10px]" onClick={() => moveTo(r)} title={stp ? 'Make it a one-time switch (same total)' : 'Make it a monthly STP (same total)'}
-                              style={{ background: 'none', border: 'none', color: 'var(--accent-a)', cursor: 'pointer' }}>{stp ? '→ Switch' : '→ STP'}</button>
+                      {!stp && r.to && (
+                        <button className="text-[10px] whitespace-nowrap" onClick={() => stpBack(r)}
+                                title="Plan an STP from where this switch lands back into equity, week by week"
+                                style={{ background: 'none', border: 'none', color: 'var(--accent-a)', cursor: 'pointer' }}>+ STP back</button>
+                      )}
+                      {stp && r.after && rows.some(x => x.id === r.after) && (
+                        <span className="text-[10px]" style={{ color: 'var(--text-low)' }} title="Brings back the money of a switch">↩ after switch</span>
+                      )}
                     </td>
                     <td className="print:hidden" style={{ width: 28 }}>
                       <button title="Remove" onClick={() => onChange(rows.filter(x => x.id !== r.id))}
@@ -270,7 +301,7 @@ export function SwitchPlan({ kind, rows, onChange, fromFunds, changes, inputStyl
                 <td colSpan={3} className="text-xs font-semibold">Total · {mine.length} {stp ? `STP${mine.length === 1 ? '' : 's'}` : `switch${mine.length === 1 ? '' : 'es'}`}</td>
                 {stp ? (
                   <>
-                    <td className="ret-cell text-xs font-semibold">{inr(mine.reduce((s, r) => s + (r.amount ?? 0), 0))} / month</td><td />
+                    <td className="ret-cell text-xs font-semibold">{inr(mine.reduce((s, r) => s + (r.amount ?? 0), 0))} / week</td><td />
                     <td className="ret-cell text-xs font-semibold">{inr(mine.reduce((s, r) => s + total(r), 0))}</td>
                   </>
                 ) : <td className="ret-cell text-xs font-semibold">{inr(mine.reduce((s, r) => s + total(r), 0))}</td>}
@@ -285,7 +316,7 @@ export function SwitchPlan({ kind, rows, onChange, fromFunds, changes, inputStyl
         const out = new Map<string, number>(), into = new Map<string, number>()
         for (const r of rows) { out.set(r.from, (out.get(r.from) ?? 0) + total(r)); into.set(r.to, (into.get(r.to) ?? 0) + total(r)) }
         const off = [...changes].map(([c, d]) => ({ c, d, moved: (into.get(c) ?? 0) - (out.get(c) ?? 0) }))
-          // Rounding (an STP split into equal months) is not a mismatch: allow ₹100 or 1%.
+          // Rounding (an STP split into equal weeks) is not a mismatch: allow ₹100 or 1%.
           .filter(x => Math.abs(x.moved - x.d) > Math.max(100, Math.abs(x.d) * 0.01) && (x.d !== 0 || x.moved !== 0))
         return off.length > 0 && (
           <p className="text-[11px] mt-2 print:hidden" style={{ color: '#F59E0B' }}>
