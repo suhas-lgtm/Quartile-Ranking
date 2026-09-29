@@ -163,6 +163,16 @@ export default function Reallocation() {
         </p>
       </div>
 
+      {/* ── milestone (same box as the Plan tab: always shown, up top) ── */}
+      <PdfSection id="milestone" label="Milestone (goal, existing vs suggested projection)">
+        <Milestone storeKey={`rahul_realloc_goal:${store.current}`} askSip sides={[
+          { label: 'Existing', colour: EX_COLOUR, lump: exTotal, sip: 0,
+            lines: [...existing.entries()].map(([code, x]) => ({ code, amount: x.value })) },
+          { label: 'Suggested', colour: PR_COLOUR, lump: prMf + prSif, sip: 0,
+            lines: cur.proposed.map(l => ({ code: l.code, amount: l.lump ?? 0 })) },
+        ].filter(s => s.lump > 0)} />
+      </PdfSection>
+
       {cur.rows.length > 0 && (
         <PdfSection id="existing" label="Existing holdings (from the upload)">
         <div className="card overflow-hidden mb-4">
@@ -334,16 +344,6 @@ export default function Reallocation() {
         </PdfSection>
       )}
 
-      {(exTotal > 0 || prMf + prSif > 0) && (
-        <PdfSection id="milestone" label="Milestone (goal, existing vs suggested projection)">
-          <Milestone storeKey={`rahul_realloc_goal:${store.current}`} askSip sides={[
-            { label: 'Existing', colour: EX_COLOUR, lump: exTotal, sip: 0,
-              lines: [...existing.entries()].map(([code, x]) => ({ code, amount: x.value })) },
-            { label: 'Suggested', colour: PR_COLOUR, lump: prMf + prSif, sip: 0,
-              lines: cur.proposed.map(l => ({ code: l.code, amount: l.lump ?? 0 })) },
-          ].filter(s => s.lump > 0)} />
-        </PdfSection>
-      )}
 
       <PortfolioReview title="Mutual funds — existing vs suggested" sides={[
         { label: 'Existing', colour: EX_COLOUR, lines: [...existing.entries()].map(([code, x]) => ({ code, amount: x.value })) },

@@ -151,7 +151,11 @@ export default function Milestone({ sides: given, storeKey, askSip }: {
       </div>
 
       {!rows.length ? (
-        <div className="text-xs" style={{ color: 'var(--text-mid)' }}>Add funds with amounts (lump sum or SIP) to project the milestone.</div>
+        <div className="text-xs" style={{ color: 'var(--text-mid)' }}>
+          {askSip
+            ? 'Upload the existing holdings (or build the suggested portfolio) and the projection, the next milestones and what it takes to reach the goal appear here.'
+            : 'Add funds with amounts (lump sum or SIP) to project the milestone.'}
+        </div>
       ) : (
         <>
           <div className={`grid gap-3 mb-3 ${rows.length > 1 ? 'lg:grid-cols-2' : ''}`}>
