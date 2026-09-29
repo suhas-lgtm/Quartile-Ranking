@@ -7,7 +7,7 @@
 // the Risk & Returns files, weighted by amount, beside a chosen benchmark. With
 // one side the tables show a single column; with two, the change as well.
 
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { industryLine, sectorBreakdown } from './SectorBars'
 import { useJson, useMeta } from '../hooks/useData'
 import FundLink from './FundLink'
@@ -15,12 +15,13 @@ import OverlapMatrix from './OverlapMatrix'
 import CorrelationMatrix, { type NavSeries } from './CorrelationMatrix'
 import { capSplit, useStockCaps, CAP_COLOURS } from './CapSplit'
 import { useLookThrough, type LookRow } from './LookThrough'
-import { BenchmarkPicker, useBenchmarkChoice, useFundRisk } from '../sections/PortfolioBuilder'
+import { BenchmarkPicker, useBenchmarkChoice } from '../sections/PortfolioBuilder'
+import { categoryPath } from '../config/dataPaths'
 import { closeAt, indexTrailing, useIndexSeries } from '../utils/benchmark'
 import { isoMinus } from '../utils/navMath'
 import { categoryColor } from '../config/categoryColors'
 import { fmtPct, retColor } from '../utils/format'
-import type { FundsIndex, RiskFundRow } from '../types'
+import type { FundsIndex, RiskData, RiskFundRow } from '../types'
 
 export interface ReviewLine { code: string; amount: number | null }
 export interface ReviewSide { label: string; colour: string; lines: ReviewLine[] }
@@ -30,12 +31,12 @@ export const inr = (v: number) => '₹' + Math.round(v).toLocaleString('en-IN')
 export const inrShort = (v: number) => v >= 1e7 ? `₹${(v / 1e7).toFixed(2)} Cr` : v >= 1e5 ? `₹${(v / 1e5).toFixed(2)} L` : inr(v)
 export const pct1 = (v: number) => `${(v * 100).toFixed(1)}%`
 
-/** A change in percentage points, coloured only when told which way is good. */
+/** The exact difference between two percentages ("+1.37%"), coloured only when told which way is good. */
 export function Delta({ v, good }: { v: number; good?: 'up' | 'down' }) {
-  if (Math.abs(v) < 0.0005) return <span style={{ color: 'var(--text-low)' }}>—</span>
+  if (Math.abs(v) < 0.00005) return <span style={{ color: 'var(--text-low)' }}>0.00%</span>
   const up = v > 0
   const colour = !good ? 'var(--text-mid)' : (up === (good === 'up')) ? '#34D399' : '#F87171'
-  return <span style={{ color: colour, fontWeight: 600 }}>{up ? '▲' : '▼'} {(Math.abs(v) * 100).toFixed(1)} pts</span>
+  return <span style={{ color: colour, fontWeight: 600 }}>{up ? '+' : '−'}{(Math.abs(v) * 100).toFixed(2)}%</span>
 }
 
 export const FUND_RET = [['1M', '1M'], ['3M', '3M'], ['6M', '6M'], ['1Y', '12M'], ['3Y', '3Y'], ['5Y', '5Y'], ['10Y', '10Y']] as const
@@ -66,6 +67,23 @@ function sectorSplit(rows: LookRow[]) {
   const m = new Map<string, number>()
   for (const r of rows) if (r.asset_class === 'Equity') m.set(r.sector || r.industry || 'Other', (m.get(r.sector || r.industry || 'Other') ?? 0) + r.weight)
   return m
+}
+
+/** Each category's Risk & Returns file: the funds' rows, the category average and the benchmark. */
+function useRiskFiles(slugs: string[]) {
+  const [files, setFiles] = useState<Record<string, RiskData | null>>({})
+  const key = [...new Set(slugs)].sort().join(',')
+  useEffect(() => {
+    for (const slug of new Set(slugs)) {
+      if (slug in files) continue
+      setFiles(f => ({ ...f, [slug]: null }))
+      categoryPath(slug, 'risk.json').then(pth => fetch(`/data/${pth}`)).then(r => (r.ok ? r.json() : null))
+        .then((d: RiskData | null) => setFiles(f => ({ ...f, [slug]: d })))
+        .catch(() => { /* not published for this category */ })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key])
+  return files
 }
 
 /** Full NAV history per fund, for the correlation table (fetched once each). */
@@ -101,13 +119,23 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
   const withValue = (s: ReviewSide) => priced(s).map(l => ({ code: l.code, name: name(l.code), value: l.amount! }))
   const ltA = useLookThrough(withValue(A))
   const ltB = useLookThrough(withValue(B))
-  const risk = useFundRisk([...new Set([...A.lines, ...B.lines].map(l => l.code))], fundByCode)
+  const allCodes = [...new Set([...A.lines, ...B.lines].map(l => l.code))]
+  const riskFiles = useRiskFiles(allCodes.map(c => fundByCode.get(c)?.s).filter((x): x is string => !!x))
+  const risk = useMemo(() => {
+    const out: Record<string, RiskFundRow> = {}
+    for (const f of Object.values(riskFiles)) for (const r of f?.funds ?? []) if (allCodes.includes(r.scheme_code)) out[r.scheme_code] = r
+    return out
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [riskFiles, allCodes.join(',')])
   const caps = useStockCaps()
   const [benchId, setBenchId] = useBenchmarkChoice()
   const benchSeries = useIndexSeries(benchId)
-  const bench: Record<string, number | null> = { ...indexTrailing(benchSeries) }
-  if (benchSeries?.length) {
-    const end = benchSeries[benchSeries.length - 1], start = closeAt(benchSeries, isoMinus(end[0], 120))
+  // Measured to the same day as the funds' returns: an index a day ahead or behind skews 1M.
+  const asOf = Object.values(riskFiles).map(f => f?.as_of).filter((x): x is string => !!x).sort().slice(-1)[0] ?? meta?.as_of
+  const benchTo = benchSeries && asOf ? benchSeries.filter(p => p[0] <= asOf) : benchSeries
+  const bench: Record<string, number | null> = { ...indexTrailing(benchTo) }
+  if (benchTo?.length) {
+    const end = benchTo[benchTo.length - 1], start = closeAt(benchTo, isoMinus(end[0], 120))
     bench['10Y'] = start ? Math.pow(end[1] / start, 1 / 10) - 1 : null
   }
   const benchName = meta?.benchmarks.find(b => b.index_id === benchId)?.index_name ?? 'Index'
@@ -259,7 +287,7 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
                       <td className="ret-cell text-xs">
                         {d == null || Math.abs(d) < 1e-9 ? '—' : (
                           <span style={{ color: !good ? 'var(--text-mid)' : (d > 0) === (good === 'up') ? '#34D399' : '#F87171' }}>
-                            {d > 0 ? '▲' : '▼'} {l === 'Std Dev' || l === 'Max DD' ? `${(Math.abs(d) * 100).toFixed(1)} pts` : Math.abs(d).toFixed(2)}
+                            {d > 0 ? '+' : '−'}{l === 'Std Dev' || l === 'Max DD' ? `${(Math.abs(d) * 100).toFixed(2)}%` : Math.abs(d).toFixed(2)}
                           </span>
                         )}
                       </td>
@@ -311,6 +339,8 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
       </div>
 
       {two && <StockChanges a={shown[0]} b={shown[1]} />}
+
+      <ComparativeAnalysis sides={shown.map(x => x.s)} risk={risk} riskFiles={riskFiles} fundByCode={fundByCode} asOf={asOf ?? null} />
 
       {/* ── fund level ── */}
       {shown.map(({ s, i }) => (
@@ -498,6 +528,118 @@ function StockChanges({ a, b }: { a: { s: ReviewSide; lt: { rows: LookRow[] } };
           {n === 10 ? '▾ Show all stock changes' : '▴ Show top 10 only'}
         </button>
       )}
+    </div>
+  )
+}
+
+const CMP_PERIODS = [['1M', '1M'], ['3M', '3M'], ['6M', '6M'], ['1Y', '12M'], ['2Y', '2Y'], ['3Y', '3Y'], ['5Y', '5Y']] as const
+const ASSET_ORDER = ['Equity', 'Hybrid', 'Debt', 'Other']
+
+/**
+ * Every fund beside its category average and its category's benchmark, over
+ * 1M–5Y. Funds are grouped by asset class and category, so funds of the same
+ * category sit together with that category's average and benchmark under them.
+ */
+function ComparativeAnalysis({ sides, risk, riskFiles, fundByCode, asOf }: {
+  sides: ReviewSide[]; risk: Record<string, RiskFundRow>; riskFiles: Record<string, RiskData | null>
+  fundByCode: Map<string, FundsIndex['funds'][number]>; asOf: string | null
+}) {
+  const { data: meta } = useMeta()
+  const cats = meta?.categories ?? []
+  const inSide = (code: string) => sides.filter(s => s.lines.some(l => l.code === code && (l.amount ?? 0) > 0))
+  const codes = [...new Set(sides.flatMap(s => s.lines.filter(l => (l.amount ?? 0) > 0).map(l => l.code)))]
+  if (!codes.length) return null
+  const bySlug = new Map<string, string[]>()
+  for (const c of codes) { const s = fundByCode.get(c)?.s ?? 'other'; bySlug.set(s, [...(bySlug.get(s) ?? []), c]) }
+  const order = (slug: string) => {
+    const c = cats.find(x => x.slug === slug)
+    return c ? ASSET_ORDER.indexOf(c.asset_class) * 1000 + c.display_order : 99999
+  }
+  const slugs = [...bySlug.keys()].sort((a, b) => order(a) - order(b))
+  const cols = CMP_PERIODS.length + (sides.length > 1 ? 2 : 1)
+  const cell = (v: number | null | undefined, ref?: (number | null | undefined)[]) => {
+    const beat = v == null || !ref ? null : ref.filter((r): r is number => r != null).map(r => v > r)
+    return (
+      <td className={`ret-cell text-xs ${retColor(v ?? null)}`}>
+        {fmtPct(v ?? null)}
+        {beat && beat.length > 0 && (
+          <span className="ml-1 text-[9px]"
+                title={beat.every(Boolean) ? 'Ahead of category average and benchmark' : beat.some(Boolean) ? 'Ahead of one of them' : 'Behind both'}
+                style={{ color: beat.every(Boolean) ? '#34D399' : beat.some(Boolean) ? '#F59E0B' : '#F87171' }}>●</span>
+        )}
+      </td>
+    )
+  }
+  let lastAc = ''
+  return (
+    <div className="card overflow-hidden mb-4">
+      <div className="px-4 pt-3 font-display font-bold text-sm" style={{ color: 'var(--text-hi)' }}>
+        Comparative analysis — fund vs category average vs benchmark
+      </div>
+      <div className="px-4 text-[10px]" style={{ color: 'var(--text-low)' }}>
+        Returns to {asOf ?? 'the latest NAV'}; up to 1Y absolute, 2Y and longer annualised. Benchmark = the category&apos;s benchmark.
+        Dot: <span style={{ color: '#34D399' }}>●</span> ahead of both · <span style={{ color: '#F59E0B' }}>●</span> ahead of one ·{' '}
+        <span style={{ color: '#F87171' }}>●</span> behind both.
+      </div>
+      <div className="table-scroll">
+        <table className="data-table">
+          <thead><tr>
+            <th className="sticky-col text-left" style={{ minWidth: 240 }}>Fund</th>
+            {sides.length > 1 && <th className="text-left">In</th>}
+            {CMP_PERIODS.map(([l]) => <th key={l} style={{ textAlign: 'right' }}>{l}</th>)}
+          </tr></thead>
+          <tbody>
+            {slugs.map(slug => {
+              const cat = cats.find(c => c.slug === slug)
+              const file = riskFiles[slug]
+              const avg = file?.category_average?.returns
+              const bm = file?.benchmark
+              const acRow = !!cat && cat.asset_class !== lastAc
+              if (cat) lastAc = cat.asset_class
+              const funds = [...(bySlug.get(slug) ?? [])].sort((a, b) => (fundByCode.get(a)?.n ?? '').localeCompare(fundByCode.get(b)?.n ?? ''))
+              return (
+                <Fragment key={slug}>
+                  {acRow && (
+                    <tr><td colSpan={cols} className="text-[11px] font-bold uppercase tracking-wide pt-3"
+                            style={{ color: 'var(--text-mid)', background: 'var(--bg-raised)' }}>{cat!.asset_class}</td></tr>
+                  )}
+                  <tr><td colSpan={cols} className="text-xs font-semibold" style={{ color: categoryColor(slug) }}>
+                    {cat?.category_name ?? fundByCode.get(funds[0])?.k ?? 'Other'}
+                  </td></tr>
+                  {funds.map(code => {
+                    const r = risk[code]
+                    return (
+                      <tr key={code}>
+                        <td className="sticky-col text-xs" style={{ maxWidth: 280, paddingLeft: 18 }}>
+                          <div className="truncate"><FundLink code={code} name={fundByCode.get(code)?.n ?? code} /></div>
+                        </td>
+                        {sides.length > 1 && (
+                          <td className="text-[10px] whitespace-nowrap">
+                            {inSide(code).map(s => <span key={s.label} className="mr-1" style={{ color: s.colour }}>● {s.label}</span>)}
+                          </td>
+                        )}
+                        {CMP_PERIODS.map(([l, k]) => <Fragment key={l}>{cell(r?.returns?.[k], [avg?.[k], bm?.returns?.[k]])}</Fragment>)}
+                      </tr>
+                    )
+                  })}
+                  <tr className="benchmark-row">
+                    <td className="sticky-col text-[11px]" style={{ paddingLeft: 18, color: 'var(--text-mid)' }}>Category average</td>
+                    {sides.length > 1 && <td />}
+                    {CMP_PERIODS.map(([l, k]) => <Fragment key={l}>{cell(avg?.[k])}</Fragment>)}
+                  </tr>
+                  <tr className="benchmark-row">
+                    <td className="sticky-col text-[11px]" style={{ paddingLeft: 18, color: 'var(--accent-a)' }}>
+                      Benchmark{bm?.name ? ` — ${bm.name}` : ''}{bm?.stale ? ' (stale)' : ''}
+                    </td>
+                    {sides.length > 1 && <td />}
+                    {CMP_PERIODS.map(([l, k]) => <Fragment key={l}>{cell(bm?.returns?.[k])}</Fragment>)}
+                  </tr>
+                </Fragment>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

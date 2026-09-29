@@ -151,7 +151,9 @@ export function SifAnalysis({ lines, colour = '#A78BFA' }: { lines: { id: string
   const { data, byId } = useSifPlans()
   const { data: meta } = useMeta()
   const [benchId, setBenchId] = useBenchmarkChoice()
-  const benchRet = indexSifReturns(useIndexSeries(benchId))
+  // To the SIF NAV date, so both cover the same days.
+  const benchSeries = useIndexSeries(benchId)
+  const benchRet = indexSifReturns(benchSeries && data?.as_of ? benchSeries.filter(p => p[0] <= data.as_of!) : benchSeries)
   const benchName = meta?.benchmarks.find(b => b.index_id === benchId)?.index_name ?? 'Index'
   const rows = lines.filter(l => l.amount > 0 && byId.has(l.id)).map(l => ({ ...l, p: byId.get(l.id)!, risk: sifRisk(byId.get(l.id)!) }))
   const tot = rows.reduce((s, r) => s + r.amount, 0)
