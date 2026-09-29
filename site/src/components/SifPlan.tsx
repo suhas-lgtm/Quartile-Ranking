@@ -229,7 +229,8 @@ export function SifAnalysis({ lines, colour = '#A78BFA' }: { lines: { id: string
         </div>
         <div className="px-4 text-[10px]" style={{ color: 'var(--text-low)' }}>
           Returns from the NAVs collected since {fmtDate(data?.plans.map(p => p.history_from).filter(Boolean).sort()[0] ?? null)};
-          since launch from the ₹{data?.nfo_price ?? 10} NFO price. Volatility (annualised) and max drawdown from the collected daily NAVs.
+          since launch from the ₹{data?.nfo_price ?? 10} NFO price. Volatility = daily return swings × √250. Max DD = the worst fall from a peak since launch
+          (each day: NAV ÷ highest NAV so far − 1; the lowest value).
         </div>
         <div className="table-scroll">
           <table className="data-table">

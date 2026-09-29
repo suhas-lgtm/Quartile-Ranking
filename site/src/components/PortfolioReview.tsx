@@ -71,7 +71,7 @@ function sectorSplit(rows: LookRow[]) {
 }
 
 /** Each category's Risk & Returns file: the funds' rows, the category average and the benchmark. */
-function useRiskFiles(slugs: string[]) {
+export function useRiskFiles(slugs: string[]) {
   const [files, setFiles] = useState<Record<string, RiskData | null>>({})
   const key = [...new Set(slugs)].sort().join(',')
   useEffect(() => {
@@ -260,6 +260,35 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
           Returns up to 1Y absolute, 3Y+ annualised. SIP = XIRR of a monthly SIP. Sharpe, Sortino, Std Dev, Alpha, Beta and captures over the last 3 years (monthly
           returns); Max DD = the worst fall from a peak in the fund&apos;s whole daily NAV history (since 2010 or launch).
         </div>
+        <details className="px-4 pt-1 text-[11px]" style={{ color: 'var(--text-mid)' }}>
+          <summary className="cursor-pointer font-semibold" style={{ color: 'var(--accent-a)' }}>How these are calculated</summary>
+          <div className="py-2 leading-relaxed">
+            <p className="mb-2">
+              <b>Max drawdown (Max DD)</b> — the biggest fall from a high point to a later low point. Going through the fund&apos;s
+              NAV day by day since 2010 (or launch), we keep the highest NAV so far (the peak) and each day work out
+              <b> NAV today ÷ peak − 1</b>. The worst (most negative) value is the max drawdown.
+            </p>
+            <table className="mb-2" style={{ fontSize: 11 }}>
+              <thead><tr>{['Month', 'NAV', 'Peak so far', 'Fall from peak'].map(h => <th key={h} className="text-left pr-4">{h}</th>)}</tr></thead>
+              <tbody>
+                {[['Jan', '100', '100', '0%'], ['Mar', '120', '120', '0% (new peak)'], ['May', '84', '120', '84 ÷ 120 − 1 = −30%  ← max drawdown'],
+                  ['Aug', '110', '120', '−8.3%'], ['Dec', '125', '125', '0% (new peak)']].map(r => (
+                  <tr key={r[0]}>{r.map((c, i) => <td key={i} className="pr-4" style={{ color: i === 3 && c.includes('max') ? '#F87171' : undefined }}>{c}</td>)}</tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="mb-2">
+              So someone who invested at the top (120) was down 30% at the worst point (84). <b>Recovery</b> = days from that low until
+              the NAV got back above the old peak. For the portfolio, each fund&apos;s max drawdown is weighted by its amount (an
+              approximation — funds do not all hit their low on the same day).
+            </p>
+            <p className="mb-1"><b>Std Dev</b> — how much the monthly returns swing, annualised (× √12), last 3 years.</p>
+            <p className="mb-1"><b>Sharpe</b> = (3Y return − risk-free rate) ÷ Std Dev. <b>Sortino</b> — the same, dividing by the downside swings only.</p>
+            <p className="mb-1"><b>Beta</b> — how much the fund moves when its benchmark moves 1% (1.10 = 10% more). <b>Alpha</b> = 3Y return above what its Beta predicts.</p>
+            <p className="mb-1"><b>Up / Down capture</b> — in the benchmark&apos;s up months, how much of the rise the fund caught (above 100 = more); in down months, how much of the fall (below 100 = fell less).</p>
+            <p><b>SIP return</b> — XIRR of ₹ monthly instalments over the period, valued at the latest NAV.</p>
+          </div>
+        </details>
         <div className="table-scroll">
           <table className="data-table">
             <thead>
@@ -404,18 +433,18 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
       ))}
       </PdfSection>
 
-      {two && (
-        <div className="flex items-center gap-2 flex-wrap mb-2 text-xs print:hidden">
-          <span className="font-semibold" style={{ color: 'var(--text-hi)' }}>Correlation &amp; overlap for</span>
-          {shown.map(x => (
-            <button key={x.i} className={`tab-btn ${fx?.i === x.i ? 'active' : ''}`} onClick={() => setFxPick(x.i)}
-                    style={fx?.i === x.i ? { borderColor: x.s.colour, color: x.s.colour } : undefined}>
-              {x.s.label} portfolio ({fundsOf(x.s).length} funds)
-            </button>
-          ))}
-          <span style={{ color: 'var(--text-low)' }}>updates as you change the funds</span>
-        </div>
-      )}
+      <div className="card px-4 py-3 mb-2 flex items-center gap-2 flex-wrap text-xs print:hidden" style={{ borderLeft: '3px solid var(--accent-a)' }}>
+        <span className="font-display font-bold text-sm mr-2" style={{ color: 'var(--text-hi)' }}>Correlation &amp; overlap</span>
+        {shown.map(x => (
+          <button key={x.i} className={`tab-btn ${fx?.i === x.i ? 'active' : ''}`} onClick={() => setFxPick(x.i)}
+                  style={fx?.i === x.i ? { borderColor: x.s.colour, color: x.s.colour } : undefined}>
+            {x.s.label} portfolio · {fundsOf(x.s).length} funds
+          </button>
+        ))}
+        <span style={{ color: 'var(--text-low)' }}>
+          {two ? 'switch to see the old or the new portfolio · updates as you change the funds' : 'updates as you change the funds'}
+        </span>
+      </div>
       {debtLeftOut > 0 && (
         <p className="text-[11px] mb-2" style={{ color: 'var(--text-low)' }}>
           {debtLeftOut} debt fund{debtLeftOut === 1 ? '' : 's'} left out of the correlation and overlap tables.

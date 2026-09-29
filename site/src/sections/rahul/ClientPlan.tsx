@@ -10,6 +10,7 @@
 // in this browser, one per client.
 
 import { useEffect, useMemo, useState } from 'react'
+import Milestone from '../../components/Milestone'
 import { PdfButton, PdfProvider, PdfSection } from '../../components/PdfSections'
 import { useJson } from '../../hooks/useData'
 import FundPicker from '../../components/FundPicker'
@@ -228,6 +229,13 @@ export default function ClientPlan() {
         </div>
       )}
 
+      </PdfSection>
+
+      <PdfSection id="milestone" label="Milestone (goal, projection, SIP needed)">
+        <Milestone storeKey={`rahul_plan_goal:${store.current}`} sides={[{
+          label: 'This plan', colour: MF_COLOUR, lump: mfLump + sifLump, sip: mfSip + sifSip,
+          lines: plan.mf.map(l => ({ code: l.code, amount: w(l) })),
+        }]} />
       </PdfSection>
 
       {/* ── mutual funds ── */}

@@ -10,6 +10,7 @@
 // then the SIF part. Kept in this browser, one per client.
 
 import { useEffect, useMemo, useState } from 'react'
+import Milestone from '../../components/Milestone'
 import { PdfButton, PdfProvider, PdfSection } from '../../components/PdfSections'
 import { useJson } from '../../hooks/useData'
 import FundPicker from '../../components/FundPicker'
@@ -295,6 +296,17 @@ export default function Reallocation() {
             </table>
           </div>
         </div>
+        </PdfSection>
+      )}
+
+      {(exTotal > 0 || prMf + prSif > 0) && (
+        <PdfSection id="milestone" label="Milestone (goal, existing vs suggested projection)">
+          <Milestone storeKey={`rahul_realloc_goal:${store.current}`} askSip sides={[
+            { label: 'Existing', colour: EX_COLOUR, lump: exTotal, sip: 0,
+              lines: [...existing.entries()].map(([code, x]) => ({ code, amount: x.value })) },
+            { label: 'Suggested', colour: PR_COLOUR, lump: prMf + prSif, sip: 0,
+              lines: cur.proposed.map(l => ({ code: l.code, amount: l.lump ?? 0 })) },
+          ].filter(s => s.lump > 0)} />
         </PdfSection>
       )}
 
