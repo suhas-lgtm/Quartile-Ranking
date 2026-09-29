@@ -117,17 +117,20 @@ function usePortfolioCalc(pf: Portfolio, latest: string, fundByCode: Map<string,
       if (!d || !(amt > 0) || !n || !nav || !endNav || d > end) {
         const why = !d ? 'enter a date' : !(amt > 0) ? 'enter an amount' : !n ? 'loading' : d > end ? 'after end date'
           : !nav ? (n.first_date && d < n.first_date ? `launched ${fmtDate(n.first_date)}` : 'no NAV') : 'no end NAV'
-        return { d, amt, nav, units: null as number | null, val: null as number | null, why }
+        return { d, amt, nav, units: null as number | null, val: null as number | null, why,
+                 ret: null as number | null, irr: null as number | null }
       }
       const units = amt / nav.nav
       const val = units * endNav.nav * splitFactorBetween(n.splits, nav.date, endNav.date)
       invested += amt; value += val
       flows.push({ date: d, amount: -amt })
-      return { d, amt, nav, units, val, why: null as string | null }
+      return { d, amt, nav, units, val, why: null as string | null,
+               ret: val / amt - 1, irr: xirr([{ date: d, amount: -amt }, { date: end, amount: val }]) }
     })
     // SIP instalments: each buys units at that day's NAV; instalments before the
     // fund launched (or with no NAV) are skipped and counted.
-    const sip = { count: 0, skipped: 0, invested: 0, units: 0, value: 0 }
+    const sip = { count: 0, skipped: 0, invested: 0, units: 0, value: 0, ret: null as number | null, irr: null as number | null,
+                  flows: [] as { date: string; amount: number }[] }
     const sipAmt = sipAmount(h)
     if (h.sip && n && endNav && sipAmt > 0) {
       for (const d of sipDates(h)) {
@@ -139,6 +142,12 @@ function usePortfolioCalc(pf: Portfolio, latest: string, fundByCode: Map<string,
         sip.units += units * splitFactorBetween(n.splits, nav.date, endNav.date)
         invested += sipAmt; value += val
         flows.push({ date: d, amount: -sipAmt })
+        sip.flows.push({ date: d, amount: -sipAmt })
+      }
+      // The SIP's own return, like a lump sum's: its instalments in, its value out.
+      if (sip.invested > 0) {
+        sip.ret = sip.value / sip.invested - 1
+        sip.irr = xirr([...sip.flows, { date: end, amount: sip.value }])
       }
     }
     if (value > 0) flows.push({ date: end, amount: value })
@@ -152,8 +161,22 @@ function usePortfolioCalc(pf: Portfolio, latest: string, fundByCode: Map<string,
     const value = results.reduce((s, r) => s + r.value, 0)
     const flows = results.flatMap(r => r.flows.filter(f => f.amount < 0))
     if (value > 0) flows.push({ date: end, amount: value })
+    // Lump sums and SIPs separately, each with its own return and XIRR.
+    const part = (pick: 'lump' | 'sip') => {
+      let inv = 0, val = 0
+      const cf: { date: string; amount: number }[] = []
+      for (const r of results) {
+        if (pick === 'lump') {
+          for (const b of r.buys) if (b.val != null) { inv += b.amt; val += b.val; cf.push({ date: b.d, amount: -b.amt }) }
+        } else if (r.sip.invested > 0) {
+          inv += r.sip.invested; val += r.sip.value; cf.push(...r.sip.flows)
+        }
+      }
+      if (val > 0) cf.push({ date: end, amount: val })
+      return { invested: inv, value: val, gain: val - inv, ret: inv ? val / inv - 1 : null, irr: cf.length > 1 ? xirr(cf) : null }
+    }
     return { invested, value, gain: value - invested, ret: invested ? value / invested - 1 : null,
-             irr: flows.length > 1 ? xirr(flows) : null }
+             irr: flows.length > 1 ? xirr(flows) : null, lump: part('lump'), sip: part('sip') }
   }, [results, end])
 
   return { end, results, tot, loading, error, sipAmount, sipStart }
@@ -351,6 +374,34 @@ function PortfolioEditor({ storeKey, label }: { storeKey: string; label: string 
           ))}
         </div>
       )}
+      {pf.holdings.length > 0 && tot.sip.invested > 0 && (
+        <div className="card overflow-hidden mb-4">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th className="text-left">By type</th>
+                <th style={{ textAlign: 'right' }}>Invested</th>
+                <th style={{ textAlign: 'right' }}>Value</th>
+                <th style={{ textAlign: 'right' }}>Gain</th>
+                <th style={{ textAlign: 'right' }}>Return</th>
+                <th style={{ textAlign: 'right' }}>XIRR</th>
+              </tr>
+            </thead>
+            <tbody>
+              {([['Lump sums', tot.lump], ['SIPs', tot.sip], ['Total', tot]] as const).map(([l, x]) => (
+                <tr key={l} className={l === 'Total' ? 'benchmark-row' : undefined}>
+                  <td className="text-xs font-semibold">{l}</td>
+                  <td className="ret-cell text-xs">{inr(x.invested)}</td>
+                  <td className="ret-cell text-xs font-semibold">{inr(x.value)}</td>
+                  <td className={`ret-cell text-xs ${retColor(x.gain)}`}>{inr(x.gain)}</td>
+                  <td className={`ret-cell text-xs ${retColor(x.ret)}`}>{fmtPct(x.ret)}</td>
+                  <td className={`ret-cell text-xs font-semibold ${retColor(x.irr)}`}>{x.irr == null ? '—' : fmtPct(x.irr)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* ── Holdings ───────────────────────────────────────────── */}
       <div className="card overflow-hidden mb-4">
@@ -397,10 +448,9 @@ function PortfolioEditor({ storeKey, label }: { storeKey: string; label: string 
                               <span className="text-[10px]" style={{ color: 'var(--loss)' }}>{r.buys[bi].why}</span>
                             )}
                             {r.buys[bi]?.units != null && (
-                              <span className="text-[10px]" style={{ color: 'var(--text-low)' }}
-                                    title={`NAV ${r.buys[bi].nav?.nav.toFixed(4)} on ${fmtDate(r.buys[bi].nav?.date)}`}>
-                                {r.buys[bi].units!.toFixed(2)} units
-                              </span>
+                              <LineResult units={r.buys[bi].units!} invested={r.buys[bi].amt} value={r.buys[bi].val!}
+                                          ret={r.buys[bi].ret} irr={r.buys[bi].irr}
+                                          title={`NAV ${r.buys[bi].nav?.nav.toFixed(4)} on ${fmtDate(r.buys[bi].nav?.date)}`} />
                             )}
                             {(r.h.buys.length > 1 || r.h.sip) && (
                               <button onClick={() => removeBuy(hi, bi)} title="Remove this purchase"
@@ -425,8 +475,9 @@ function PortfolioEditor({ storeKey, label }: { storeKey: string; label: string 
                             <button onClick={() => setSip(hi, null)} title="Remove SIP"
                                     style={{ color: 'var(--text-low)', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
                             <div className="w-full text-[10px]" style={{ color: 'var(--text-low)' }}>
-                              {r.sip.count} instalment{r.sip.count === 1 ? '' : 's'} · {inr(r.sip.invested)} invested ·{' '}
-                              {r.sip.units.toFixed(2)} units → {inr(r.sip.value)}
+                              {r.sip.count} instalment{r.sip.count === 1 ? '' : 's'} ·{' '}
+                              {r.sip.invested > 0 && <LineResult units={r.sip.units} invested={r.sip.invested} value={r.sip.value}
+                                                                 ret={r.sip.ret} irr={r.sip.irr} />}
                               {r.sip.skipped > 0 && <span style={{ color: 'var(--loss)' }}> · {r.sip.skipped} before launch / no NAV skipped</span>}
                               {!(sipAmount(r.h) > 0) && <span style={{ color: 'var(--loss)' }}> · enter the SIP amount</span>}
                               {!sipStart(r.h) && <span style={{ color: 'var(--loss)' }}> · enter the SIP start date</span>}
@@ -851,5 +902,20 @@ function FundsSideBySide({ title, colour, calc, risk, bench, benchName }: {
         </table>
       </div>
     </div>
+  )
+}
+
+
+/** One purchase's or one SIP's result: units, invested → value, return and XIRR. */
+function LineResult({ units, invested, value, ret, irr, title }: {
+  units: number; invested: number; value: number; ret: number | null; irr: number | null; title?: string
+}) {
+  return (
+    <span className="text-[10px] inline-flex flex-wrap gap-x-1.5" style={{ color: 'var(--text-mid)' }} title={title}>
+      <span>{units.toFixed(2)} units</span>
+      <span>· {inr(invested)} → <b style={{ color: 'var(--text-hi)' }}>{inr(value)}</b></span>
+      <span className={retColor(ret)}>· {fmtPct(ret)}</span>
+      <span className={retColor(irr)}>· XIRR {irr == null ? '—' : fmtPct(irr)}</span>
+    </span>
   )
 }
