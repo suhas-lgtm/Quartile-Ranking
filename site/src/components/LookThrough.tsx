@@ -6,6 +6,7 @@
 // (Balanced Advantage, Multi Asset) are listed and left out of the weights.
 
 import { Fragment, useEffect, useMemo, useState } from 'react'
+import SectorBars from './SectorBars'
 import CapSplit, { capSplit, useStockCaps } from './CapSplit'
 
 type Raw = { isin: string; name: string; industry: string; pct: number; asset_class?: string; sector?: string | null }
@@ -71,11 +72,6 @@ export default function LookThrough({ funds, title = 'Portfolio holdings (look-t
   if (!funds.length) return null
   const shown = all ? lt.rows : lt.rows.slice(0, 10)
   const top10 = lt.rows.slice(0, 10).reduce((s, r) => s + r.weight, 0)
-  const sectors = (() => {
-    const m = new Map<string, number>()
-    for (const r of lt.rows) m.set(r.sector || r.industry || 'Other', (m.get(r.sector || r.industry || 'Other') ?? 0) + r.weight)
-    return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
-  })()
   return (
     <div className="card p-4 mb-4">
       <div className="flex items-center gap-3 flex-wrap mb-2">
@@ -140,16 +136,7 @@ export default function LookThrough({ funds, title = 'Portfolio holdings (look-t
           </div>
           <div>
             <CapSplit split={capSplit(lt.rows, caps)} period={caps?.period} compact={false} />
-            <div className="text-xs font-semibold mb-1 mt-3" style={{ color: 'var(--text-mid)' }}>Sectors</div>
-            {sectors.map(([k, v]) => (
-              <div key={k} className="flex items-center gap-2 text-[11px] py-0.5">
-                <span className="truncate" style={{ width: 140, color: 'var(--text-mid)' }} title={k}>{k}</span>
-                <div className="flex-1 h-2 rounded" style={{ background: 'var(--bg-raised)' }}>
-                  <div className="h-2 rounded" style={{ width: `${Math.min(100, (v / (sectors[0][1] || 1)) * 100)}%`, background: 'var(--accent-a)' }} />
-                </div>
-                <span className="ret-cell" style={{ width: 44 }}>{(v * 100).toFixed(1)}%</span>
-              </div>
-            ))}
+            <SectorBars rows={lt.rows} />
           </div>
         </div>
       )}

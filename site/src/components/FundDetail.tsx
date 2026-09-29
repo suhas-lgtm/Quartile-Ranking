@@ -9,6 +9,7 @@
 // returns, ratios, quartiles and rules from the files the build published.
 
 import { useEffect, useMemo, useState } from 'react'
+import SectorBars from './SectorBars'
 import CapSplit, { capSplit, useStockCaps } from './CapSplit'
 import ReactECharts from 'echarts-for-react'
 import { useIndices, useJson, useMeta } from '../hooks/useData'
@@ -288,7 +289,6 @@ function FundPanel({ code, onClose }: { code: string; onClose: () => void }) {
                 }
                 const assets = group('asset_class')
                 const equity = hs.filter(h => (h.asset_class ?? 'Equity') === 'Equity')
-                const sectors = group('sector').slice(0, 8)
                 const shown = allHoldings ? hs : hs.slice(0, 10)
                 return (
                   <>
@@ -325,20 +325,7 @@ function FundPanel({ code, onClose }: { code: string; onClose: () => void }) {
                     </div>
                     <CapSplit split={capSplit(hs.map(h => ({ isin: h.isin, weight: h.pct, asset_class: h.asset_class })), caps)}
                               period={caps?.period} />
-                    {sectors.length > 0 && (
-                      <div className="mt-3">
-                        <div className="text-xs font-semibold mb-1" style={{ color: 'var(--text-mid)' }}>Sectors</div>
-                        {sectors.map(([k, v]) => (
-                          <div key={k} className="flex items-center gap-2 text-[11px] py-0.5">
-                            <span className="truncate" style={{ width: 150, color: 'var(--text-mid)' }} title={k}>{k}</span>
-                            <div className="flex-1 h-2 rounded" style={{ background: 'var(--bg-raised)' }}>
-                              <div className="h-2 rounded" style={{ width: `${Math.min(100, v * 100 / (sectors[0][1] || 1))}%`, background: 'var(--accent-a)' }} />
-                            </div>
-                            <span className="ret-cell" style={{ width: 48 }}>{(v * 100).toFixed(1)}%</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    <SectorBars rows={hs.map(h => ({ sector: h.sector, industry: h.industry, weight: h.pct, asset_class: h.asset_class }))} />
                   </>
                 )
               })() : <div className="text-xs" style={{ color: 'var(--text-low)' }}>Holdings are not available for this fund.</div>}

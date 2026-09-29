@@ -9,6 +9,7 @@
 // /api/nav (server/navLookup.ts). Saved in this browser.
 
 import { Fragment, useEffect, useMemo, useState } from 'react'
+import SectorBars from '../components/SectorBars'
 import OverlapMatrix from '../components/OverlapMatrix'
 import LookThrough, { useLookThrough } from '../components/LookThrough'
 import CapSplit, { capSplit, useStockCaps } from '../components/CapSplit'
@@ -596,24 +597,11 @@ function PortfolioCompare() {
 
       <div className="grid gap-4 lg:grid-cols-2 mb-4">
         {([['Portfolio A', ltA, '#22D3EE'], ['Portfolio B', ltB, '#F59E0B']] as const).map(([t, lt, c]) => {
-          const sec = new Map<string, number>()
-          for (const r of lt.rows) sec.set(r.sector || r.industry || 'Other', (sec.get(r.sector || r.industry || 'Other') ?? 0) + r.weight)
-          const top = [...sec.entries()].sort((x, y) => y[1] - x[1]).slice(0, 8)
           return (
             <div key={t} className="card p-4">
               <div className="font-display font-bold text-sm mb-2" style={{ color: c }}>{t} — market cap &amp; sectors</div>
               <CapSplit split={capSplit(lt.rows, caps)} period={caps?.period} compact />
-              <div className="mt-3">
-                {top.map(([k, v]) => (
-                  <div key={k} className="flex items-center gap-2 text-[11px] py-0.5">
-                    <span className="truncate" style={{ width: 150, color: 'var(--text-mid)' }}>{k}</span>
-                    <div className="flex-1 h-2 rounded" style={{ background: 'var(--bg-raised)' }}>
-                      <div className="h-2 rounded" style={{ width: `${Math.min(100, (v / (top[0]?.[1] || 1)) * 100)}%`, background: c }} />
-                    </div>
-                    <span className="ret-cell" style={{ width: 44 }}>{(v * 100).toFixed(1)}%</span>
-                  </div>
-                ))}
-              </div>
+              <SectorBars rows={lt.rows} colour={c} />
             </div>
           )
         })}

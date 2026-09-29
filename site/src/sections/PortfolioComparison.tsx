@@ -8,6 +8,7 @@
 // beside a chosen benchmark. Saved in this browser.
 
 import { useEffect, useMemo, useState } from 'react'
+import { industryLine, sectorBreakdown } from '../components/SectorBars'
 import { useJson, useMeta } from '../hooks/useData'
 import FundPicker from '../components/FundPicker'
 import FundLink from '../components/FundLink'
@@ -48,6 +49,7 @@ export default function PortfolioComparison() {
   const fundByCode = useMemo(() => new Map((index?.funds ?? []).map(f => [f.c, f])), [index])
   const [rv, setRv] = useState<Review>(load)
   const [pick, setPick] = useState({ existing: '', proposed: '' })
+  const [allHold, setAllHold] = useState<Record<string, boolean>>({})
   useEffect(() => { try { localStorage.setItem(STORE, JSON.stringify(rv)) } catch { /* optional */ } }, [rv])
 
   const name = (c: string) => fundByCode.get(c)?.n ?? c
@@ -206,7 +208,11 @@ export default function PortfolioComparison() {
               })()} />
           </div>
 
-          <ChangeTable has={[hasE, hasP]} title="Sector allocation" note="Equity holdings through the funds, % of the whole portfolio"
+          <ChangeTable has={[hasE, hasP]} sub={(() => {
+              // What each sector is made of: its industries, from the proposed side (or the existing one).
+              const g = sectorBreakdown(hasP ? ltP.rows : ltE.rows)
+              return Object.fromEntries(g.map(x => [x.sector, industryLine(x)]))
+            })()} title="Sector allocation" note="Equity holdings through the funds, % of the whole portfolio · industries in each sector underneath"
             rows={(() => {
               const e = sectorSplit(ltE.rows), p = sectorSplit(ltP.rows)
               return [...new Set([...e.keys(), ...p.keys()])].map(k => [k, e.get(k) ?? 0, p.get(k) ?? 0] as [string, number, number])
@@ -270,10 +276,10 @@ export default function PortfolioComparison() {
               const sd = SIDES.find(x => x.key === k)!
               return (
                 <div key={k} className="card p-4">
-                  <div className="font-display font-bold text-sm mb-2" style={{ color: sd.colour }}>{sd.label} — top 10 holdings</div>
+                  <div className="font-display font-bold text-sm mb-2" style={{ color: sd.colour }}>{sd.label} — {allHold[k] ? `all ${lt.rows.length}` : 'top 10'} holdings</div>
                   <table className="data-table">
                     <tbody>
-                      {lt.rows.slice(0, 10).map(r => (
+                      {(allHold[k] ? lt.rows : lt.rows.slice(0, 10)).map(r => (
                         <tr key={r.isin}>
                           <td className="text-xs truncate" style={{ maxWidth: 260 }} title={r.name}>{r.name}</td>
                           <td className="text-[10px] truncate" style={{ color: 'var(--text-low)', maxWidth: 130 }}>{r.industry}</td>
@@ -282,32 +288,37 @@ export default function PortfolioComparison() {
                       ))}
                     </tbody>
                   </table>
+                  {lt.rows.length > 10 && (
+                    <button className="tab-btn mt-2 text-xs" onClick={() => setAllHold(h => ({ ...h, [k]: !h[k] }))}>
+                      {allHold[k] ? '▴ Show top 10 only' : `▾ Show all ${lt.rows.length} holdings`}
+                    </button>
+                  )}
                 </div>
               )
             })}
           </div>
 
           {/* fund level */}
-          <div className="grid gap-4 lg:grid-cols-2 mb-4">
+          <div className="grid gap-4 mb-4">
             {SIDES.filter(sd => (sd.key === 'existing' ? hasE : hasP)).map(sd => (
               <div key={sd.key} className="card overflow-hidden">
                 <div className="px-4 pt-3 font-display font-bold text-sm" style={{ color: sd.colour }}>{sd.label} — funds</div>
                 <div className="table-scroll">
                   <table className="data-table">
                     <thead><tr>
-                      <th className="text-left">Fund</th><th style={{ textAlign: 'right' }}>Weight</th>
-                      <th style={{ textAlign: 'right' }}>1Y</th><th style={{ textAlign: 'right' }}>3Y</th><th style={{ textAlign: 'right' }}>5Y</th>
-                      <th style={{ textAlign: 'right' }}>Sharpe</th>
+                      <th className="sticky-col text-left">Fund</th><th style={{ textAlign: 'right' }}>Weight</th>
+                      {FUND_RET.map(([l]) => <th key={l} style={{ textAlign: 'right' }}>{l}</th>)}
+                      {FUND_RATIO.map(([l]) => <th key={l} style={{ textAlign: 'right' }}>{l}</th>)}
                     </tr></thead>
                     <tbody>
                       {rv[sd.key].map(l => {
                         const r = risk[l.code], t = total(sd.key)
                         return (
                           <tr key={l.code}>
-                            <td className="text-xs truncate" style={{ maxWidth: 240 }}><FundLink code={l.code} name={name(l.code)} /></td>
+                            <td className="sticky-col text-xs truncate" style={{ maxWidth: 240 }}><FundLink code={l.code} name={name(l.code)} /></td>
                             <td className="ret-cell text-xs">{t && l.amount ? pct1(l.amount / t) : '—'}</td>
-                            {(['12M', '3Y', '5Y'] as const).map(k => <td key={k} className={`ret-cell text-xs ${retColor(r?.returns?.[k] ?? null)}`}>{fmtPct(r?.returns?.[k] ?? null)}</td>)}
-                            <td className="ret-cell text-xs">{r?.sharpe == null ? '—' : r.sharpe.toFixed(2)}</td>
+                            {FUND_RET.map(([lb, k]) => <td key={lb} className={`ret-cell text-xs ${retColor(r?.returns?.[k] ?? null)}`}>{fmtPct(r?.returns?.[k] ?? null)}</td>)}
+                            {FUND_RATIO.map(([lb, get, f]) => { const v = r ? get(r) : null; return <td key={lb} className="ret-cell text-xs">{v == null ? '—' : f(v)}</td> })}
                           </tr>
                         )
                       })}
@@ -330,6 +341,15 @@ export default function PortfolioComparison() {
     </section>
   )
 }
+
+const FUND_RET = [['1M', '1M'], ['3M', '3M'], ['6M', '6M'], ['1Y', '12M'], ['3Y', '3Y'], ['5Y', '5Y']] as const
+const FUND_RATIO: [string, (r: RiskFundRow) => number | null, (v: number) => string][] = [
+  ['Sharpe', r => r.sharpe, v => v.toFixed(2)],
+  ['Std Dev', r => r.std_annual, v => `${(v * 100).toFixed(1)}%`],
+  ['Alpha', r => (r.alpha == null ? null : r.alpha * 100), v => v.toFixed(2)],
+  ['Beta', r => r.beta, v => v.toFixed(2)],
+  ['Max DD', r => r.max_drawdown, v => `${(v * 100).toFixed(1)}%`],
+]
 
 function CompareTable({ title, rows }: { title: string; rows: [string, string, string, React.ReactNode | null][] }) {
   return (
@@ -354,7 +374,8 @@ function CompareTable({ title, rows }: { title: string; rows: [string, string, s
 }
 
 /** Before / after / change for each row, with bars so the shift is visible at a glance. */
-function ChangeTable({ title, note, rows, has }: { title: string; note: string; rows: [string, number, number, string?][]; has: [boolean, boolean] }) {
+function ChangeTable({ title, note, rows, has, sub }: { title: string; note: string; rows: [string, number, number, string?][];
+                       has: [boolean, boolean]; sub?: Record<string, string> }) {
   const max = Math.max(0.0001, ...rows.flatMap(r => [r[1], r[2]]))
   return (
     <div className="card overflow-hidden mb-4">
@@ -372,6 +393,7 @@ function ChangeTable({ title, note, rows, has }: { title: string; note: string; 
             <tr key={l}>
               <td className="text-xs" style={{ minWidth: 170 }}>
                 {c && <span style={{ color: c }}>● </span>}{l}
+                {sub?.[l] && <div className="text-[10px] leading-snug" style={{ color: 'var(--text-low)' }} title={sub[l]}>{sub[l]}</div>}
                 <div className="flex flex-col gap-0.5 mt-1">
                   <div className="h-1.5 rounded" style={{ width: `${(a / max) * 100}%`, background: SIDES[0].colour }} />
                   <div className="h-1.5 rounded" style={{ width: `${(b / max) * 100}%`, background: SIDES[1].colour }} />
