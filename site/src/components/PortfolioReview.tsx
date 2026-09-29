@@ -155,6 +155,11 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
   const fundsOf = (s: ReviewSide) => priced(s).filter(l => !isDebt(l.code)).map(l => ({ code: l.code, name: name(l.code) }))
   const focusFunds = fx ? fundsOf(fx.s) : []
   const debtLeftOut = fx ? priced(fx.s).filter(l => isDebt(l.code)).length : 0
+  // Overlap has its own switch, so the two tables can show different sides.
+  const [ovPick, setOvPick] = useState<number | null>(null)
+  const ov = shown.find(x => x.i === ovPick) ?? focus
+  const ovFunds = ov ? fundsOf(ov.s) : []
+  const ovDebt = ov ? priced(ov.s).filter(l => isDebt(l.code)).length : 0
   // Series for both sides, so switching sides is instant.
   const series = useSeries([...new Set(shown.flatMap(x => fundsOf(x.s).map(f => f.code)))])
 
@@ -433,32 +438,37 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
       ))}
       </PdfSection>
 
-      <div className="card px-4 py-3 mb-2 flex items-center gap-2 flex-wrap text-xs print:hidden" style={{ borderLeft: '3px solid var(--accent-a)' }}>
-        <span className="font-display font-bold text-sm mr-2" style={{ color: 'var(--text-hi)' }}>Correlation &amp; overlap</span>
-        {shown.map(x => (
-          <button key={x.i} className={`tab-btn ${fx?.i === x.i ? 'active' : ''}`} onClick={() => setFxPick(x.i)}
-                  style={fx?.i === x.i ? { borderColor: x.s.colour, color: x.s.colour } : undefined}>
-            {x.s.label} portfolio · {fundsOf(x.s).length} funds
-          </button>
-        ))}
-        <span style={{ color: 'var(--text-low)' }}>
-          {two ? 'switch to see the old or the new portfolio · updates as you change the funds' : 'updates as you change the funds'}
-        </span>
-      </div>
+      <SideSwitch title="Correlation between funds" sides={shown} pick={fx?.i} onPick={setFxPick} count={x => fundsOf(x.s).length} two={two} />
       {debtLeftOut > 0 && (
         <p className="text-[11px] mb-2" style={{ color: 'var(--text-low)' }}>
-          {debtLeftOut} debt fund{debtLeftOut === 1 ? '' : 's'} left out of the correlation and overlap tables.
+          {debtLeftOut} debt fund{debtLeftOut === 1 ? '' : 's'} left out of the correlation table.
         </p>
       )}
       {focusFunds.length > 1 ? (
-        <div key={fx?.i}>
+        <div key={`c${fx?.i}`}>
           {two && <div className="text-xs font-semibold mb-1 hidden print:block" style={{ color: fx?.s.colour }}>{fx?.s.label} portfolio</div>}
           <PdfSection id="correlation" label="Correlation between funds"><CorrelationMatrix funds={focusFunds.map(f => ({ ...f, series: series[f.code] }))} /></PdfSection>
-          <PdfSection id="overlap" label="Portfolio overlap between funds"><OverlapMatrix funds={focusFunds} /></PdfSection>
         </div>
-      ) : two && (
+      ) : (
         <p className="text-xs mb-4" style={{ color: 'var(--text-mid)' }}>
           The {fx?.s.label.toLowerCase()} portfolio has fewer than two equity-oriented funds, so there is nothing to correlate.
+        </p>
+      )}
+
+      <SideSwitch title="Portfolio overlap between funds" sides={shown} pick={ov?.i} onPick={setOvPick} count={x => fundsOf(x.s).length} two={two} />
+      {ovDebt > 0 && (
+        <p className="text-[11px] mb-2" style={{ color: 'var(--text-low)' }}>
+          {ovDebt} debt fund{ovDebt === 1 ? '' : 's'} left out of the overlap table.
+        </p>
+      )}
+      {ovFunds.length > 1 ? (
+        <div key={`o${ov?.i}`}>
+          {two && <div className="text-xs font-semibold mb-1 hidden print:block" style={{ color: ov?.s.colour }}>{ov?.s.label} portfolio</div>}
+          <PdfSection id="overlap" label="Portfolio overlap between funds"><OverlapMatrix funds={ovFunds} /></PdfSection>
+        </div>
+      ) : (
+        <p className="text-xs mb-4" style={{ color: 'var(--text-mid)' }}>
+          The {ov?.s.label.toLowerCase()} portfolio has fewer than two equity-oriented funds, so there is no overlap to show.
         </p>
       )}
 
@@ -756,6 +766,27 @@ function ComparativeAnalysis({ sides, risk, riskFiles, fundByCode, asOf }: {
           </tbody>
         </table>
       </div>
+    </div>
+  )
+}
+
+/** Old / new portfolio buttons above a fund-to-fund table. */
+function SideSwitch({ title, sides, pick, onPick, count, two }: {
+  title: string; sides: { s: ReviewSide; i: number }[]; pick: number | undefined
+  onPick: (i: number) => void; count: (x: { s: ReviewSide; i: number }) => number; two: boolean
+}) {
+  return (
+    <div className="card px-4 py-3 mb-2 mt-2 flex items-center gap-2 flex-wrap text-xs print:hidden" style={{ borderLeft: '3px solid var(--accent-a)' }}>
+      <span className="font-display font-bold text-sm mr-2" style={{ color: 'var(--text-hi)' }}>{title}</span>
+      {sides.map(x => (
+        <button key={x.i} className={`tab-btn ${pick === x.i ? 'active' : ''}`} onClick={() => onPick(x.i)}
+                style={pick === x.i ? { borderColor: x.s.colour, color: x.s.colour } : undefined}>
+          {x.s.label} portfolio · {count(x)} funds
+        </button>
+      ))}
+      <span style={{ color: 'var(--text-low)' }}>
+        {two ? 'switch between the old and the new portfolio · updates as you change the funds' : 'updates as you change the funds'}
+      </span>
     </div>
   )
 }
