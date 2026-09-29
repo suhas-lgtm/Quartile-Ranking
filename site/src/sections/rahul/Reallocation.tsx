@@ -17,7 +17,7 @@ import FundPicker from '../../components/FundPicker'
 import FundLink from '../../components/FundLink'
 import PortfolioReview, { inr, inrShort, pct1 } from '../../components/PortfolioReview'
 import { SifAnalysis, SifEditor, type SifLine } from '../../components/SifPlan'
-import { readHoldingsFile, type UploadedRow } from '../../utils/holdingsUpload'
+import { readHoldingsFile, type UploadInfo, type UploadedRow } from '../../utils/holdingsUpload'
 import { fmtPct, retColor } from '../../utils/format'
 import { inputStyle, type MfLine } from './ClientPlan'
 import SuggestedEditor from '../../components/SuggestedEditor'
@@ -26,6 +26,8 @@ import type { FundsIndex } from '../../types'
 interface Realloc {
   client: string
   file: string | null
+  /** Which columns of the file the values came from. */
+  info?: UploadInfo | null
   rows: UploadedRow[]
   proposed: MfLine[]
   sif: SifLine[]
@@ -59,8 +61,8 @@ export default function Reallocation() {
     if (!funds.length) { setErr('Fund list still loading — try again in a moment.'); return }
     setBusy(true); setErr(null)
     try {
-      const { rows } = await readHoldingsFile(file, funds)
-      update({ file: file.name, rows })
+      const { rows, info } = await readHoldingsFile(file, funds)
+      update({ file: file.name, rows, info })
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     } finally { setBusy(false) }
@@ -167,6 +169,20 @@ export default function Reallocation() {
           {cur.file && <span className="text-xs pb-2" style={{ color: 'var(--text-mid)' }}>{cur.file} · {cur.rows.length} lines</span>}
         </div>
         {err && <div className="text-xs mt-2" style={{ color: '#F87171' }}>{err}</div>}
+        {cur.info && (
+          <div className="text-[11px] mt-2 flex flex-wrap gap-x-4 gap-y-1" style={{ color: 'var(--text-mid)' }}>
+            <span>Read from sheet <b>{cur.info.sheet}</b>:</span>
+            {([['Fund', cur.info.columns.name], ['Current value', cur.info.columns.value], ['Invested', cur.info.columns.invested],
+               ['Units', cur.info.columns.units], ['Folio', cur.info.columns.folio], ['SIP', cur.info.columns.sip]] as const).map(([k, v]) => (
+              <span key={k}>{k} ← {v ? <b>&ldquo;{v}&rdquo;</b> : <b style={{ color: '#F59E0B' }}>not in the file</b>}</span>
+            ))}
+            {!cur.info.columns.sip && (
+              <span style={{ color: '#F59E0B' }}>
+                No SIP column found — type the SIP amounts in the SIP column below, or send us the column name MFBOX uses.
+              </span>
+            )}
+          </div>
+        )}
         <p className="text-[10px] mt-2" style={{ color: 'var(--text-low)' }}>
           The file is read in this browser only, nothing is uploaded to a server. It needs a header row with the scheme name and
           the current / market value; invested amount, units and folio are used when present. Direct and IDCW plans are matched to
