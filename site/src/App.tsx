@@ -27,6 +27,8 @@ import Sidebar, { type DrawerKind } from './components/Sidebar'
 import SifSection      from './sections/sif/SifSection'
 import Dividends       from './sections/Dividends'
 import PortfolioComparison from './sections/PortfolioComparison'
+import ClientPlan from './sections/rahul/ClientPlan'
+import Reallocation from './sections/rahul/Reallocation'
 import { useMeta }     from './hooks/useData'
 import { currentDesk } from './config/products'
 import { setDataRoot } from './config/dataPaths'
@@ -224,6 +226,8 @@ export default function App() {
         {activeTab === 'dividends' && <Dividends />}
 
         {activeTab === 'pcompare' && <PortfolioComparison />}
+        {activeTab === 'rahul-plan' && <ClientPlan />}
+        {activeTab === 'rahul-realloc' && <Reallocation />}
 
         {activeTab.startsWith('sif-') && <SifSection tab={activeTab} />}
       </main>

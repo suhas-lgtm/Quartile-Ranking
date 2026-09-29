@@ -19,6 +19,12 @@ export const SIF_TABS: TabDef[] = [
   { id: 'sif-nfo',     label: 'SIF NFOs' },
 ]
 
+/** Tabs built for one person. */
+export const PERSON_TABS: TabDef[] = [
+  { id: 'rahul-plan',    label: 'Client Plan' },
+  { id: 'rahul-realloc', label: 'Portfolio Reallocation' },
+]
+
 export interface Desk { id: 'mf' | 'sif'; label: string; icon: string; tabs: TabDef[] }
 
 export const DESKS: Desk[] = [
@@ -39,7 +45,7 @@ const STARTER: SectionId[] = ['market-pulse', 'risk', 'compare', 'portfolio']
 
 export const PEOPLE: Person[] = [
   { id: 'ashish',   name: 'Ashish',   tabs: [...STARTER] },
-  { id: 'rahul',    name: 'Rahul',    tabs: [...STARTER] },
+  { id: 'rahul',    name: 'Rahul',    tabs: ['rahul-plan', 'rahul-realloc', ...STARTER] },
   { id: 'ratheesh', name: 'Ratheesh', tabs: [...STARTER] },
   { id: 'manju',    name: 'Manju',    tabs: [...STARTER] },
   { id: 'chandhan', name: 'Chandhan', tabs: [...STARTER] },
@@ -47,7 +53,7 @@ export const PEOPLE: Person[] = [
 
 export type SpaceId = Desk['id'] | `person:${string}`
 
-const ALL_KNOWN: TabDef[] = [...(ALL_TABS as unknown as TabDef[]), ...SIF_TABS]
+const ALL_KNOWN: TabDef[] = [...(ALL_TABS as unknown as TabDef[]), ...SIF_TABS, ...PERSON_TABS]
 
 /** The tabs a space shows, in order. */
 export function tabsForSpace(space: SpaceId): TabDef[] {
