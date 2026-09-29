@@ -6,6 +6,7 @@
 // ratios from each fund's risk_{slug}.json.
 
 import { useEffect, useMemo, useState } from 'react'
+import OverlapMatrix from '../components/OverlapMatrix'
 import CorrelationMatrix from '../components/CorrelationMatrix'
 import FundPicker, { bestFund } from '../components/FundPicker'
 import ReactECharts from 'echarts-for-react'
@@ -218,6 +219,7 @@ export default function CompareFunds() {
           </div>
 
           <CorrelationMatrix funds={codes.map(c => ({ code: c, name: byCode.get(c)?.n ?? c, series: series[c] }))} />
+          <OverlapMatrix funds={codes.map(c => ({ code: c, name: byCode.get(c)?.n ?? c }))} />
 
           <div className="card overflow-hidden mb-4">
             <div className="table-scroll">

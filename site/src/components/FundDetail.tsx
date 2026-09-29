@@ -62,7 +62,9 @@ function FundPanel({ code, onClose }: { code: string; onClose: () => void }) {
     () => categoryPath(slug, `quartiles_${qMode}.json`), slug ? `fd-q:${slug}:${qMode}` : '')
   const { data: black } = useJson<BlacklistData>('blacklist.json')
   const [series, setSeries] = useState<Series | null>(null)
-  const [holdings, setHoldings] = useState<{ month: string | null; holdings: { name: string; industry: string; pct: number }[] } | null>(null)
+  const [holdings, setHoldings] = useState<{ month: string | null; holdings: { name: string; industry: string; pct: number;
+                                                                          asset_class?: string; sector?: string | null }[] } | null>(null)
+  const [allHoldings, setAllHoldings] = useState(false)
   const [range, setRange] = useState<Range>('3Y')
 
   useEffect(() => {
@@ -274,24 +276,68 @@ function FundPanel({ code, onClose }: { code: string; onClose: () => void }) {
               <div className="text-sm font-semibold mb-2" style={{ color: 'var(--text-hi)' }}>
                 Top holdings {holdings?.month && <span className="font-normal text-xs" style={{ color: 'var(--text-low)' }}>· {holdings.month}</span>}
               </div>
-              {holdings?.holdings.length ? (
-                <>
-                  <table className="data-table">
-                    <tbody>
-                      {holdings.holdings.slice(0, 10).map(h => (
-                        <tr key={h.name}>
-                          <td className="text-xs truncate" style={{ maxWidth: 220 }}>{h.name}</td>
-                          <td className="text-[10px] truncate" style={{ color: 'var(--text-low)', maxWidth: 140 }}>{h.industry}</td>
-                          <td className="ret-cell text-xs">{(h.pct * 100).toFixed(2)}%</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <div className="text-[11px] mt-2" style={{ color: 'var(--text-low)' }}>
-                    {holdings.holdings.length} stocks · top 10 = {(holdings.holdings.slice(0, 10).reduce((s, h) => s + h.pct, 0) * 100).toFixed(1)}% of the fund
-                  </div>
-                </>
-              ) : <div className="text-xs" style={{ color: 'var(--text-low)' }}>Holdings are not loaded for this fund’s AMC yet.</div>}
+              {holdings?.holdings.length ? (() => {
+                const hs = holdings.holdings
+                const sum = (xs: typeof hs) => xs.reduce((s, h) => s + (h.pct || 0), 0)
+                const group = (key: 'asset_class' | 'sector') => {
+                  const m = new Map<string, number>()
+                  for (const h of hs) { const k = (h[key] || (key === 'sector' ? h.industry : '') || 'Other') as string; m.set(k, (m.get(k) ?? 0) + (h.pct || 0)) }
+                  return [...m.entries()].sort((a, b) => b[1] - a[1])
+                }
+                const assets = group('asset_class')
+                const equity = hs.filter(h => (h.asset_class ?? 'Equity') === 'Equity')
+                const sectors = group('sector').slice(0, 8)
+                const shown = allHoldings ? hs : hs.slice(0, 10)
+                return (
+                  <>
+                    {assets.length > 1 && (
+                      <div className="flex h-2.5 rounded overflow-hidden mb-1" title={assets.map(([k, v]) => `${k}: ${(v * 100).toFixed(1)}%`).join('\n')}>
+                        {assets.map(([k, v], i) => <div key={k} style={{ width: `${v * 100}%`, background: ['#22D3EE', '#F59E0B', '#A78BFA', '#34D399', '#F472B6', '#94A3B8'][i % 6] }} />)}
+                      </div>
+                    )}
+                    {assets.length > 1 && (
+                      <div className="flex flex-wrap gap-x-3 text-[10px] mb-2" style={{ color: 'var(--text-mid)' }}>
+                        {assets.map(([k, v], i) => (
+                          <span key={k}><span style={{ color: ['#22D3EE', '#F59E0B', '#A78BFA', '#34D399', '#F472B6', '#94A3B8'][i % 6] }}>●</span> {k} {(v * 100).toFixed(1)}%</span>
+                        ))}
+                      </div>
+                    )}
+                    <table className="data-table">
+                      <tbody>
+                        {shown.map(h => (
+                          <tr key={h.name}>
+                            <td className="text-xs truncate" style={{ maxWidth: 220 }}>{h.name}</td>
+                            <td className="text-[10px] truncate" style={{ color: 'var(--text-low)', maxWidth: 140 }}>{h.industry}</td>
+                            <td className="ret-cell text-xs">{(h.pct * 100).toFixed(2)}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <div className="text-[11px] mt-2 flex flex-wrap gap-x-2" style={{ color: 'var(--text-low)' }}>
+                      <span>{equity.length} stocks · top 10 = {(sum(hs.slice(0, 10)) * 100).toFixed(1)}% of the fund</span>
+                      {hs.length > 10 && (
+                        <button onClick={() => setAllHoldings(v => !v)} style={{ color: 'var(--accent-a)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                          {allHoldings ? 'Show top 10' : `Show all ${hs.length}`}
+                        </button>
+                      )}
+                    </div>
+                    {sectors.length > 0 && (
+                      <div className="mt-3">
+                        <div className="text-xs font-semibold mb-1" style={{ color: 'var(--text-mid)' }}>Sectors</div>
+                        {sectors.map(([k, v]) => (
+                          <div key={k} className="flex items-center gap-2 text-[11px] py-0.5">
+                            <span className="truncate" style={{ width: 150, color: 'var(--text-mid)' }} title={k}>{k}</span>
+                            <div className="flex-1 h-2 rounded" style={{ background: 'var(--bg-raised)' }}>
+                              <div className="h-2 rounded" style={{ width: `${Math.min(100, v * 100 / (sectors[0][1] || 1))}%`, background: 'var(--accent-a)' }} />
+                            </div>
+                            <span className="ret-cell" style={{ width: 48 }}>{(v * 100).toFixed(1)}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )
+              })() : <div className="text-xs" style={{ color: 'var(--text-low)' }}>Holdings are not available for this fund.</div>}
             </div>
           </div>
         </div>

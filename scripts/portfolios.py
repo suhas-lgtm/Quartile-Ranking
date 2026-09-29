@@ -299,12 +299,17 @@ def latest_holdings(codes: list[str]) -> dict[str, dict]:
         return {}
     with db.connect() as conn:
         conn.execute(SCHEMA)
+        conn.execute("ALTER TABLE portfolio_holdings ADD COLUMN IF NOT EXISTS asset_class text")
+        conn.execute("ALTER TABLE portfolio_holdings ADD COLUMN IF NOT EXISTS sector text")
         rows = conn.execute("""
             SELECT h.scheme_code, h.month, h.isin, h.pct
             FROM portfolio_holdings h
             JOIN (SELECT scheme_code, MAX(month) AS month FROM portfolio_holdings
                   WHERE scheme_code = ANY(%s) GROUP BY scheme_code) l
               ON l.scheme_code = h.scheme_code AND l.month = h.month
+            -- Active Share is about stocks: the Advisorkhoj rows carry every asset
+            -- class (debt, cash...); the older AMC-file rows were equity only.
+            WHERE h.asset_class IS NULL OR h.asset_class = 'Equity'
         """, ([int(c) for c in codes],)).fetchall()
     out: dict[str, dict] = {}
     for code, month, isin, pct in rows:

@@ -101,7 +101,7 @@ export async function handleHoldings(query: URLSearchParams, databaseUrl?: strin
   if (!/^\d{3,9}$/.test(code)) return json(400, { error: 'bad fund code' })
   const sql = neon(databaseUrl)
   const rows = await sql.query(
-    `SELECT to_char(h.month, 'YYYY-MM') AS month, h.isin, h.name, h.industry, h.pct
+    `SELECT to_char(h.month, 'YYYY-MM') AS month, h.isin, h.name, h.industry, h.pct, h.asset_class, h.sector
      FROM portfolio_holdings h
      WHERE h.scheme_code = $1
        AND h.month = (SELECT MAX(month) FROM portfolio_holdings WHERE scheme_code = $1)
@@ -109,6 +109,7 @@ export async function handleHoldings(query: URLSearchParams, databaseUrl?: strin
   return json(200, {
     code,
     month: rows[0]?.month ?? null,
-    holdings: rows.map(r => ({ isin: r.isin, name: r.name, industry: r.industry, pct: Number(r.pct) })),
+    holdings: rows.map(r => ({ isin: r.isin, name: r.name, industry: r.industry, pct: Number(r.pct),
+                               asset_class: r.asset_class ?? 'Equity', sector: r.sector ?? null })),
   })
 }

@@ -105,11 +105,17 @@ jobs:
       # month's holdings by about the 10th, so every run asks for last month;
       # re-storing a month already held is harmless (it replaces it). Holdings
       # are optional for the build, so a failure here never stops the NAV run.
-      - name: Fetch AMC portfolios (Active Share)
-        continue-on-error: true
-        run: python scripts/portfolios.py fetch --month "$(date -u -d "$(date -u +%Y-%m-01) -1 day" +%Y-%m)"
+      # Monthly fund portfolios from the Advisorkhoj API (paid; ~800 calls of the
+      # plan's 2,001 an hour). Only downloads when a month newer than the stored
+      # one is out (around the 10th), so most days this is one probe call.
+      # Covers every Equity/Hybrid fund except Balanced Advantage and Multi
+      # Asset, whose data the team found unreliable.
+      - name: Fetch fund portfolios (Advisorkhoj)
+        continue-on-error: true      # also covers a missing ADVISORKHOJ_API_KEY secret
+        run: python scripts/advisorkhoj.py
         env:
           PYTHONIOENCODING: utf-8
+          ADVISORKHOJ_API_KEY: ${{ secrets.ADVISORKHOJ_API_KEY }}
 
       # Pick up newly launched funds. api.mfapi.in has no category information,
       # so the universe comes from AMFI's own file, which carries the SEBI

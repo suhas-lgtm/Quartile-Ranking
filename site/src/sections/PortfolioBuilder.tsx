@@ -9,6 +9,8 @@
 // /api/nav (server/navLookup.ts). Saved in this browser.
 
 import { useEffect, useMemo, useState } from 'react'
+import OverlapMatrix from '../components/OverlapMatrix'
+import LookThrough, { useLookThrough } from '../components/LookThrough'
 import CorrelationMatrix, { type NavSeries } from '../components/CorrelationMatrix'
 import FundPicker, { bestFund } from '../components/FundPicker'
 import { useJson, useMeta } from '../hooks/useData'
@@ -56,9 +58,9 @@ const BLANK: Portfolio = { start: '', end: '', amount: null, sipAmount: null, ho
 const inr = (v: number | null | undefined) =>
   v == null ? '—' : '₹' + v.toLocaleString('en-IN', { maximumFractionDigits: 0 })
 
-function loadPortfolio(): Portfolio | null {
+function loadPortfolio(key: string = STORE_KEY): Portfolio | null {
   try {
-    const raw = localStorage.getItem(STORE_KEY)
+    const raw = localStorage.getItem(key)
     const saved: Portfolio | null = raw ? JSON.parse(raw) : null
     // An empty saved portfolio only carries the old preset defaults: start blank.
     return saved && saved.holdings?.length ? saved : null
@@ -67,21 +69,13 @@ function loadPortfolio(): Portfolio | null {
   }
 }
 
-export default function PortfolioBuilder() {
-  const { data: meta } = useMeta()
-  const { data: index } = useJson<FundsIndex>('funds_index.json')
-  const latest = meta?.as_of ?? ''
-  const [pf, setPf] = useState<Portfolio>(() => loadPortfolio() ?? BLANK)
-  const [pick, setPick] = useState('')
-  const [msg, setMsg] = useState<string | null>(null)
+
+/**
+ * Everything the page shows for one portfolio: per-fund results and the total.
+ * A hook so the Compare view can work out two portfolios side by side.
+ */
+function usePortfolioCalc(pf: Portfolio, latest: string, fundByCode: Map<string, FundsIndex['funds'][number]>) {
   const end = pf.end || latest
-
-  useEffect(() => { try { localStorage.setItem(STORE_KEY, JSON.stringify(pf)) } catch { /* optional */ } }, [pf])
-
-  const fundByCode = useMemo(() => new Map((index?.funds ?? []).map(f => [f.c, f])), [index])
-  const labelOf = (f: FundsIndex['funds'][number]) => `${f.n} — ${f.k}`
-  const codeByLabel = useMemo(() => new Map((index?.funds ?? []).map(f => [labelOf(f), f.c])), [index])
-
   const buyDate = (b: Buy) => b.date || pf.start
   const buyAmount = (b: Buy) => (b.amount ?? pf.amount ?? 0)
   const sipAmount = (h: Holding) => h.sip?.amount ?? pf.sipAmount ?? 0
@@ -102,19 +96,6 @@ export default function PortfolioBuilder() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pf, end])
   const { data: navs, loading, error } = useNavLookup(end ? codes : [], dates)
-
-  // Full NAV history per holding, for the correlation table (fetched once each).
-  const [series, setSeries] = useState<Record<string, NavSeries | null>>({})
-  useEffect(() => {
-    for (const c of codes) {
-      if (c in series) continue
-      setSeries(s => ({ ...s, [c]: null }))
-      fetch(`/api/series?code=${c}`).then(r => (r.ok ? r.json() : null))
-        .then(d => d && setSeries(s => ({ ...s, [c]: d })))
-        .catch(() => { /* table shows it as pending */ })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [codes])
 
   const results = useMemo(() => pf.holdings.map(h => {
     const n = navs?.[h.code]
@@ -165,6 +146,40 @@ export default function PortfolioBuilder() {
     return { invested, value, gain: value - invested, ret: invested ? value / invested - 1 : null,
              irr: flows.length > 1 ? xirr(flows) : null }
   }, [results, end])
+
+  return { end, results, tot, loading, error, sipAmount }
+}
+
+type Calc = ReturnType<typeof usePortfolioCalc>
+
+function PortfolioEditor({ storeKey, label }: { storeKey: string; label: string }) {
+  const { data: meta } = useMeta()
+  const { data: index } = useJson<FundsIndex>('funds_index.json')
+  const latest = meta?.as_of ?? ''
+  const [pf, setPf] = useState<Portfolio>(() => loadPortfolio(storeKey) ?? BLANK)
+  const [pick, setPick] = useState('')
+  const [msg, setMsg] = useState<string | null>(null)
+
+  useEffect(() => { try { localStorage.setItem(storeKey, JSON.stringify(pf)) } catch { /* optional */ } }, [pf, storeKey])
+
+  const fundByCode = useMemo(() => new Map((index?.funds ?? []).map(f => [f.c, f])), [index])
+  const labelOf = (f: FundsIndex['funds'][number]) => `${f.n} — ${f.k}`
+  const codeByLabel = useMemo(() => new Map((index?.funds ?? []).map(f => [labelOf(f), f.c])), [index])
+  const { end, results, tot, loading, error, sipAmount } = usePortfolioCalc(pf, latest, fundByCode)
+
+  // Full NAV history per holding, for the correlation table (fetched once each).
+  const codes = useMemo(() => pf.holdings.map(h => h.code), [pf.holdings])
+  const [series, setSeries] = useState<Record<string, NavSeries | null>>({})
+  useEffect(() => {
+    for (const c of codes) {
+      if (c in series) continue
+      setSeries(s => ({ ...s, [c]: null }))
+      fetch(`/api/series?code=${c}`).then(r => (r.ok ? r.json() : null))
+        .then(d => d && setSeries(s => ({ ...s, [c]: d })))
+        .catch(() => { /* table shows it as pending */ })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [codes])
 
   const addFund = (picked?: string) => {
     const code = picked ?? codeByLabel.get(pick) ?? bestFund(index?.funds ?? [], pick)?.c
@@ -250,7 +265,7 @@ export default function PortfolioBuilder() {
   return (
     <section id="portfolio-builder" className="px-4 sm:px-6 py-6 max-w-screen-2xl mx-auto">
       <div className="section-header">
-        <span>Portfolio Builder</span>
+        <span>Portfolio Builder <span style={{ color: 'var(--accent-a)' }}>· {label}</span></span>
         <span className="ml-auto flex items-center gap-2">
           <button onClick={() => setPf({ ...DEMO, end: '' })} className="tab-btn"
                   title="Replace the current portfolio with a 5-fund demo">Load demo (5 funds)</button>
@@ -439,12 +454,176 @@ export default function PortfolioBuilder() {
       </div>
 
       <CorrelationMatrix funds={pf.holdings.map(h => ({ code: h.code, name: fundByCode.get(h.code)?.n ?? h.code, series: series[h.code] }))} />
+      <OverlapMatrix funds={pf.holdings.map(h => ({ code: h.code, name: fundByCode.get(h.code)?.n ?? h.code }))} />
+      <LookThrough funds={results.filter(r => r.value > 0).map(r => ({ code: r.h.code, name: r.name, value: r.value }))} />
       <p className="text-[11px]" style={{ color: 'var(--text-low)' }}>
         A SIP buys once a month on the same day, from its start date up to the “Value as of” date (at most 10 years).
         Units bought = amount ÷ NAV on or before the purchase date. Value = units × NAV on or before the “Value as of”
         date, adjusted for unit splits. Return = value ÷ invested − 1. XIRR is the annualised return allowing for when
         each amount went in. No exit load, stamp duty or tax is deducted. The portfolio is saved in this browser.
       </p>
+    </section>
+  )
+}
+
+
+// ── Portfolio A / B and the comparison ───────────────────────────────────────
+
+const SLOTS = [
+  { id: 'A', label: 'Portfolio A', key: STORE_KEY },
+  { id: 'B', label: 'Portfolio B', key: `${STORE_KEY}_B` },
+] as const
+const VIEW_KEY = 'pb_view_v1'
+
+export default function PortfolioBuilder() {
+  const [view, setView] = useState<'A' | 'B' | 'compare'>(() => {
+    try { const v = localStorage.getItem(VIEW_KEY); return v === 'B' || v === 'compare' ? v : 'A' } catch { return 'A' }
+  })
+  useEffect(() => { try { localStorage.setItem(VIEW_KEY, view) } catch { /* optional */ } }, [view])
+  return (
+    <>
+      <div className="px-4 sm:px-6 pt-4 max-w-screen-2xl mx-auto">
+        <div className="tab-bar inline-flex gap-1">
+          {SLOTS.map(sl => (
+            <button key={sl.id} onClick={() => setView(sl.id)} className={`tab-btn${view === sl.id ? ' active accent' : ''}`}>{sl.label}</button>
+          ))}
+          <button onClick={() => setView('compare')} className={`tab-btn${view === 'compare' ? ' active accent' : ''}`}>
+            ⇄ Compare A vs B
+          </button>
+        </div>
+        <span className="text-[11px] ml-3" style={{ color: 'var(--text-low)' }}>
+          Build two portfolios (e.g. the client&apos;s current one and a proposal) and compare them.
+        </span>
+      </div>
+      {view === 'compare' ? <PortfolioCompare />
+        : SLOTS.filter(sl => sl.id === view).map(sl => <PortfolioEditor key={sl.id} storeKey={sl.key} label={sl.label} />)}
+    </>
+  )
+}
+
+function PortfolioCompare() {
+  const { data: meta } = useMeta()
+  const { data: index } = useJson<FundsIndex>('funds_index.json')
+  const latest = meta?.as_of ?? ''
+  const fundByCode = useMemo(() => new Map((index?.funds ?? []).map(f => [f.c, f])), [index])
+  const [a] = useState<Portfolio>(() => loadPortfolio(SLOTS[0].key) ?? BLANK)
+  const [b] = useState<Portfolio>(() => loadPortfolio(SLOTS[1].key) ?? BLANK)
+  const A = usePortfolioCalc(a, latest, fundByCode)
+  const B = usePortfolioCalc(b, latest, fundByCode)
+  const ltA = useLookThrough(A.results.filter(r => r.value > 0).map(r => ({ code: r.h.code, name: r.name, value: r.value })))
+  const ltB = useLookThrough(B.results.filter(r => r.value > 0).map(r => ({ code: r.h.code, name: r.name, value: r.value })))
+
+  if (!a.holdings.length || !b.holdings.length) {
+    return (
+      <section className="px-4 sm:px-6 py-6 max-w-screen-2xl mx-auto">
+        <div className="card p-8 text-center text-sm" style={{ color: 'var(--text-mid)' }}>
+          Build both portfolios first: add funds under <b>Portfolio A</b> and <b>Portfolio B</b>, then come back here.
+          {!a.holdings.length && <div className="mt-1">Portfolio A is empty.</div>}
+          {!b.holdings.length && <div>Portfolio B is empty.</div>}
+        </div>
+      </section>
+    )
+  }
+
+  const alloc = (c: Calc) => {
+    const m = new Map<string, number>()
+    for (const r of c.results) m.set(r.cat?.k ?? 'Other', (m.get(r.cat?.k ?? 'Other') ?? 0) + r.value)
+    return m
+  }
+  const allocA = alloc(A), allocB = alloc(B)
+  const cats = [...new Set([...allocA.keys(), ...allocB.keys()])].sort((x, y) =>
+    ((allocB.get(y) ?? 0) / (B.tot.value || 1) + (allocA.get(y) ?? 0) / (A.tot.value || 1))
+    - ((allocB.get(x) ?? 0) / (B.tot.value || 1) + (allocA.get(x) ?? 0) / (A.tot.value || 1)))
+
+  // Stocks both portfolios hold, through their funds: overlap = sum of the smaller weight.
+  const bByIsin = new Map(ltB.rows.map(r => [r.isin, r]))
+  const common = ltA.rows.filter(r => r.asset_class === 'Equity' && bByIsin.has(r.isin))
+    .map(r => ({ name: r.name, a: r.weight, b: bByIsin.get(r.isin)!.weight }))
+    .sort((x, y) => Math.min(y.a, y.b) - Math.min(x.a, x.b))
+  const overlap = common.reduce((s, c) => s + Math.min(c.a, c.b), 0)
+  const commonFunds = a.holdings.filter(h => b.holdings.some(x => x.code === h.code)).map(h => fundByCode.get(h.code)?.n ?? h.code)
+
+  const metric = (label: string, fa: string, fb: string, better?: 'a' | 'b' | null) => (
+    <tr key={label}>
+      <td className="sticky-col text-xs">{label}</td>
+      <td className="ret-cell text-xs font-semibold" style={{ color: better === 'a' ? '#34D399' : undefined }}>{fa}</td>
+      <td className="ret-cell text-xs font-semibold" style={{ color: better === 'b' ? '#34D399' : undefined }}>{fb}</td>
+    </tr>
+  )
+  const cmp = (x: number | null, y: number | null) => (x == null || y == null || x === y ? null : x > y ? 'a' : 'b')
+  const col = (t: string, c: string) => <th style={{ textAlign: 'right', minWidth: 150, color: c }}>{t}</th>
+
+  return (
+    <section className="px-4 sm:px-6 py-6 max-w-screen-2xl mx-auto">
+      <div className="section-header"><span>Portfolio A vs Portfolio B</span></div>
+      <div className="grid gap-4 lg:grid-cols-2 mb-4">
+        <div className="card overflow-hidden">
+          <table className="data-table">
+            <thead><tr><th className="sticky-col text-left">Measure</th>{col('Portfolio A', '#22D3EE')}{col('Portfolio B', '#F59E0B')}</tr></thead>
+            <tbody>
+              {metric('Funds', String(a.holdings.length), String(b.holdings.length))}
+              {metric('Invested', inr(A.tot.invested), inr(B.tot.invested))}
+              {metric(`Value (${fmtDate(A.end)} / ${fmtDate(B.end)})`, inr(A.tot.value), inr(B.tot.value))}
+              {metric('Gain', inr(A.tot.gain), inr(B.tot.gain), cmp(A.tot.gain, B.tot.gain))}
+              {metric('Absolute return', fmtPct(A.tot.ret), fmtPct(B.tot.ret), cmp(A.tot.ret, B.tot.ret))}
+              {metric('XIRR (annualised)', A.tot.irr == null ? '—' : fmtPct(A.tot.irr), B.tot.irr == null ? '—' : fmtPct(B.tot.irr), cmp(A.tot.irr, B.tot.irr))}
+              {metric('Top 10 stocks, share of portfolio',
+                fmtPct(ltA.rows.slice(0, 10).reduce((s, r) => s + r.weight, 0)), fmtPct(ltB.rows.slice(0, 10).reduce((s, r) => s + r.weight, 0)))}
+              {metric('Number of stocks', String(ltA.rows.filter(r => r.asset_class === 'Equity').length),
+                String(ltB.rows.filter(r => r.asset_class === 'Equity').length))}
+            </tbody>
+          </table>
+          {(A.loading || B.loading) && <div className="p-2 text-[11px]" style={{ color: 'var(--text-low)' }}>Loading NAVs…</div>}
+        </div>
+        <div className="card overflow-hidden">
+          <table className="data-table">
+            <thead><tr><th className="sticky-col text-left">Category allocation</th>{col('A', '#22D3EE')}{col('B', '#F59E0B')}</tr></thead>
+            <tbody>
+              {cats.map(c => {
+                const wa = A.tot.value ? (allocA.get(c) ?? 0) / A.tot.value : 0
+                const wb = B.tot.value ? (allocB.get(c) ?? 0) / B.tot.value : 0
+                return (
+                  <tr key={c}>
+                    <td className="sticky-col text-xs">{c}</td>
+                    <td className="ret-cell text-xs">{wa ? `${(wa * 100).toFixed(1)}%` : '—'}</td>
+                    <td className="ret-cell text-xs">{wb ? `${(wb * 100).toFixed(1)}%` : '—'}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="card p-4 mb-4">
+        <div className="font-display font-bold text-sm mb-1" style={{ color: 'var(--text-hi)' }}>
+          Stock overlap between the two portfolios: <span style={{ color: overlap >= 0.6 ? '#F87171' : overlap >= 0.3 ? '#F59E0B' : '#34D399' }}>{(overlap * 100).toFixed(0)}%</span>
+          <span className="font-normal text-xs ml-2" style={{ color: 'var(--text-low)' }}>{common.length} stocks in common{commonFunds.length ? ` · ${commonFunds.length} fund(s) in both` : ''}</span>
+        </div>
+        <p className="text-[11px] mb-2" style={{ color: 'var(--text-low)' }}>
+          Seen through the funds: for every stock both portfolios hold, the smaller of its two weights, added up. 60%+ means the
+          two portfolios are largely the same underlying stocks.{commonFunds.length ? ` Funds in both: ${commonFunds.join(', ')}.` : ''}
+        </p>
+        {common.length > 0 && (
+          <table className="data-table">
+            <thead><tr><th className="text-left">Biggest common stocks</th>{col('In A', '#22D3EE')}{col('In B', '#F59E0B')}</tr></thead>
+            <tbody>
+              {common.slice(0, 10).map(c => (
+                <tr key={c.name}>
+                  <td className="text-xs truncate" style={{ maxWidth: 320 }}>{c.name}</td>
+                  <td className="ret-cell text-xs">{(c.a * 100).toFixed(2)}%</td>
+                  <td className="ret-cell text-xs">{(c.b * 100).toFixed(2)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <LookThrough funds={A.results.filter(r => r.value > 0).map(r => ({ code: r.h.code, name: r.name, value: r.value }))} title="Portfolio A — holdings" />
+        <LookThrough funds={B.results.filter(r => r.value > 0).map(r => ({ code: r.h.code, name: r.name, value: r.value }))} title="Portfolio B — holdings" />
+      </div>
     </section>
   )
 }
