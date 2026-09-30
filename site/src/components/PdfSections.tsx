@@ -11,6 +11,12 @@
 // Rows and columns are remembered by their text (the row's first cell, the
 // column's heading) within their section and table, so a choice survives
 // re-renders and reloads, and a new fund added later is included by default.
+// A column heading marked data-pdf-off starts left out; ticking it puts it in.
+
+/** Is this column heading left out? `off` has the ones switched off; a heading that
+ *  starts off (data-pdf-off) is out unless it was switched on ("on|" + key). */
+const headOff = (th: Element, key: string, off: Set<string>) =>
+  th.hasAttribute('data-pdf-off') ? !off.has(`on|${key}`) : off.has(key)
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -74,7 +80,7 @@ function applyMarks(root: HTMLElement, off: Set<string>) {
       const head = table.tHead?.rows[table.tHead.rows.length - 1]
       const offCols = new Set<number>()
       if (head) [...head.cells].forEach((th, ci) => {
-        const isOff = off.has(`c|${id}|${ti}|${clean(th)}`)
+        const isOff = headOff(th, `c|${id}|${ti}|${clean(th)}`, off)
         if (isOff) offCols.add(ci)
         th.classList.toggle('pdf-cell-off', isOff)
       })
@@ -125,8 +131,9 @@ export function PdfProvider({ pageKey, doc, children }: { pageKey: string; doc?:
       const p = cell ? place(cell) : null
       if (!p || !cell) return
       e.preventDefault(); e.stopPropagation()
-      const key = th ? `c|${p.sec}|${p.ti}|${clean(th)}` : `r|${p.sec}|${p.ti}|${clean(cell)}`
+      let key = th ? `c|${p.sec}|${p.ti}|${clean(th)}` : `r|${p.sec}|${p.ti}|${clean(cell)}`
       if (key.endsWith('|')) return        // blank heading / row: nothing to name it by
+      if (th?.hasAttribute('data-pdf-off')) key = `on|${key}`     // starts off: the tick is what is stored
       setOff(prev => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n })
     }
     root.addEventListener('click', onClick, true)
@@ -237,6 +244,20 @@ fetch('/logo-pdf.png').then(r => r.blob()).then(b => new Promise<string>(res => 
 })).then(d => { logoData = d }).catch(() => { /* no logo in the corner */ })
 
 /** Print the page with the light theme, then put the viewer's theme back. */
+// No links in a PDF: Chrome turns every <a href> into a clickable link in the saved
+// file, so the links are taken off while printing (Download PDF or Ctrl+P) and put back after.
+const unlinked: [HTMLAnchorElement, string][] = []
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeprint', () => {
+    document.querySelectorAll<HTMLAnchorElement>('a[href]').forEach(a => {
+      unlinked.push([a, a.getAttribute('href')!]); a.removeAttribute('href')
+    })
+  })
+  window.addEventListener('afterprint', () => {
+    for (const [a, href] of unlinked.splice(0)) a.setAttribute('href', href)
+  })
+}
+
 function printLight(doc?: PdfDoc) {
   const root = document.documentElement
   const before = root.getAttribute('data-theme')

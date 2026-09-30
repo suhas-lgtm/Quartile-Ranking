@@ -125,6 +125,10 @@ export default function Reallocation() {
     return m
   }, [cur.rows, cur.info])
   const fundChanges = useMemo(() => new Map(switches.map(x => [x.code, x.pr - x.ex])), [switches])
+  // SIPs a month: running now, and after the SIP changes (a fund not changed keeps its SIP).
+  const sipNow = [...existingSip.values()].reduce((t, v) => t + v, 0)
+  const sipAfter = [...new Set([...existingSip.keys(), ...Object.keys(cur.sipPlan ?? {})])]
+    .reduce((t, c) => t + (cur.sipPlan && c in cur.sipPlan ? cur.sipPlan[c] ?? 0 : existingSip.get(c) ?? 0), 0)
   const gainTotal = switches.every(x => x.gain != null || x.sold === 0) ? switches.reduce((s, x) => s + (x.gain ?? 0), 0) : null
   const boughtTotal = switches.reduce((s, x) => s + x.bought, 0)
   const sellCount = switches.filter(x => x.sold > 0).length
@@ -368,7 +372,7 @@ export default function Reallocation() {
 
       {(exTotal > 0 || prMf + prSif > 0) && (
         <PdfSection id="totals" page label="Totals (existing, suggested, amount to sell and buy, profit booked)" kicker="The switch in numbers" title="What Changes">
-        <div className="grid gap-3 grid-cols-2 lg:grid-cols-6 mb-3">
+        <div className="grid gap-3 grid-cols-2 lg:grid-cols-7 mb-3">
           <Card label="Existing portfolio value" value={inrShort(exTotal)} colour={EX_COLOUR} />
           <Card label="Suggested — mutual funds" value={inrShort(prMf)} colour={PR_COLOUR} />
           <Card label="Suggested — SIF" value={inrShort(prSif)} colour={SIF_COLOUR} />
@@ -377,6 +381,10 @@ export default function Reallocation() {
                     sub="suggested total − existing value" />
             : <Card label="Money left over (not reinvested)" value={inrShort(exTotal - prMf - prSif)} colour="#F59E0B"
                     sub="existing value − suggested total" />}
+          {(sipNow > 0 || sipAfter > 0) && (
+            <Card label="SIPs a month" value={inr(sipAfter)} colour={PR_COLOUR}
+                  sub={sipAfter === sipNow ? 'unchanged' : `now ${inr(sipNow)} (${sipAfter > sipNow ? '+' : '−'}${inr(Math.abs(sipAfter - sipNow))})`} />
+          )}
           {([['Existing', exTotal, EX_COLOUR], ['Suggested', prMf + prSif, PR_COLOUR]] as const).map(([l, v, c]) => {
             const m = v > 0 ? nextMilestone(v) : null
             return m && (
@@ -385,6 +393,19 @@ export default function Reallocation() {
             )
           })}
         </div>
+        {prMf > 0 && prSif > 0 && (
+          <div className="card p-4 mb-4">
+            <div className="text-xs font-semibold mb-2" style={{ color: 'var(--text-mid)' }}>Suggested — mutual funds vs SIF</div>
+            <div className="flex h-4 rounded overflow-hidden">
+              <div style={{ width: `${(prMf / (prMf + prSif)) * 100}%`, background: PR_COLOUR }} />
+              <div style={{ width: `${(prSif / (prMf + prSif)) * 100}%`, background: SIF_COLOUR }} />
+            </div>
+            <div className="flex justify-between text-[11px] mt-1">
+              <span style={{ color: PR_COLOUR }}>Mutual funds {pct1(prMf / (prMf + prSif))} · {inrShort(prMf)}</span>
+              <span style={{ color: SIF_COLOUR }}>SIF {pct1(prSif / (prMf + prSif))} · {inrShort(prSif)}</span>
+            </div>
+          </div>
+        )}
         {soldTotal > 0 && (
           <div className="card p-4 mb-4">
             <div className="text-xs font-semibold mb-2" style={{ color: 'var(--text-hi)' }}>What the switch involves</div>

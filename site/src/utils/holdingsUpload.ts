@@ -153,9 +153,23 @@ const CEASED = /ceas|cancel|stop|terminat|inactive|closed|expir|paused|revok/i
  * row per SIP until the next section. SIPs marked ceased / cancelled / stopped
  * are left out.
  */
+/**
+ * A SIP's amount per month from its frequency: weekly × 4, daily × 22 (trading
+ * days), fortnightly × 2, quarterly ÷ 3; monthly, or no frequency given, as is.
+ */
+export function perMonth(amount: number, frequency: unknown) {
+  const f = String(frequency ?? '').toLowerCase()
+  if (/daily|day/.test(f)) return amount * 22
+  if (/fortnight|bi-?week/.test(f)) return amount * 2
+  if (/week/.test(f)) return amount * 4
+  if (/quarter/.test(f)) return amount / 3
+  return amount
+}
+const FREQ_COL = (c: string) => /freq|frequency|periodicity|interval/i.test(c)
+
 function sipSummary(rows: unknown[][]) {
   const found: { raw: string; folio: string | null; amount: number }[] = []
-  let header: string | null = null
+  let header: string | null = null, converted = 0
   for (let t = 0; t < rows.length; t++) {
     if (!filled(rows[t]).some(c => SIP_TITLE.test(c)) || filled(rows[t]).length > 3) continue
     for (let i = t + 1; i < Math.min(rows.length, t + 7); i++) {
@@ -167,6 +181,7 @@ function sipSummary(rows: unknown[][]) {
       if (amt < 0) break
       const folio = cells.findIndex(c => FOLIO_RE.test(c))
       const status = cells.findIndex(c => /status/i.test(c))
+      const freq = cells.findIndex(FREQ_COL)
       header = cells[amt]
       for (const r of rows.slice(i + 1)) {
         if (isSectionTitle(r) || isHeaderRow(r)) break
@@ -174,12 +189,14 @@ function sipSummary(rows: unknown[][]) {
         const amount = num(r[amt])
         if (!raw || TOTAL_RE.test(raw) || amount == null || amount <= 0 || num(raw) != null) continue
         if (status >= 0 && CEASED.test(String(r[status] ?? ''))) continue
-        found.push({ raw, folio: folio >= 0 ? (String(r[folio] ?? '').trim() || null) : null, amount })
+        const monthly = freq >= 0 ? perMonth(amount, r[freq]) : amount
+        if (monthly !== amount) converted++
+        found.push({ raw, folio: folio >= 0 ? (String(r[folio] ?? '').trim() || null) : null, amount: monthly })
       }
       break
     }
   }
-  return found.length ? { header: header ?? 'Amount', rows: found } : null
+  return found.length ? { header: header ?? 'Amount', rows: found, converted } : null
 }
 
 /** A sheet listing SIPs (scheme name and SIP amount), when the statement keeps them apart from holdings. */
@@ -193,12 +210,14 @@ function sipSheet(rows: unknown[][], sheetName: string) {
     if (amt < 0 && /sip|systematic|instal/i.test(sheetName)) amt = cells.findIndex(c => /amount|amt/i.test(c) && !/date/i.test(c))
     if (amt < 0) continue
     const folio = cells.findIndex(c => FOLIO_RE.test(c))
+    const freq = cells.findIndex(FREQ_COL)
     const out: { raw: string; folio: string | null; amount: number }[] = []
     for (const r of rows.slice(i + 1)) {
       const raw = String(r[name] ?? '').replace(/\s+/g, ' ').trim()
       const amount = num(r[amt])
       if (!raw || TOTAL_RE.test(raw) || amount == null || amount <= 0) continue
-      out.push({ raw, folio: folio >= 0 ? (String(r[folio] ?? '').trim() || null) : null, amount })
+      out.push({ raw, folio: folio >= 0 ? (String(r[folio] ?? '').trim() || null) : null,
+                 amount: freq >= 0 ? perMonth(amount, r[freq]) : amount })
     }
     return { header: cells[amt], rows: out }
   }
@@ -312,6 +331,8 @@ export async function readHoldingsFiles(files: File[], funds: IndexFund[], sipCo
     const missed = applySips(all)
     best.info.columns.sip = `"${summaries[0].t!.header}" in the SIP Summary table (${summaries.map(x => x.sheet).join(', ')}) — ${all.length} SIP${all.length === 1 ? '' : 's'}`
       + (missed ? `, ${missed} in funds not in the holdings` : '')
+      + ((n => (n ? `; ${n} not monthly, turned into a monthly amount (weekly × 4, daily × 22, fortnightly × 2, quarterly ÷ 3)` : ''))(
+        summaries.reduce((t, x) => t + x.t!.converted, 0)))
   } else if (!best.rows.some(r => r.sip)) {
     // 2. No SIP column beside the holdings: a sheet or file that lists the SIPs.
     for (const { sheet, grid } of grids) {

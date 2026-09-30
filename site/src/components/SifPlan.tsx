@@ -305,7 +305,8 @@ export function SifAnalysis({ lines, colour = '#A78BFA' }: { lines: { id: string
             <div style={{ color: 'var(--text-mid)' }}>{r.p.objective ?? 'Objective not published.'}</div>
             <div className="text-[10px] mt-1" style={{ color: 'var(--text-low)' }}>
               Launched {fmtDate(r.p.launch_date ?? null)} · Min {r.p.min_amount ?? '—'}
-              {r.p.website && <> · <a href={r.p.website} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-a)' }}>website</a></>}
+              {/* On screen only: a PDF carries no links. */}
+              {r.p.website && <span className="print:hidden"> · <a href={r.p.website} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-a)' }}>website</a></span>}
             </div>
           </div>
         ))}
