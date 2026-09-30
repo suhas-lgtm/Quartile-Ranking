@@ -31,9 +31,11 @@ export function siteSessionValid(cookieHeader: string | null | undefined, passwo
   return sessionValid(readCookie(cookieHeader, SITE_COOKIE), keyOf(password), salt)
 }
 
-/** Paths the opening page itself needs before anyone has logged in. */
+/** Paths the opening page itself needs before anyone has logged in, and shared client
+ *  reports (/r/<token>, server/reports.ts): each opens only its own report. */
 function isOpen(pathname: string) {
   return pathname === '/api/site-login' || pathname === '/logo.png' || pathname === '/favicon.ico'
+    || /^\/r\/[A-Za-z0-9_-]{24}$/.test(pathname)
 }
 
 /**

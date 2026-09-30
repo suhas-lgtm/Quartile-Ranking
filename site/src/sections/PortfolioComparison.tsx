@@ -16,6 +16,7 @@ import FundPicker from '../components/FundPicker'
 import FundLink from '../components/FundLink'
 import PortfolioReview, { inr, pct1 } from '../components/PortfolioReview'
 import SuggestedEditor from '../components/SuggestedEditor'
+import PortfolioOrbit, { type OrbitItem } from '../components/PortfolioOrbit'
 import { categoryColor } from '../config/categoryColors'
 import { inrShort } from '../components/PortfolioReview'
 import type { FundsIndex } from '../types'
@@ -41,6 +42,22 @@ export default function PortfolioComparison() {
   const exTotal = rv.existing.reduce((s, l) => s + (l.amount ?? 0), 0)
   const setExisting = (existing: Line[]) => setRv(r => ({ ...r, existing }))
   const inputStyle = { background: 'var(--bg-raised)', border: '1px solid var(--line)', color: 'var(--text-hi)', outline: 'none' }
+
+  // The portfolio the pictures show: the suggested one, or today's while nothing is suggested.
+  const view: { label: string; colour: string; items: OrbitItem[]; note?: string } = (() => {
+    const ex = new Map(rv.existing.filter(l => (l.amount ?? 0) > 0).map(l => [l.code, l.amount!]))
+    const pr = new Map(rv.proposed.filter(l => (l.amount ?? 0) > 0).map(l => [l.code, l.amount!]))
+    if (!pr.size) return { label: 'Current portfolio', colour: EX_COLOUR, items: [...ex].map(([code, amount]) => ({ code, amount })) }
+    const sold = [...ex.keys()].filter(c => !pr.has(c)).length
+    return {
+      label: 'Suggested portfolio', colour: SG_COLOUR,
+      note: sold ? `${sold} fund${sold === 1 ? '' : 's'} sold in full ${sold === 1 ? 'is' : 'are'} not shown.` : undefined,
+      items: [...pr].map(([code, amount]) => {
+        const e = ex.get(code) ?? 0
+        return { code, amount, was: e || undefined, status: !e ? 'new' as const : amount > e * 1.01 ? 'up' as const : amount < e * 0.99 ? 'down' as const : undefined }
+      }),
+    }
+  })()
 
   return (
     <PdfProvider pageKey="pcompare" doc={{
@@ -119,6 +136,12 @@ export default function PortfolioComparison() {
         </div>
       </div>
       </PdfSection>
+
+      {[...rv.existing, ...rv.proposed].some(l => (l.amount ?? 0) > 0) && (
+        <PdfSection id="orbit" page label="Portfolio picture (as a solar system)" kicker="At a glance" title="The Portfolio at a Glance">
+          <PortfolioOrbit label={view.label} colour={view.colour} items={view.items} note={view.note} />
+        </PdfSection>
+      )}
 
       <PortfolioReview title="Existing vs suggested" sides={[
         { label: 'Existing', colour: EX_COLOUR, lines: rv.existing },

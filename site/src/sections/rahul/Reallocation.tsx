@@ -17,7 +17,9 @@ import { useJson } from '../../hooks/useData'
 import FundPicker from '../../components/FundPicker'
 import FundLink from '../../components/FundLink'
 import PortfolioReview, { inr, inrShort, pct1 } from '../../components/PortfolioReview'
-import { SifAnalysis, SifEditor, type SifLine } from '../../components/SifPlan'
+import { SifAnalysis, SifEditor, useSifPlans, type SifLine } from '../../components/SifPlan'
+import PortfolioOrbit, { type OrbitItem } from '../../components/PortfolioOrbit'
+import SipPulse from '../../components/SipPulse'
 import { readHoldingsFiles, type UploadInfo, type UploadedRow } from '../../utils/holdingsUpload'
 import { fmtPct, retColor } from '../../utils/format'
 import { inputStyle, type MfLine } from './ClientPlan'
@@ -92,6 +94,8 @@ export default function Reallocation() {
     return m
   }, [cur.rows])
   const exTotal = [...existing.values()].reduce((s, x) => s + x.value, 0)
+  const { byId: sifById } = useSifPlans()
+  const sifName = (id: string) => sifById.get(id)?.name.replace(/\s*-\s*Regular.*$/i, '') ?? id
   const exInvested = [...existing.values()].every(x => x.invested != null) ? [...existing.values()].reduce((s, x) => s + (x.invested ?? 0), 0) : null
   const prMf = cur.proposed.reduce((s, l) => s + (l.lump ?? 0), 0)
   const prSif = cur.sif.reduce((s, l) => s + (l.lump ?? 0), 0)
@@ -124,6 +128,34 @@ export default function Reallocation() {
     for (const x of cur.info?.extraSips ?? []) if (x.code) m.set(x.code, (m.get(x.code) ?? 0) + x.amount)
     return m
   }, [cur.rows, cur.info])
+  // The SIPs for the heartbeat: after the SIP changes, or today's while nothing changes.
+  const sipKeys = [...new Set([...existingSip.keys(), ...Object.keys(cur.sipPlan ?? {})])]
+  const sipAfterOf = (c: string) => (cur.sipPlan && c in cur.sipPlan ? cur.sipPlan[c] ?? 0 : existingSip.get(c) ?? 0)
+  const sipChanged = sipKeys.some(c => Math.round(sipAfterOf(c)) !== Math.round(existingSip.get(c) ?? 0))
+  const sipItems = sipKeys.map(c => {
+    const was = existingSip.get(c) ?? 0, now = sipAfterOf(c)
+    return { code: c, amount: now, was, status: !sipChanged || now === was ? undefined : !was ? 'new' as const : now > was ? 'up' as const : 'down' as const }
+  })
+  // The portfolio the pictures show: the suggested one, or today's while nothing is suggested.
+  const view: { label: string; colour: string; items: OrbitItem[]; note?: string; current: boolean } = (() => {
+    const prBy = new Map(cur.proposed.filter(l => (l.lump ?? 0) > 0).map(l => [l.code, l.lump ?? 0]))
+    if (!prBy.size && !cur.sif.some(l => (l.lump ?? 0) > 0)) {
+      return { label: 'Current portfolio', colour: EX_COLOUR, current: true, items: [...existing.entries()].map(([code, x]) => ({ code, amount: x.value })) }
+    }
+    const sold = [...existing.keys()].filter(c => !prBy.has(c)).length
+    return {
+      label: 'Suggested portfolio', colour: PR_COLOUR, current: false,
+      note: sold ? `${sold} fund${sold === 1 ? '' : 's'} sold in full ${sold === 1 ? 'is' : 'are'} not shown.` : undefined,
+      items: [
+        ...[...prBy.entries()].map(([code, v]) => {
+          const ex = existing.get(code)?.value ?? 0
+          return { code, amount: v, was: ex || undefined,
+                   status: !ex ? 'new' as const : v > ex * 1.01 ? 'up' as const : v < ex * 0.99 ? 'down' as const : undefined }
+        }),
+        ...cur.sif.filter(l => (l.lump ?? 0) > 0).map(l => ({ name: sifName(l.id), amount: l.lump ?? 0, sif: true, status: 'new' as const })),
+      ],
+    }
+  })()
   const fundChanges = useMemo(() => new Map(switches.map(x => [x.code, x.pr - x.ex])), [switches])
   // SIPs a month: running now, and after the SIP changes (a fund not changed keeps its SIP).
   const sipNow = [...existingSip.values()].reduce((t, v) => t + v, 0)
@@ -482,6 +514,18 @@ export default function Reallocation() {
         </PdfSection>
       )}
 
+
+      {/* ── picture: the suggested portfolio as a solar system (today's while nothing is suggested) ── */}
+      {(exTotal > 0 || prMf + prSif > 0) && (
+        <PdfSection id="orbit" page label="Portfolio picture (as a solar system)" kicker="At a glance" title="Your Portfolio at a Glance">
+          <PortfolioOrbit label={view.label} colour={view.colour} items={view.items} note={view.note} />
+        </PdfSection>
+      )}
+      {(sipNow > 0 || sipAfter > 0) && (
+        <PdfSection id="pulse" label="SIP heartbeat (each SIP a beat)" kicker="Every month" title="The SIP Heartbeat">
+          <SipPulse label={sipChanged ? 'SIPs after the changes' : 'SIPs'} items={sipItems} before={sipChanged ? sipNow : undefined} />
+        </PdfSection>
+      )}
 
       {/* ── action plan: SIP changes, switches and STPs ── */}
       {(existing.size > 0 || cur.proposed.length > 0) && (

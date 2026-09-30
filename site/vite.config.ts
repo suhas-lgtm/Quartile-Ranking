@@ -6,6 +6,7 @@ import { route, readFile } from './server/neonFiles'
 import { handleAuth, isProtected, readCookie, sessionValid, SESSION_COOKIE } from './server/auth'
 import { handleBlacklist } from './server/lists'
 import { handleClients } from './server/clients'
+import { handleReports, serveReport } from './server/reports'
 import { handleHoldings, handleNav, handleSeries } from './server/navLookup'
 import { siteGate } from './server/siteGate'
 
@@ -77,6 +78,16 @@ function neonData(): Plugin {
         console.warn('[vite] DATABASE_URL is not set in ../.env — /data requests will 404 '
           + 'until you add your Neon connection string there.')
       }
+      // Shared client reports (functions/r/[token].ts in production).
+      server.middlewares.use(async (req, res, next) => {
+        const m = /^\/r\/([A-Za-z0-9_-]+)$/.exec((req.url ?? '').split('?')[0])
+        if (!m) return next()
+        const r = await serveReport(m[1], databaseUrl)
+          .catch(err => { console.error('[vite] report', err); return { status: 502, body: 'Error', headers: {} } })
+        res.statusCode = r.status
+        for (const [k, v] of Object.entries(r.headers ?? {})) res.setHeader(k, v)
+        res.end(r.body)
+      })
       // Whitelist Screener login, same handler as netlify/functions/auth.mts.
       server.middlewares.use(async (req, res, next) => {
         const pathname = (req.url ?? '').split('?')[0]
@@ -86,6 +97,14 @@ function neonData(): Plugin {
         if (readers[action]) {
           const r = await readers[action](new URL(req.url ?? '', 'http://localhost').searchParams, databaseUrl)
             .catch(err => { console.error('[vite] nav', err); return { status: 502, body: '{"error":"database error"}' } })
+          res.statusCode = r.status
+          res.setHeader('content-type', 'application/json')
+          return res.end(r.body)
+        }
+        if (action === 'reports') {
+          const read = () => new Promise<string>(resolve => { let b = ''; req.on('data', c => { b += c }); req.on('end', () => resolve(b)) })
+          const r = await handleReports(new URL(req.url ?? '', 'http://localhost').searchParams, req.method ?? 'GET', read, databaseUrl)
+            .catch(err => { console.error('[vite] reports', err); return { status: 502, body: '{"error":"database error"}' } })
           res.statusCode = r.status
           res.setHeader('content-type', 'application/json')
           return res.end(r.body)

@@ -17,7 +17,9 @@ import { useJson } from '../../hooks/useData'
 import FundPicker from '../../components/FundPicker'
 import FundLink from '../../components/FundLink'
 import PortfolioReview, { inr, inrShort, pct1 } from '../../components/PortfolioReview'
-import { SifAnalysis, SifEditor, type SifLine } from '../../components/SifPlan'
+import { SifAnalysis, SifEditor, useSifPlans, type SifLine } from '../../components/SifPlan'
+import PortfolioOrbit from '../../components/PortfolioOrbit'
+import SipPulse from '../../components/SipPulse'
 import { categoryColor } from '../../config/categoryColors'
 import type { FundsIndex } from '../../types'
 
@@ -149,10 +151,17 @@ export default function ClientPlan() {
   const update = (patch: Partial<Plan>) => setStore(s => ({ ...s, plans: { ...s.plans, [s.current]: { ...plan, ...patch } } }))
 
   const w = weightFor(plan.basis, plan.years)
+  const { byId: sifById } = useSifPlans()
+  const sifName = (id: string) => sifById.get(id)?.name.replace(/\s*-\s*Regular.*$/i, '') ?? id
   const mfLump = plan.mf.reduce((s, l) => s + (l.lump ?? 0), 0)
   const mfSip = plan.mf.reduce((s, l) => s + (l.sip ?? 0), 0)
   const sifLump = plan.sif.reduce((s, l) => s + (l.lump ?? 0), 0)
   const sifSip = plan.sif.reduce((s, l) => s + (l.sip ?? 0), 0)
+  // The plan's funds for the pictures (solar system, heartbeat).
+  const planItems = [
+    ...plan.mf.map(l => ({ code: l.code, amount: w(l) })),
+    ...plan.sif.map(l => ({ name: sifName(l.id), amount: w(l), sif: true })),
+  ]
   const planned = mfLump + sifLump + (mfSip + sifSip) * 12 * plan.years
   const mfW = plan.mf.reduce((s, l) => s + w(l), 0), sifW = plan.sif.reduce((s, l) => s + w(l), 0)
   const left = plan.target ? plan.target - planned : null
@@ -267,6 +276,16 @@ export default function ClientPlan() {
         </div>
       )}
 
+      </PdfSection>
+
+      <PdfSection id="orbit" page label="Portfolio picture (funds as a solar system)" kicker="The plan at a glance" title="Your Portfolio at a Glance">
+        <PortfolioOrbit label="This plan" colour={MF_COLOUR} items={planItems} />
+      </PdfSection>
+      <PdfSection id="pulse" label="SIP heartbeat (each SIP a beat)" kicker="Every month" title="The SIP Heartbeat">
+        <SipPulse label="This plan" items={[
+          ...plan.mf.map(l => ({ code: l.code, amount: l.sip ?? 0 })),
+          ...plan.sif.map(l => ({ name: sifName(l.id), amount: l.sip ?? 0 })),
+        ]} years={plan.years} />
       </PdfSection>
 
       <PdfSection id="milestone" label="Milestone (goal, projection, SIP needed)" kicker="The goal" title="Milestone">

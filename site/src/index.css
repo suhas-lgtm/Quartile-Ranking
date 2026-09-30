@@ -1445,6 +1445,69 @@ h1, h2, h3, h4, h5, h6 {
 .fund-link { text-decoration: underline dotted transparent; text-underline-offset: 3px; transition: color 120ms, text-decoration-color 120ms; }
 .fund-link:hover { color: var(--accent-a); text-decoration-color: var(--accent-a); }
 
+/* ── portfolio orbits (components/PortfolioOrbit.tsx): turning slowly, still in print ── */
+@keyframes orbit-spin { to { transform: rotate(360deg); } }
+.orbit-card { --orbit-halo: var(--bg-card); --orbit-tip-bg: var(--bg-raised); --orbit-tip-line: var(--line);
+              --orbit-tip-hi: var(--text-hi); --orbit-tip-mid: var(--text-mid); }
+.orbit-svg { display: block; width: 100%; max-width: 560px; margin: 0 auto; overflow: visible; }
+.orbit-turn { animation: orbit-spin var(--dur, 90s) linear infinite; }
+.orbit-upright { animation: orbit-spin var(--dur, 90s) linear infinite reverse; }
+.orbit-svg:hover .orbit-turn, .orbit-svg:hover .orbit-upright,
+.orbit-svg:focus-within .orbit-turn, .orbit-svg:focus-within .orbit-upright { animation-play-state: paused; }
+.orbit-planet { cursor: pointer; outline: none; }
+.orbit-planet:is(:hover, :focus) > circle:not([fill="none"]) { stroke: var(--text-hi); stroke-width: 3; }
+.orbit-tip { display: none; }
+.orbit-tip rect { filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.25)); }
+.orbit-legend { display: none; }
+@media (prefers-reduced-motion: reduce) { .orbit-turn, .orbit-upright { animation: none; } }
+
+/* ── the portfolio in space (components/PortfolioOrbit.tsx): always night sky ── */
+.orbit-space { padding: 18px 20px; color: #D7DDF3; border-color: #242C5C !important;
+               background: radial-gradient(ellipse at 50% 45%, #1B2352 0%, #0F1435 55%, #080B22 100%) !important; }
+.orbit-space .orbit-svg { max-width: 1100px !important; }
+.orbit-space-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.orbit-space-head .t { font-family: 'Barlow Condensed', 'Barlow', sans-serif; font-weight: 700; font-size: 18px; }
+.orbit-space-head .s { font-size: 12px; color: #9AA3C7; }
+.orb-spin { transform-origin: 0 0; animation: orbit-spin var(--dur, 60s) linear infinite; }
+.orb-back { animation-direction: reverse; }
+.orbit-svg:hover .orb-spin, .orbit-svg:focus-within .orb-spin { animation-play-state: paused; }
+.orbit-label { paint-order: stroke; stroke: #0F1435; stroke-width: 3px; font-family: 'Barlow', sans-serif; }
+.orbit-keys { display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: center; font-size: 12px; color: #AEB6D6; margin-top: 4px; }
+.orbit-keys span { display: inline-flex; align-items: center; gap: 6px; }
+.orbit-keys i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.orbit-keys i.ring { width: 18px; height: 7px; border: 1.5px solid #F4E3B5; background: transparent; }
+.orbit-note { font-size: 11px; color: #8E97BD; margin-top: 8px; }
+@media (max-width: 640px) { .orbit-label { display: none; } }
+@media (prefers-reduced-motion: reduce) { .orb-spin { animation: none; } }
+
+/* ── the SIP heartbeat (components/SipPulse.tsx): a monitor, always dark ── */
+.ecg-card { display: grid; grid-template-columns: minmax(0, 1fr) 240px; background: #04130B; border: 10px solid #1B2622;
+            border-radius: 18px; overflow: hidden; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25); }
+.ecg-screen { display: flex; flex-direction: column; min-width: 0; border-right: 1px solid #15392A; }
+.ecg-scroll { overflow-x: auto; }
+.ecg-svg { display: block; height: auto; }
+.ecg-line { filter: drop-shadow(0 0 3px #3FD483); }
+.ecg-run { filter: drop-shadow(0 0 6px #7CFFB5); }
+.ecg-dot { opacity: 0; filter: drop-shadow(0 0 6px #B9FFD6); }
+.ecg-amt { font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace; }
+.ecg-name { font-family: 'Barlow', sans-serif; }
+.ecg-ticker { position: relative; min-height: 44px; border-top: 1px solid #15392A; padding: 12px 16px;
+              font: 14px/1.3 ui-monospace, 'SFMono-Regular', Consolas, monospace; color: #8FF0B5; }
+.ecg-tick { position: absolute; left: 16px; right: 16px; top: 12px; opacity: 0; white-space: nowrap; overflow: hidden;
+            text-overflow: ellipsis; text-shadow: 0 0 8px rgba(92, 242, 154, 0.5); }
+.ecg-tick-still { display: none; }
+.ecg-vitals > div { padding: 14px 18px; border-bottom: 1px solid #15392A; }
+.ecg-vitals .k { font: 12px ui-monospace, Consolas, monospace; text-transform: uppercase; letter-spacing: 0.1em; color: #6FA88A; }
+.ecg-vitals .v { font: 600 28px/1.15 ui-monospace, Consolas, monospace; text-shadow: 0 0 12px currentColor; margin-top: 2px; }
+.ecg-vitals .s { font-size: 12px; color: #6FA88A; margin-top: 2px; }
+@media (max-width: 760px) {
+  .ecg-card { grid-template-columns: 1fr; border-width: 6px; }
+  .ecg-screen { border-right: 0; }
+  .ecg-vitals { display: grid; grid-template-columns: 1fr 1fr; }
+  .ecg-vitals .v { font-size: 22px; }
+}
+@media (prefers-reduced-motion: reduce) { .ecg-run, .ecg-dot, .ecg-tick { animation: none !important; } }
+
 /* ── PDF download (components/PdfSections.tsx) ── */
 /* Rows / columns left out of the PDF: dimmed on screen, dropped in print. */
 .pdf-row-off, .pdf-cell-off { opacity: 0.32; }
@@ -1469,6 +1532,24 @@ h1, h2, h3, h4, h5, h6 {
     @bottom-right { content: counter(page, decimal-leading-zero) " / " counter(pages, decimal-leading-zero); font: 400 15px 'Barlow', sans-serif; color: #3A3F55; vertical-align: top; }
   }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .orbit-turn, .orbit-upright { animation: none !important; }
+  /* Still on paper; the web link (html.share-page) keeps the motion. */
+  html:not(.share-page) .orb-spin { animation: none !important; }
+  html:not(.share-page) .ecg-run, html:not(.share-page) .ecg-dot, html:not(.share-page) .ecg-tick { display: none !important; }
+  html:not(.share-page) .ecg-tick-still { display: block; }
+  .pdf-doc .card.orbit-space { background: radial-gradient(ellipse at 50% 45%, #1B2352 0%, #0F1435 55%, #080B22 100%) !important;
+                               border-color: #242C5C !important; }
+  .ecg-card, .orbit-space { break-inside: avoid; }
+  .pdf-doc .orbit-svg { max-width: 1100px !important; }
+  .orbit-tip { display: none !important; }
+  .orbit-legend { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px 22px; margin-top: 10px; font-size: 12px; }
+  .orbit-legend > div { display: flex; align-items: center; gap: 6px; }
+  .orbit-legend .dot { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%;
+                       color: #fff; font-size: 10px; font-weight: 700; flex: none; }
+  .orbit-legend .nm { flex: 1; color: #D7DDF3; }
+  .orbit-legend .am { color: #AEB6D6; white-space: nowrap; }
+  .orbit-legend .dot { width: 11px !important; height: 11px !important; }
+  .orbit-card { --orbit-halo: #F3F3F6; }
   /* The grey comes from the page itself; everything above it is see-through. */
   html, body, #root, #root > div, main, .pdf-doc, .pdf-doc > section { background: transparent !important; }
   header, nav, footer, .site-footer, .print\:hidden, .no-print { display: none !important; }

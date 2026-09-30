@@ -19,6 +19,7 @@ const headOff = (th: Element, key: string, off: Set<string>) =>
   th.hasAttribute('data-pdf-off') ? !off.has(`on|${key}`) : off.has(key)
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import type { SharedLink } from '../utils/shareReport'
 
 export const COL_GROUPS = [
   { id: 'ret', label: 'Returns (1M–10Y)' },
@@ -53,6 +54,11 @@ interface ListState {
   setOff: (s: Set<string>) => void
   picking: boolean
   setPicking: (b: boolean) => void
+  /** The Download dialog is open (kept here so the rows & columns bar can go back to it). */
+  dialog: boolean
+  setDialog: (b: boolean) => void
+  pageKey: string
+  box: React.RefObject<HTMLDivElement | null>
 }
 const PdfCtx = createContext<Ctx | null>(null)
 const ListCtx = createContext<ListState | null>(null)
@@ -101,6 +107,7 @@ export function PdfProvider({ pageKey, doc, children }: { pageKey: string; doc?:
   const [sections, setSections] = useState<Map<string, string>>(new Map())
   const [off, setOff] = useState<Set<string>>(() => loadOff(pageKey))
   const [picking, setPicking] = useState(false)
+  const [dialog, setDialog] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   useEffect(() => { try { localStorage.setItem(`pdf_off:${pageKey}`, JSON.stringify([...off])) } catch { /* optional */ } }, [off, pageKey])
   const register = useCallback((id: string, label: string) => setSections(m => (m.get(id) === label ? m : new Map(m).set(id, label))), [])
@@ -145,7 +152,7 @@ export function PdfProvider({ pageKey, doc, children }: { pageKey: string; doc?:
   const cellsOff = [...off].filter(k => k.startsWith('r|') || k.startsWith('c|'))
   return (
     <PdfCtx.Provider value={ctx}>
-      <ListCtx.Provider value={{ doc, sections, off, setOff, picking, setPicking }}>
+      <ListCtx.Provider value={{ doc, sections, off, setOff, picking, setPicking, dialog, setDialog, pageKey, box }}>
         <div ref={box} className={`pdf-doc ${colClasses} ${picking ? 'pdf-picking' : ''}`}>
           {doc && <PdfCover doc={doc} />}
           {children}
@@ -162,7 +169,7 @@ export function PdfProvider({ pageKey, doc, children }: { pageKey: string; doc?:
             {cellsOff.length > 0 && (
               <button className="tab-btn" onClick={() => setOff(new Set([...off].filter(k => !k.startsWith('r|') && !k.startsWith('c|'))))}>Reset</button>
             )}
-            <button className="tab-btn" onClick={() => { setPicking(false); printLight(doc) }}>⬇ Download PDF</button>
+            <button className="tab-btn" onClick={() => { setPicking(false); setDialog(true) }}>⬇ Download / Share…</button>
             <button className="tab-btn active" onClick={() => setPicking(false)}>Done</button>
           </div>
         )}
@@ -282,9 +289,30 @@ function printLight(doc?: PdfDoc) {
   setTimeout(() => window.print(), 150)
 }
 
+type Out = { pdf: boolean; link: boolean }
+function loadOut(key: string): Out {
+  try { const o = JSON.parse(localStorage.getItem(`pdf_out:${key}`) ?? 'null'); if (o && (o.pdf || o.link)) return { pdf: !!o.pdf, link: !!o.link } } catch { /* default */ }
+  return { pdf: true, link: false }
+}
+const shortDate = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+
 export function PdfButton({ title }: { title?: string }) {
   const list = useContext(ListCtx)
-  const [open, setOpen] = useState(false)
+  const [out, setOut] = useState<Out>(() => loadOut(list?.pageKey ?? ''))
+  const [busy, setBusy] = useState(false)
+  const [made, setMade] = useState<{ url: string; token: string; expires: string } | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  const [links, setLinks] = useState<SharedLink[] | null>(null)
+  const [copied, setCopied] = useState(false)
+  const open = list?.dialog ?? false
+  const pageKey = list?.pageKey ?? ''
+  const setOpen = (b: boolean) => { list?.setDialog(b); if (!b) { setMade(null); setErr(null); setCopied(false) } }
+  useEffect(() => { try { if (pageKey) localStorage.setItem(`pdf_out:${pageKey}`, JSON.stringify(out)) } catch { /* optional */ } }, [out, pageKey])
+  const loadLinks = useCallback(() => {
+    if (!pageKey) return
+    import('../utils/shareReport').then(m => m.listLinks(pageKey)).then(setLinks).catch(() => setLinks([]))
+  }, [pageKey])
+  useEffect(() => { if (open) loadLinks() }, [open, loadLinks])
   if (!list) return null
   // Page order, not registration order.
   const order = open ? [...document.querySelectorAll<HTMLElement>('[data-pdf]')].map(e => e.dataset.pdf!) : []
@@ -298,17 +326,84 @@ export function PdfButton({ title }: { title?: string }) {
   const chosen = ids.filter(id => !list.off.has(id)).length
   const rowsOff = [...list.off].filter(k => k.startsWith('r|')).length
   const colsOff = [...list.off].filter(k => k.startsWith('c|')).length
+  const label = out.pdf && out.link ? '⬇ Download PDF + 🔗 create link' : out.link ? '🔗 Create link' : '⬇ Download PDF'
+
+  const go = async () => {
+    setErr(null)
+    if (out.link) {
+      if (!list.box.current) return
+      setBusy(true)
+      try {
+        const m = await import('../utils/shareReport')
+        const html = await m.buildReportHtml(list.box.current, list.doc, logoData)
+        const r = await m.shareReport(pageKey, html, list.doc?.title ?? title ?? '', list.doc?.client ?? '')
+        setMade(r)
+        loadLinks()
+      } catch (e) {
+        setErr(`The link could not be created (${e instanceof Error ? e.message : 'error'}).`)
+        setBusy(false)
+        return
+      }
+      setBusy(false)
+    }
+    if (out.pdf) {
+      if (!out.link) setOpen(false)
+      printLight(list.doc)
+    }
+  }
+  const copy = (url: string) => {
+    navigator.clipboard?.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000) }).catch(() => undefined)
+  }
+  const turnOff = async (token: string) => {
+    if (!window.confirm('Turn this link off? Anyone who opens it will see that it has expired.')) return
+    const m = await import('../utils/shareReport')
+    await m.revokeLink(token)
+    if (made?.token === token) setMade(null)
+    loadLinks()
+  }
+  const active = (links ?? []).filter(l => !l.revoked && new Date(l.expires_at) > new Date())
+
   return (
     <>
-      <button className="tab-btn" onClick={() => setOpen(true)} title="Choose the tables, rows and columns, then download as PDF">⬇ Download PDF</button>
+      <button className="tab-btn" onClick={() => setOpen(true)} title="Choose the tables, rows and columns, then download a PDF and/or create a web link">⬇ Download / Share</button>
       {open && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 print:hidden" style={{ background: 'rgba(0,0,0,0.55)' }}
              onClick={() => setOpen(false)}>
           <div className="card p-5 w-full max-w-lg max-h-[85vh] overflow-auto" onClick={e => e.stopPropagation()}>
-            <div className="font-display font-bold text-base mb-1" style={{ color: 'var(--text-hi)' }}>Download PDF{title ? ` — ${title}` : ''}</div>
+            <div className="font-display font-bold text-base mb-1" style={{ color: 'var(--text-hi)' }}>Download / Share{title ? ` — ${title}` : ''}</div>
             <p className="text-[11px] mb-3" style={{ color: 'var(--text-mid)' }}>
-              Tick what goes into the PDF. In the print window choose <b>Save as PDF</b> as the printer.
+              Tick what goes in. The same choices make the PDF and the web link.
             </p>
+
+            <div className="card p-3 mb-4" style={{ background: 'var(--bg-raised)' }}>
+              <div className="text-xs font-semibold mb-2" style={{ color: 'var(--text-hi)' }}>Make</div>
+              <label className="flex items-start gap-2 text-xs cursor-pointer mb-1" style={{ color: 'var(--text-hi)' }}>
+                <input type="checkbox" className="mt-0.5" checked={out.pdf} onChange={() => setOut(o => ({ ...o, pdf: !o.pdf }))} />
+                <span><b>PDF</b> <span style={{ color: 'var(--text-mid)' }}>— in the print window choose <b>Save as PDF</b></span></span>
+              </label>
+              <label className="flex items-start gap-2 text-xs cursor-pointer" style={{ color: 'var(--text-hi)' }}>
+                <input type="checkbox" className="mt-0.5" checked={out.link} onChange={() => setOut(o => ({ ...o, link: !o.link }))} />
+                <span><b>Web link</b> <span style={{ color: 'var(--text-mid)' }}>— a page the client opens on phone or laptop without the
+                  password; only this report, as it is now. Works for 90 days and can be turned off any time.</span></span>
+              </label>
+            </div>
+
+            {made && (
+              <div className="card p-3 mb-4" style={{ border: '1px solid #34D399' }}>
+                <div className="text-xs font-semibold mb-1" style={{ color: '#34D399' }}>Link ready — send it to the client</div>
+                <div className="flex gap-2 items-center">
+                  <input readOnly value={made.url} onFocus={e => e.currentTarget.select()} className="flex-1 px-2 py-1 rounded text-xs"
+                         style={{ background: 'var(--bg-base)', border: '1px solid var(--line)', color: 'var(--text-hi)' }} />
+                  <button className="tab-btn" onClick={() => copy(made.url)}>{copied ? '✓ Copied' : 'Copy'}</button>
+                  <a className="tab-btn" href={made.url} target="_blank" rel="noreferrer">Open</a>
+                </div>
+                <div className="text-[11px] mt-1" style={{ color: 'var(--text-mid)' }}>
+                  Works until {shortDate(made.expires)}. It shows the report as it is now; after changes, create a new link.
+                </div>
+              </div>
+            )}
+            {err && <div className="text-xs mb-3" style={{ color: '#F87171' }}>{err}</div>}
+
             <div className="flex items-center gap-2 mb-2 text-xs">
               <span className="font-semibold" style={{ color: 'var(--text-hi)' }}>Tables &amp; sections</span>
               <span style={{ color: 'var(--text-low)' }}>{chosen} of {ids.length}</span>
@@ -338,10 +433,30 @@ export function PdfButton({ title }: { title?: string }) {
               </div>
               <button className="tab-btn" onClick={() => { setOpen(false); list.setPicking(true) }}>☑ Choose rows &amp; columns…</button>
             </div>
+
+            {active.length > 0 && (
+              <details className="mb-4">
+                <summary className="text-xs font-semibold cursor-pointer" style={{ color: 'var(--text-hi)' }}>
+                  Links shared from this page ({active.length} working)
+                </summary>
+                <div className="mt-2 grid gap-1">
+                  {active.map(l => (
+                    <div key={l.token} className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--text-mid)' }}>
+                      <span className="flex-1 truncate" style={{ color: 'var(--text-hi)' }}>{l.client || l.title || 'Report'}</span>
+                      <span>{shortDate(l.created_at)} → {shortDate(l.expires_at)}</span>
+                      <button className="tab-btn" onClick={() => copy(`${location.origin}/r/${l.token}`)}>Copy</button>
+                      <button className="tab-btn" onClick={() => turnOff(l.token)}>Turn off</button>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+
             <div className="flex justify-end gap-2">
-              <button className="tab-btn" onClick={() => setOpen(false)}>Cancel</button>
-              <button className="tab-btn active" disabled={!chosen}
-                      onClick={() => { setOpen(false); printLight(list.doc) }}>⬇ Download PDF</button>
+              <button className="tab-btn" onClick={() => setOpen(false)}>{made ? 'Close' : 'Cancel'}</button>
+              <button className="tab-btn active" disabled={!chosen || (!out.pdf && !out.link) || busy} onClick={go}>
+                {busy ? 'Creating the link…' : label}
+              </button>
             </div>
           </div>
         </div>
