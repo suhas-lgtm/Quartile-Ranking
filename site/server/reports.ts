@@ -25,7 +25,7 @@ const SCHEMA = `CREATE TABLE IF NOT EXISTS shared_reports (
 )`
 export const LINK_DAYS = 90
 const MAX_BYTES = 12_000_000
-const PAGES = new Set(['rahul-plan', 'rahul-realloc', 'pcompare'])
+const PAGES = new Set(['rahul-plan', 'rahul-realloc', 'pcompare', 'fund-screener'])
 const TOKEN_RE = /^[A-Za-z0-9_-]{24}$/
 
 type Result = { status: number; body: string; headers?: Record<string, string> }

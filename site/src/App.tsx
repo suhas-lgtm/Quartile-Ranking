@@ -19,6 +19,7 @@ import PointToPoint    from './sections/PointToPoint'
 import PortfolioBuilder from './sections/PortfolioBuilder'
 import FundDetail      from './components/FundDetail'
 import CompareFunds    from './sections/CompareFunds'
+import FundScreener    from './sections/FundScreener'
 import CalendarReturns from './sections/CalendarReturns'
 import AumFlows        from './sections/AumFlows'
 import IndustryFlows   from './sections/IndustryFlows'
@@ -214,6 +215,7 @@ export default function App() {
         {activeTab === 'portfolio' && <PortfolioBuilder />}
 
         {activeTab === 'compare' && <CompareFunds />}
+        {activeTab === 'screener' && <FundScreener />}
 
         {activeTab === 'calendar' && <CalendarReturns />}
 

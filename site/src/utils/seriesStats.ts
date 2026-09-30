@@ -46,6 +46,12 @@ export function seriesStats(points: PricePoint[] | null | undefined, rf: number,
     returns[k] = r == null ? null : m > 12 ? Math.pow(1 + r, 12 / m) - 1 : r
   }
 
+  // 1D: against the previous NAV; 1W: against the NAV a week earlier (or the last one before).
+  returns['1D'] = pts.length > 1 ? endVal / pts[pts.length - 2][1] - 1 : null
+  const wk = new Date(endDate + 'T00:00:00Z'); wk.setUTCDate(wk.getUTCDate() - 7)
+  const w0 = closeOnOrBefore(pts, wk.toISOString().slice(0, 10), 7)
+  returns['1W'] = w0 ? endVal / w0.nav - 1 : null
+
   const sip: Record<string, number | null> = {}
   for (const [k, m] of [['1Y', 12], ['3Y', 36], ['5Y', 60]] as const) sip[k] = indexSip(pts, m)?.xirr ?? null
 

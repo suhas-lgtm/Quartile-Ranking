@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-export type ClientKind = 'rahul-plan' | 'rahul-realloc' | 'pcompare'
+export type ClientKind = 'rahul-plan' | 'rahul-realloc' | 'pcompare' | 'fund-screener'
 export interface ClientEntry { name: string; updated_at: string }
 
 async function call(method: string, qs: string, body?: unknown) {

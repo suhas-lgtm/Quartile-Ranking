@@ -27,6 +27,9 @@ export interface MfLine { code: string; lump: number | null; sip: number | null 
 export type Basis = 'both' | 'lump' | 'sip'
 interface Plan {
   client: string
+  /** The advisor on the report's cover and footer (default Rahul). */
+  advisorName?: string
+  advisorPhone?: string
   /** Plan size in ₹, e.g. 5000000 for ₹50 L. */
   target: number | null
   /** SIP horizon in years, for "lump sum + SIP" weights and the planned total. */
@@ -37,6 +40,8 @@ interface Plan {
 }
 
 const STORE = 'rahul_plans_v1'
+/** The advisor printed on the reports unless another is typed in (both of Rahul's pages). */
+export const ADVISOR = { name: 'Rahul', mobile: '+91 98091 10073' }
 const EMPTY: Plan = { client: '', target: 5000000, years: 1, basis: 'both', mf: [], sif: [] }
 const MF_COLOUR = '#22D3EE'
 const SIF_COLOUR = '#A78BFA'
@@ -189,7 +194,7 @@ export default function ClientPlan() {
   return (
     <PdfProvider pageKey="rahul-plan" doc={{
       kicker: 'Investment plan', title: 'Client Investment Plan', client: plan.client || undefined,
-      advisor: { name: 'Rahul', mobile: '+91 98091 10073' },
+      advisor: { name: plan.advisorName?.trim() || ADVISOR.name, mobile: plan.advisorPhone?.trim() || ADVISOR.mobile },
       stats: [
         { label: 'Plan size', value: plan.target ? inrShort(plan.target) : '—' },
         { label: 'Lump sum', value: inrShort(mfLump + sifLump) },
@@ -236,6 +241,14 @@ export default function ClientPlan() {
           <label className="text-xs" style={{ color: 'var(--text-mid)' }}>Client
             <input value={plan.client} onChange={e => update({ client: e.target.value })} placeholder="Client name"
                    className="block mt-1 px-2 py-1.5 rounded text-sm" style={{ ...inputStyle, width: 220 }} />
+          </label>
+          <label className="text-xs" style={{ color: 'var(--text-mid)' }} title="Printed on the PDF and the web link">Advisor
+            <input value={plan.advisorName ?? ''} onChange={e => update({ advisorName: e.target.value })} placeholder={ADVISOR.name}
+                   className="block mt-1 px-2 py-1.5 rounded text-sm" style={{ ...inputStyle, width: 150 }} />
+          </label>
+          <label className="text-xs" style={{ color: 'var(--text-mid)' }} title="Printed on the PDF and the web link">Advisor phone
+            <input value={plan.advisorPhone ?? ''} onChange={e => update({ advisorPhone: e.target.value })} placeholder={ADVISOR.mobile}
+                   className="block mt-1 px-2 py-1.5 rounded text-sm" style={{ ...inputStyle, width: 160 }} />
           </label>
           <label className="text-xs" style={{ color: 'var(--text-mid)' }}>Plan size ₹
             <input type="number" min={0} step={500000} value={plan.target ?? ''} onChange={e => update({ target: num(e.target.value) })}

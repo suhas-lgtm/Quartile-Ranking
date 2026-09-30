@@ -19,8 +19,8 @@ const SCHEMA = `CREATE TABLE IF NOT EXISTS saved_clients (
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (kind, name)
 )`
-/** The pages that save clients. */
-const KINDS = new Set(['rahul-plan', 'rahul-realloc', 'pcompare'])
+/** The pages that save clients (and the Fund Screener's fund lists). */
+const KINDS = new Set(['rahul-plan', 'rahul-realloc', 'pcompare', 'fund-screener'])
 const MAX_BYTES = 2_000_000
 
 type Result = { status: number; body: string }

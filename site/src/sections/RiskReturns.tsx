@@ -33,7 +33,7 @@ const ALL_CATS = '__all__'
 const PAGE = 300
 type Better = 'high' | 'low' | null
 
-interface Col {
+export interface Col {
   key: string
   label: string
   group: 'returns' | 'ratios' | 'sip' | 'rolling'
@@ -50,7 +50,7 @@ const pct  = (v: number | null | undefined) => fmtPct(v ?? null)
 const pctU = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100).toFixed(2)}%`)
 const num  = (d: number) => (v: number | null | undefined) => (v == null ? '—' : v.toFixed(d))
 
-const RETURN_COLS: Col[] = ([
+export const RETURN_COLS: Col[] = ([
   ['1D', '1D'], ['1W', '1W'], ['1M', '1M'], ['3M', '3M'], ['6M', '6M'], ['12M', '1Y'],
   ['2Y', '2Y'], ['3Y', '3Y'], ['5Y', '5Y'], ['10Y', '10Y'],
 ] as [RiskPeriod, string][]).map(([p, label]) => ({
@@ -70,7 +70,7 @@ const RETURN_COLS: Col[] = ([
 
 // Order follows how a factsheet reads: benchmark-relative first (Alpha, Beta),
 // then risk-adjusted return, then raw risk, then the composite.
-const RATIO_COLS: Col[] = [
+export const RATIO_COLS: Col[] = [
   { key: 'alpha', label: 'Alpha (3Y)', group: 'ratios',
     // Shown as a plain number, as factsheets do: 5.04 means 5.04 percentage
     // points a year above what Beta predicts. Stored as a decimal.
@@ -107,14 +107,14 @@ const crore = (v: number | null | undefined) =>
   v == null ? '—' : v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(0)
 
 // Fund size, from AMFI. Shown with the ratios, but left out of the Score.
-const FACT_COLS: Col[] = [
+export const FACT_COLS: Col[] = [
   { key: 'aum_cr', label: 'AUM ₹ Cr (qtr avg)', group: 'ratios', get: r => r.aum_cr, better: null, exportType: 'number',
     show: crore,
     help: 'Average assets under management of the whole fund (all plans and options together), in ₹ crore, for the latest quarter AMFI has published. 12.3k = ₹12,300 crore. Not shaded: neither very small nor very large is "good" by itself.' },
 ]
 
 const SIP_SHORT = ['1W', '1M', '3M', '6M']
-const SIP_COLS: Col[] = (['1W', '1M', '3M', '6M', '1Y', '3Y', '5Y', '10Y'] as SipPeriod[]).map(p => ({
+export const SIP_COLS: Col[] = (['1W', '1M', '3M', '6M', '1Y', '3Y', '5Y', '10Y'] as SipPeriod[]).map(p => ({
   key: `sip_${p}`,
   label: `${p} SIP`,
   group: 'sip' as const,
@@ -134,7 +134,7 @@ const pct0 = (v: number | null | undefined) => (v == null ? '—' : `${Math.roun
 // Rolling returns: every window of this length in the fund's history (one ending
 // on each NAV date). Average and worst say what to expect; % positive and
 // % beat benchmark say how consistently.
-const ROLL_COLS: Col[] = (['1Y', '3Y', '5Y'] as RollingWindow[]).flatMap(w => {
+export const ROLL_COLS: Col[] = (['1Y', '3Y', '5Y'] as RollingWindow[]).flatMap(w => {
   const per = w === '1Y' ? 'absolute' : 'annualised (CAGR)'
   return [
     { key: `roll_${w}_avg`, label: `${w} roll avg`, group: 'rolling' as const,
@@ -158,14 +158,14 @@ const GOOD_BG = 'rgba(52,211,153,0.14)'
 const BAD_BG  = 'rgba(248,113,113,0.14)'
 
 /** Top/bottom-quarter cut-offs for one column, over the funds shown. */
-function cutoffs(values: number[]): { lo: number; hi: number } | null {
+export function cutoffs(values: number[]): { lo: number; hi: number } | null {
   if (values.length < 4) return null
   const s = [...values].sort((a, b) => a - b)
   const at = (q: number) => s[Math.min(s.length - 1, Math.floor(q * (s.length - 1)))]
   return { lo: at(0.25), hi: at(0.75) }
 }
 
-function tint(v: number | null | undefined, better: Better,
+export function tint(v: number | null | undefined, better: Better,
               c: { lo: number; hi: number } | null | undefined): string | undefined {
   if (v == null || !better || !c) return undefined
   if (v >= c.hi) return better === 'high' ? GOOD_BG : BAD_BG

@@ -22,13 +22,16 @@ import PortfolioOrbit, { type OrbitItem } from '../../components/PortfolioOrbit'
 import SipPulse from '../../components/SipPulse'
 import { readHoldingsFiles, type UploadInfo, type UploadedRow } from '../../utils/holdingsUpload'
 import { fmtPct, retColor } from '../../utils/format'
-import { inputStyle, type MfLine } from './ClientPlan'
+import { ADVISOR, inputStyle, type MfLine } from './ClientPlan'
 import SuggestedEditor from '../../components/SuggestedEditor'
 import { SipChanges, SwitchPlan, type SwitchRow } from '../../components/ActionPlan'
 import type { FundsIndex } from '../../types'
 
 interface Realloc {
   client: string
+  /** The advisor on the report's cover and footer (default Rahul). */
+  advisorName?: string
+  advisorPhone?: string
   file: string | null
   /** Which columns of the file the values came from. */
   info?: UploadInfo | null
@@ -190,7 +193,7 @@ export default function Reallocation() {
   return (
     <PdfProvider pageKey="rahul-realloc" doc={{
       kicker: 'Portfolio review', title: 'Portfolio Reallocation Proposal', client: cur.client || undefined,
-      advisor: { name: 'Rahul', mobile: '+91 98091 10073' },
+      advisor: { name: cur.advisorName?.trim() || ADVISOR.name, mobile: cur.advisorPhone?.trim() || ADVISOR.mobile },
       stats: [
         { label: 'Existing portfolio', value: inrShort(exTotal) },
         { label: 'Suggested portfolio', value: inrShort(prMf + prSif) },
@@ -238,6 +241,14 @@ export default function Reallocation() {
           <label className="text-xs" style={{ color: 'var(--text-mid)' }}>Client
             <input value={cur.client} onChange={e => update({ client: e.target.value })} placeholder="Client name"
                    className="block mt-1 px-2 py-1.5 rounded text-sm" style={{ ...inputStyle, width: 220 }} />
+          </label>
+          <label className="text-xs" style={{ color: 'var(--text-mid)' }} title="Printed on the PDF and the web link">Advisor
+            <input value={cur.advisorName ?? ''} onChange={e => update({ advisorName: e.target.value })} placeholder={ADVISOR.name}
+                   className="block mt-1 px-2 py-1.5 rounded text-sm" style={{ ...inputStyle, width: 150 }} />
+          </label>
+          <label className="text-xs" style={{ color: 'var(--text-mid)' }} title="Printed on the PDF and the web link">Advisor phone
+            <input value={cur.advisorPhone ?? ''} onChange={e => update({ advisorPhone: e.target.value })} placeholder={ADVISOR.mobile}
+                   className="block mt-1 px-2 py-1.5 rounded text-sm" style={{ ...inputStyle, width: 160 }} />
           </label>
           <label className="tab-btn active cursor-pointer text-xs" style={{ padding: '8px 14px' }} title="One statement, or several files at once (e.g. holdings and SIPs)">
             {busy ? 'Reading…' : '⬆ Upload files (MFBOX Excel / CSV)'}
