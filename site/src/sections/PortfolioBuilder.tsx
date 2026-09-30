@@ -16,7 +16,8 @@ import CapSplit, { capSplit, useStockCaps } from '../components/CapSplit'
 import { flowsIntoIndex, indexTrailing, TRAILING, useIndexSeries } from '../utils/benchmark'
 import { categoryPath } from '../config/dataPaths'
 import type { RiskData, RiskFundRow } from '../types'
-import CorrelationMatrix, { type NavSeries } from '../components/CorrelationMatrix'
+import CorrelationMatrix, { adjustSplits, type NavSeries } from '../components/CorrelationMatrix'
+import { portfolioRisk } from '../utils/seriesStats'
 import FundPicker, { bestFund } from '../components/FundPicker'
 import { useJson, useMeta } from '../hooks/useData'
 import DownloadButton from '../components/DownloadButton'
@@ -185,6 +186,22 @@ function usePortfolioCalc(pf: Portfolio, latest: string, fundByCode: Map<string,
 
 type Calc = ReturnType<typeof usePortfolioCalc>
 
+/** Full NAV history per fund (fetched once each); null while loading. */
+function useNavSeries(codes: string[]) {
+  const [series, setSeries] = useState<Record<string, NavSeries | null>>({})
+  useEffect(() => {
+    for (const c of codes) {
+      if (c in series) continue
+      setSeries(s => ({ ...s, [c]: null }))
+      fetch(`/api/series?code=${c}`).then(r => (r.ok ? r.json() : null))
+        .then(d => d && setSeries(s => ({ ...s, [c]: d })))
+        .catch(() => { /* table shows it as pending */ })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [codes.join(',')])
+  return series
+}
+
 function PortfolioEditor({ storeKey, label }: { storeKey: string; label: string }) {
   const { data: meta } = useMeta()
   const { data: index } = useJson<FundsIndex>('funds_index.json')
@@ -205,17 +222,7 @@ function PortfolioEditor({ storeKey, label }: { storeKey: string; label: string 
     leftOutOfMatrices(meta?.categories.find(c => c.slug === fundByCode.get(code)?.s)?.asset_class, fundByCode.get(code)?.n ?? '')
   // Full NAV history per holding, for the correlation table (fetched once each).
   const codes = useMemo(() => pf.holdings.map(h => h.code), [pf.holdings])
-  const [series, setSeries] = useState<Record<string, NavSeries | null>>({})
-  useEffect(() => {
-    for (const c of codes) {
-      if (c in series) continue
-      setSeries(s => ({ ...s, [c]: null }))
-      fetch(`/api/series?code=${c}`).then(r => (r.ok ? r.json() : null))
-        .then(d => d && setSeries(s => ({ ...s, [c]: d })))
-        .catch(() => { /* table shows it as pending */ })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [codes])
+  const series = useNavSeries(codes)
 
   const addFund = (picked?: string) => {
     const code = picked ?? codeByLabel.get(pick) ?? bestFund(index?.funds ?? [], pick)?.c
@@ -864,6 +871,14 @@ function FundsSideBySide({ title, colour, calc, risk, bench, benchName }: {
     }
     return w ? s / w : null
   }
+  // Std Dev and Sharpe of the portfolio as a whole (its combined monthly returns),
+  // not the weighted average of the funds' own ratios.
+  const { data: meta } = useMeta()
+  const series = useNavSeries(calc.results.map(r => r.h.code))
+  const whole = portfolioRisk(calc.results.map(r => ({
+    points: series[r.h.code] ? adjustSplits(series[r.h.code]!) : null, amount: r.value })), meta?.risk_free_rate ?? 0.065, meta?.as_of)
+  const portfolioValue = (label: string, get: (r: RiskFundRow) => number | null) =>
+    label === 'Sharpe' ? whole?.sharpe ?? null : label === 'Std Dev' ? whole?.std_annual ?? null : weighted(get)
   const cell = (v: number | null, f: (v: number) => string, colourIt = false) =>
     <td className={`ret-cell text-xs ${colourIt ? retColor(v) : ''}`}>{v == null ? '—' : f(v)}</td>
   return (
@@ -892,10 +907,12 @@ function FundsSideBySide({ title, colour, calc, risk, bench, benchName }: {
               )
             })}
             <tr className="benchmark-row">
-              <td className="sticky-col text-xs font-bold" style={{ color: colour }}>Portfolio (weighted)</td>
+              <td className="sticky-col text-xs font-bold" style={{ color: colour }}
+                  title="Returns, Alpha, Beta and Max DD: the funds' own, weighted by value. Sharpe and Std Dev: measured on the portfolio as a whole (its combined monthly returns, last 3 years), since funds that do not move together steady each other.">
+                Portfolio</td>
               <td className="ret-cell text-xs font-bold">100%</td>
               {RET_KEYS.map(([l, k]) => <Fragment key={l}>{cell(weighted(r => r.returns?.[k as keyof RiskFundRow['returns']] ?? null), fmtPct, true)}</Fragment>)}
-              {RATIO_KEYS.map(([l, get, f]) => <Fragment key={l}>{cell(weighted(get), f)}</Fragment>)}
+              {RATIO_KEYS.map(([l, get, f]) => <Fragment key={l}>{cell(portfolioValue(l, get), f)}</Fragment>)}
             </tr>
             <tr className="benchmark-row">
               <td className="sticky-col text-xs font-semibold" style={{ color: 'var(--accent-a)' }}>Benchmark · {benchName}</td>

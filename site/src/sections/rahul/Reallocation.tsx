@@ -174,11 +174,17 @@ export default function Reallocation() {
             {saved.map(k => <option key={k} value={k}>{k}</option>)}
           </select>
           <button className="tab-btn" onClick={saveAs}>Save for this client</button>
-          {store.current && (
+          {store.current ? (
             <button className="tab-btn" onClick={() => {
               if (!window.confirm(`Delete ${store.current}? It is removed for the whole team.`)) return
               cloud.remove(store.current)
             }}>Delete</button>
+          ) : (
+            // A new client not saved yet: start again from a blank page.
+            <button className="tab-btn" title="Clear this unsaved page and start again" onClick={() => {
+              if (!window.confirm('Clear this unsaved page and start again? Everything entered here is removed.')) return
+              setStore(s => ({ ...s, items: { ...s.items, '': EMPTY } }))
+            }}>Clear</button>
           )}
           <PdfButton title={cur.client || 'Portfolio Reallocation'} />
         </span>

@@ -21,7 +21,7 @@ import { leftOutOfMatrices } from '../utils/equityOnly'
 import { categoryPath } from '../config/dataPaths'
 import { closeAt, indexTrailing, useIndexSeries } from '../utils/benchmark'
 import { isoMinus } from '../utils/navMath'
-import { seriesStats } from '../utils/seriesStats'
+import { portfolioRisk, seriesStats, type PortfolioRisk } from '../utils/seriesStats'
 import { categoryColor } from '../config/categoryColors'
 import { fmtPct, retColor } from '../utils/format'
 import type { FundsIndex, RiskData, RiskFundRow } from '../types'
@@ -222,6 +222,11 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
   }
 
   const weightedAum = (s: ReviewSide) => weighted(s, r => r.aum_cr ?? null)
+  // Std Dev, Sharpe and Sortino of each portfolio as a whole (from the funds' combined
+  // monthly returns), not the weighted average of the funds' own ratios.
+  const portRisk = cols.map(s => portfolioRisk(priced(s).map(l => ({
+    points: series[l.code] ? adjustSplits(series[l.code]!) : null, amount: l.amount! })), rf, pubAsOf))
+  const seriesLoading = cols.some(s => priced(s).some(l => series[l.code] === null || !(l.code in series)))
 
   return (
     <div>
@@ -283,14 +288,16 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
       <PdfSection id="returns" page label="Returns, SIP returns & ratios (weighted, vs benchmark)" kicker="Performance" title="Returns &amp; Ratios">
       <div className="card overflow-hidden mb-4">
         <div className="px-4 pt-3 flex items-center flex-wrap gap-2">
-          <span className="font-display font-bold text-sm" style={{ color: 'var(--text-hi)' }}>Returns &amp; ratios (weighted by amount)</span>
+          <span className="font-display font-bold text-sm" style={{ color: 'var(--text-hi)' }}>Returns &amp; ratios</span>
           <span className="ml-auto flex items-center gap-2 text-xs print:hidden" style={{ color: 'var(--text-mid)' }}>
             Compare with <BenchmarkPicker id={benchId} onChange={setBenchId} />
           </span>
         </div>
         <div className="px-4 text-[10px]" style={{ color: 'var(--text-low)' }}>
           Returns up to 1Y absolute, 3Y+ annualised. SIP = XIRR of a monthly SIP. Sharpe, Sortino, Std Dev, Alpha, Beta and captures over the last 3 years (monthly
-          returns); Max DD = the worst fall from a peak in the fund&apos;s whole daily NAV history (since 2010 or launch).
+          returns); Max DD = the worst fall from a peak in the fund&apos;s whole daily NAV history (since 2010 or launch). Returns, SIP, Alpha, Beta,
+          captures and Max DD are the funds&apos; own, weighted by amount; <b>Sharpe, Sortino and Std Dev are measured on the portfolio as a whole</b>.
+          <PortfolioRiskNote risks={portRisk} labels={cols.map(s => s.label)} />
         </div>
         <details className="px-4 pt-1 text-[11px]" style={{ color: 'var(--text-mid)' }}>
           <summary className="cursor-pointer font-semibold" style={{ color: 'var(--accent-a)' }}>How these are calculated</summary>
@@ -315,7 +322,15 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
               approximation — funds do not all hit their low on the same day).
             </p>
             <p className="mb-1"><b>Std Dev</b> — how much the monthly returns swing, annualised (× √12), last 3 years.</p>
-            <p className="mb-1"><b>Sharpe</b> = (3Y return − risk-free rate) ÷ Std Dev. <b>Sortino</b> — the same, dividing by the downside swings only.</p>
+            <p className="mb-1"><b>Sharpe</b> = (3Y return − risk-free rate) ÷ Std Dev. <b>Sortino</b> — the same, dividing by the downside swings only.
+              Risk-free rate {(rf * 100).toFixed(1)}%.</p>
+            <p className="mb-1">
+              <b>Portfolio Sharpe, Sortino and Std Dev</b> are worked out on the portfolio itself, not averaged from its funds: each month&apos;s
+              portfolio return = the funds&apos; returns that month weighted by amount, and the same formulas are applied to those 36 months.
+              This matters because funds do not rise and fall together — e.g. two funds each swinging 16% a year but only partly in step
+              give a portfolio swinging about 14%, so the portfolio&apos;s Sharpe is <i>higher</i> than the average of the two funds&apos;
+              Sharpes. Debt and liquid funds also steady the portfolio this way, instead of their very small swings inflating an average.
+            </p>
             <p className="mb-1"><b>Beta</b> — how much the fund moves when its benchmark moves 1% (1.10 = 10% more). <b>Alpha</b> = 3Y return above what its Beta predicts.</p>
             <p className="mb-1"><b>Up / Down capture</b> — in the benchmark&apos;s up months, how much of the rise the fund caught (above 100 = more); in down months, how much of the fall (below 100 = fell less).</p>
             <p><b>SIP return</b> — XIRR of ₹ monthly instalments over the period, valued at the latest NAV.</p>
@@ -355,12 +370,13 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
                 )
               })}
               {FUND_RATIO.map(([l, get, f, good]) => {
-                const v = cols.map(s => weighted(s, get))
+                const whole = PORTFOLIO_LEVEL[l]
+                const v = cols.map((s, i) => (whole ? portRisk[i]?.[whole] ?? null : weighted(s, get)))
                 const d = two && v[0] != null && v[1] != null ? v[1] - v[0] : null
                 return (
                   <tr key={l} className="col-ratio">
                     <td className="sticky-col text-xs">{l}</td>
-                    {v.map((x, i) => <td key={i} className="ret-cell text-xs">{x == null ? '—' : f(x)}</td>)}
+                    {v.map((x, i) => <td key={i} className="ret-cell text-xs">{x == null ? (whole && seriesLoading ? '…' : '—') : f(x)}</td>)}
                     {two && (
                       <td className="ret-cell text-xs">
                         {d == null || Math.abs(d) < 1e-9 ? '—' : (
@@ -671,6 +687,23 @@ function StockChanges({ a, b }: { a: { s: ReviewSide; lt: { rows: LookRow[] } };
       )}
     </div>
   )
+}
+
+/** Ratios measured on the whole portfolio rather than averaged over its funds. */
+const PORTFOLIO_LEVEL: Record<string, 'sharpe' | 'sortino' | 'std_annual' | undefined> = {
+  Sharpe: 'sharpe', Sortino: 'sortino', 'Std Dev': 'std_annual',
+}
+
+/** Says when the portfolio ratios cover only part of the money, or less than 3 years. */
+function PortfolioRiskNote({ risks, labels }: { risks: (PortfolioRisk | null)[]; labels: string[] }) {
+  const notes = risks.map((r, i) => {
+    if (!r) return null
+    const who = labels.length > 1 ? `${labels[i]}: ` : ''
+    if (r.months < 30) return `${who}under 3 years of history for most of the money, so Sharpe, Sortino and Std Dev are left blank.`
+    if (r.coverage < 0.999) return `${who}${Math.round(r.coverage * 100)}% of the money has NAV history; the rest is left out of Sharpe, Sortino and Std Dev.`
+    return null
+  }).filter(Boolean)
+  return notes.length ? <> {notes.join(' ')}</> : null
 }
 
 const CMP_PERIODS = [['1M', '1M'], ['3M', '3M'], ['6M', '6M'], ['1Y', '12M'], ['2Y', '2Y'], ['3Y', '3Y'], ['5Y', '5Y']] as const

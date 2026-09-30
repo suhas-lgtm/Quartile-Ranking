@@ -70,3 +70,68 @@ export function seriesStats(points: PricePoint[] | null | undefined, rf: number,
 
   return { returns, sip, std_annual: std, sharpe, sortino, max_drawdown: dd }
 }
+
+export interface PortfolioRisk {
+  std_annual: number | null
+  sharpe: number | null
+  sortino: number | null
+  /** The portfolio's own 3Y return, p.a. (the funds held at these weights, rebalanced monthly). */
+  ret_3y: number | null
+  /** Months measured, and how much of the money had a history to measure. */
+  months: number
+  coverage: number
+}
+
+/**
+ * Std Dev, Sharpe and Sortino of a whole portfolio. A portfolio's Sharpe is
+ * not the weighted average of its funds' Sharpes: funds that do not move
+ * together cancel part of each other's swings, so the portfolio's Std Dev is
+ * lower than the average of theirs. Each month's portfolio return is the
+ * funds' returns that month weighted by amount (a fund launched later counts
+ * from its first month, the others re-weighted meanwhile); the ratios then
+ * use the same definitions as a single fund: 36 monthly returns, Std Dev ×
+ * √12, Sharpe and Sortino on the 3Y return over the risk-free rate.
+ */
+export function portfolioRisk(holdings: { points: PricePoint[] | null | undefined; amount: number }[],
+                              rf: number, asOf?: string | null): PortfolioRisk | null {
+  const total = holdings.reduce((s, h) => s + (h.amount > 0 ? h.amount : 0), 0)
+  if (!total) return null
+  // Month-end close per fund, keyed by 'YYYY-MM'.
+  const funds = holdings.filter(h => h.amount > 0).map(h => {
+    const m = new Map<string, number>()
+    for (const [d, v] of h.points ?? []) if (v > 0 && (!asOf || d <= asOf)) m.set(d.slice(0, 7), v)
+    return { m, w: h.amount / total }
+  })
+  const withData = funds.filter(f => f.m.size > 1)
+  const coverage = withData.reduce((s, f) => s + f.w, 0)
+  if (!withData.length) return null
+  // The 37 month-ends ending at the latest month any fund has.
+  const last = [...new Set(withData.flatMap(f => [...f.m.keys()]))].sort().slice(-1)[0]
+  const keys: string[] = []
+  let [y, mo] = last.split('-').map(Number)
+  for (let i = 0; i < 37; i++) { keys.unshift(`${y}-${String(mo).padStart(2, '0')}`); mo -= 1; if (!mo) { mo = 12; y -= 1 } }
+  const monthly: number[] = []
+  for (let i = 1; i < keys.length; i++) {
+    let s = 0, w = 0
+    for (const f of withData) {
+      const a = f.m.get(keys[i - 1]), b = f.m.get(keys[i])
+      if (a == null || b == null) continue
+      s += f.w * (b / a - 1); w += f.w
+    }
+    // A month counts when most of the money was invested in funds already running.
+    if (w >= coverage * 0.5) monthly.push(s / w)
+  }
+  const out: PortfolioRisk = { std_annual: null, sharpe: null, sortino: null, ret_3y: null, months: monthly.length, coverage }
+  if (monthly.length < 30) return out          // as for a fund: at least 30 of the 36 months
+  const mean = monthly.reduce((s, x) => s + x, 0) / monthly.length
+  const std = Math.sqrt(monthly.reduce((s, x) => s + (x - mean) ** 2, 0) / (monthly.length - 1)) * Math.sqrt(12)
+  const growth = monthly.reduce((g, x) => g * (1 + x), 1)
+  const ret = Math.pow(growth, 12 / monthly.length) - 1
+  const rfm = Math.pow(1 + rf, 1 / 12) - 1
+  const down = Math.sqrt(monthly.reduce((s, x) => s + Math.min(x - rfm, 0) ** 2, 0) / monthly.length) * Math.sqrt(12)
+  out.std_annual = std
+  out.ret_3y = ret
+  out.sharpe = std ? (ret - rf) / std : null
+  out.sortino = down ? (ret - rf) / down : null
+  return out
+}
