@@ -30,12 +30,26 @@ import type { SheetSpec } from '../utils/xlsx'
 import type { FundsIndex, RiskData, RiskFundRow } from '../types'
 
 type View = 'all' | 'returns' | 'sip' | 'rolling' | 'ratios'
-interface List { codes: string[] }
+/** A saved list: its funds, and the columns left out of view. */
+interface List { codes: string[]; hidden?: string[] }
 interface Store { current: string; lists: Record<string, List> }
 const STORE = 'fs_lists_v1'
 const EMPTY: List = { codes: [] }
 const PASSIVE = ['index-fund', 'etf', 'gold-etf', 'fof-domestic', 'fof-overseas']
 const ALL_COLS = [...RETURN_COLS, ...SIP_COLS, ...ROLL_COLS, ...RATIO_COLS, ...FACT_COLS]
+/** The column groups, for choosing columns and for the explanations. */
+const GROUPS: { id: string; label: string; cols: Col[]; intro: string }[] = [
+  { id: 'returns', label: 'Returns', cols: RETURN_COLS,
+    intro: 'What ₹1 invested at the start of the period is worth now. Up to 1 year: the plain (absolute) change. 2 years and more: CAGR, the steady yearly rate that gives the same result — so 3Y 15% means about 15% a year, not 15% in total.' },
+  { id: 'sip', label: 'SIP returns', cols: SIP_COLS,
+    intro: 'The same, for someone who invested a fixed amount every month instead of once. Up to 6 months: absolute return on the money put in. From 1 year: XIRR, the yearly rate that allows for each instalment going in at a different time.' },
+  { id: 'rolling', label: 'Rolling returns', cols: ROLL_COLS,
+    intro: 'Every 1-, 3- or 5-year holding period in the fund’s history, not just the one ending today. They show how dependable the fund has been: the typical result, the worst one, and how often it made money or beat its benchmark.' },
+  { id: 'ratios', label: 'Risk ratios & fund facts', cols: [...RATIO_COLS, ...FACT_COLS],
+    intro: 'How the returns were earned: how much risk was taken (Std Dev, Beta, Max DD), how well that risk was rewarded (Sharpe, Sortino, Alpha) and how the fund behaves in rising and falling markets (Up / Down capture). Measured over the last 3 years of monthly returns unless stated.' },
+]
+/** A shorter set most colleagues start from. */
+const KEY_SET = ['r_12M', 'r_3Y', 'r_5Y', 'sip_3Y', 'alpha', 'beta', 'sharpe', 'std_annual', 'upside_capture', 'downside_capture', 'max_drawdown', 'aum_cr']
 const inputStyle = { background: 'var(--bg-raised)', border: '1px solid var(--line)', color: 'var(--text-hi)', outline: 'none' }
 
 function load(): Store {
@@ -54,7 +68,11 @@ export default function FundScreener() {
   useEffect(() => { try { localStorage.setItem(STORE, JSON.stringify(store)) } catch { /* optional */ } }, [store])
   const cur = store.lists[store.current] ?? EMPTY
   const codes = cur.codes
-  const setCodes = (next: string[]) => setStore(s => ({ ...s, lists: { ...s.lists, [s.current]: { codes: next } } }))
+  const hidden = cur.hidden ?? []
+  const setCodes = (next: string[]) => setStore(s => ({ ...s, lists: { ...s.lists, [s.current]: { ...(s.lists[s.current] ?? EMPTY), codes: next } } }))
+  const setHidden = (next: string[]) => setStore(s => ({ ...s, lists: { ...s.lists, [s.current]: { ...(s.lists[s.current] ?? EMPTY), hidden: next } } }))
+  const [chooser, setChooser] = useState(false)
+  const [explain, setExplain] = useState(true)
   const [pick, setPick] = useState('')
   const [view, setView] = useState<View>('all')
   const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>(null)
@@ -71,8 +89,8 @@ export default function FundScreener() {
   const saveAs = () => {
     const n = (name || store.current).trim()
     if (!n) { window.alert('Give the list a name first.'); return }
-    setStore(s => ({ current: n, lists: { ...s.lists, [n]: { codes }, ...(s.current === '' ? { '': EMPTY } : {}) } }))
-    cloud.save(n, { codes })
+    setStore(s => ({ current: n, lists: { ...s.lists, [n]: { codes, hidden }, ...(s.current === '' ? { '': EMPTY } : {}) } }))
+    cloud.save(n, { codes, hidden })
     setName('')
   }
 
@@ -126,8 +144,8 @@ export default function FundScreener() {
     return out
   }, [files])
 
-  const cols = view === 'returns' ? RETURN_COLS : view === 'ratios' ? [...RATIO_COLS, ...FACT_COLS]
-    : view === 'sip' ? SIP_COLS : view === 'rolling' ? ROLL_COLS : ALL_COLS
+  const cols = (view === 'returns' ? RETURN_COLS : view === 'ratios' ? [...RATIO_COLS, ...FACT_COLS]
+    : view === 'sip' ? SIP_COLS : view === 'rolling' ? ROLL_COLS : ALL_COLS).filter(c => !hidden.includes(c.key))
   const rows = codes.map(c => ({ c, f: fundBy.get(c), r: rowOf(c), own: !!published(c) }))
   const sortCol = sort ? ALL_COLS.find(c => c.key === sort.key) : undefined
   const sorted = sortCol ? [...rows].sort((a, b) => {
@@ -259,12 +277,60 @@ export default function FundScreener() {
               ))}
             </div>
             <div className="flex items-center gap-3">
+              <button className={`tab-btn${chooser ? ' active accent' : ''}`} onClick={() => setChooser(!chooser)}
+                      title="Pick the returns and ratios to show; the rest are hidden">
+                ⚙ Choose columns{hidden.length ? ` (${ALL_COLS.length - hidden.length} of ${ALL_COLS.length})` : ''}
+              </button>
               <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--text-mid)' }}>
                 <input type="checkbox" checked={refs} onChange={() => setRefs(!refs)} /> Show category average &amp; benchmark
               </label>
               <DownloadButton build={buildExport} disabledHint="Add funds first" />
             </div>
           </div>
+          {chooser && (
+            <div className="card p-4 mb-3 print:hidden">
+              <div className="flex items-center gap-2 flex-wrap mb-3">
+                <span className="text-xs font-semibold" style={{ color: 'var(--text-hi)' }}>Show these columns</span>
+                <span className="text-[11px]" style={{ color: 'var(--text-low)' }}>— saved with the list; the download and PDF follow it</span>
+                <span className="ml-auto flex gap-2">
+                  <button className="tab-btn" onClick={() => setHidden(ALL_COLS.map(c => c.key).filter(k => !KEY_SET.includes(k)))}>Key set</button>
+                  <button className="tab-btn" onClick={() => setHidden([])}>Everything</button>
+                  <button className="tab-btn" onClick={() => setChooser(false)}>Done</button>
+                </span>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                {GROUPS.map(g => {
+                  const on = g.cols.filter(c => !hidden.includes(c.key)).length
+                  return (
+                    <div key={g.id}>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="text-xs font-semibold" style={{ color: 'var(--accent-a)' }}>{g.label}</span>
+                        <span className="text-[10px]" style={{ color: 'var(--text-low)' }}>{on}/{g.cols.length}</span>
+                        <button className="text-[10px] ml-auto" style={{ color: 'var(--text-mid)', background: 'none', border: 'none', cursor: 'pointer' }}
+                                onClick={() => setHidden(hidden.filter(k => !g.cols.some(c => c.key === k)))}>all</button>
+                        <button className="text-[10px]" style={{ color: 'var(--text-mid)', background: 'none', border: 'none', cursor: 'pointer' }}
+                                onClick={() => setHidden([...new Set([...hidden, ...g.cols.map(c => c.key)])])}>none</button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                        {g.cols.map(c => (
+                          <label key={c.key} className="flex items-center gap-1.5 text-[11px] cursor-pointer" style={{ color: 'var(--text-hi)' }} title={c.help}>
+                            <input type="checkbox" checked={!hidden.includes(c.key)}
+                                   onChange={() => setHidden(hidden.includes(c.key) ? hidden.filter(k => k !== c.key) : [...hidden, c.key])} />
+                            {c.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+          {cols.length === 0 && (
+            <div className="card p-4 mb-3 text-xs" style={{ color: 'var(--text-mid)' }}>
+              No columns chosen for this view — pick some under ⚙ Choose columns, or switch the view above.
+            </div>
+          )}
           <PdfSection id="table" page label="Returns & ratios, fund by fund" kicker="Fund by fund" title="Returns &amp; Ratios">
           <div className="card overflow-hidden mb-3">
             <div className="table-scroll">
@@ -334,6 +400,50 @@ export default function FundScreener() {
             Returns up to 1Y absolute, beyond that annualised. Ratios over the last 3 years. Green / red = top / bottom quarter of the fund&apos;s
             own category. Click a column to sort; hover a heading for what it means.{asOf ? ` Data as of ${asOf}.` : ''}
           </p>
+          </PdfSection>
+
+          {/* ── what the columns mean ── */}
+          <PdfSection id="explain" page label="What each return and ratio means" kicker="How to read the table" title="What Each Column Means">
+          <div className="card p-4 mb-6">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="font-display font-bold text-sm" style={{ color: 'var(--text-hi)' }}>What each column means</span>
+              <span className="text-[11px]" style={{ color: 'var(--text-low)' }}>— for the columns shown above</span>
+              <button className="tab-btn ml-auto print:hidden" onClick={() => setExplain(!explain)}>{explain ? 'Hide' : 'Show'}</button>
+            </div>
+            {explain && (
+              <div className="grid gap-5 lg:grid-cols-2">
+                {GROUPS.map(g => {
+                  const shown = g.cols.filter(c => cols.some(x => x.key === c.key))
+                  if (!shown.length) return null
+                  return (
+                    <div key={g.id}>
+                      <div className="text-xs font-semibold mb-1" style={{ color: 'var(--accent-a)' }}>{g.label}</div>
+                      <p className="text-[11px] mb-2 leading-relaxed" style={{ color: 'var(--text-mid)' }}>{g.intro}</p>
+                      <table className="text-[11px] leading-relaxed" style={{ borderCollapse: 'collapse', width: '100%' }}>
+                        <tbody>
+                          {shown.map(c => (
+                            <tr key={c.key} style={{ borderTop: '1px solid var(--line)' }}>
+                              <td className="py-1 pr-3 align-top font-semibold whitespace-nowrap" style={{ color: 'var(--text-hi)' }}>{c.label}</td>
+                              <td className="py-1 align-top" style={{ color: 'var(--text-mid)' }}>
+                                {c.help}
+                                {c.better && <span style={{ color: 'var(--text-low)' }}> {c.better === 'high' ? 'Green = top quarter of its category (higher is better).' : 'Green = top quarter of its category (lower is better).'}</span>}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                })}
+                <div className="lg:col-span-2 text-[11px] leading-relaxed" style={{ color: 'var(--text-mid)' }}>
+                  <b style={{ color: 'var(--text-hi)' }}>Reading the colours:</b> each fund is compared only with the other funds in <b>its own category</b>. Green =
+                  among the best quarter of that category on this measure, red = among the weakest quarter, no colour = the middle half. Where lower is better (Std Dev,
+                  Down capture), green means lower than most peers. Beta and AUM are not coloured. <b style={{ color: 'var(--text-hi)' }}>Blank (—)</b> = not enough history for that period, or (for debt
+                  funds worked out from their NAVs) a ratio that needs a benchmark. Risk-free rate used for Sharpe and Sortino: {(rf * 100).toFixed(1)}%.
+                </div>
+              </div>
+            )}
+          </div>
           </PdfSection>
         </>
       )}
