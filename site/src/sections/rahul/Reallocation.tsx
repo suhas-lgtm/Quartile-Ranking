@@ -521,11 +521,6 @@ export default function Reallocation() {
           <PortfolioOrbit label={view.label} colour={view.colour} items={view.items} note={view.note} />
         </PdfSection>
       )}
-      {(sipNow > 0 || sipAfter > 0) && (
-        <PdfSection id="pulse" label="SIP heartbeat (each SIP a beat)" kicker="Every month" title="The SIP Heartbeat">
-          <SipPulse label={sipChanged ? 'SIPs after the changes' : 'SIPs'} items={sipItems} before={sipChanged ? sipNow : undefined} />
-        </PdfSection>
-      )}
 
       {/* ── action plan: SIP changes, switches and STPs ── */}
       {(existing.size > 0 || cur.proposed.length > 0) && (
@@ -535,6 +530,12 @@ export default function Reallocation() {
               <SipChanges existing={existingSip} suggested={cur.sipPlan ?? {}} onChange={sipPlan => update({ sipPlan })} inputStyle={inputStyle} />
             </div>
           </PdfSection>
+          {/* The SIPs as they will be after the changes above, as a heartbeat. */}
+          {(sipNow > 0 || sipAfter > 0) && (
+            <PdfSection id="pulse" label="SIP heartbeat (the new SIP allocation)" kicker="Every month" title="The New SIP Allocation">
+              <SipPulse label={sipChanged ? 'SIPs after the changes' : 'SIPs'} items={sipItems} before={sipChanged ? sipNow : undefined} />
+            </PdfSection>
+          )}
           {(['switch', 'stp'] as const).map(kind => (
             <PdfSection key={kind} id={`moves-${kind}`} label={kind === 'switch' ? 'Action plan — switches' : 'Action plan — STPs'}
                         kicker="What to do" title={kind === 'switch' ? 'Switches' : 'STPs — Systematic Transfer Plans'}>
