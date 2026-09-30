@@ -453,9 +453,10 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
               <thead><tr>
                 <th className="sticky-col text-left">Fund</th>
                 <th style={{ textAlign: 'right' }}>Amount</th><th style={{ textAlign: 'right' }}>Weight</th>
-                {FUND_RET.map(([l]) => <th key={l} className="col-ret" style={{ textAlign: 'right' }}>{l}</th>)}
+                {/* 10Y and Sortino start left out of the PDF (the table is too wide with them); tick them to include them. */}
+                {FUND_RET.map(([l]) => <th key={l} className="col-ret" style={{ textAlign: 'right' }}
+                                           data-pdf-off={l === '10Y' ? '' : undefined}>{l}</th>)}
                 {FUND_SIP.map(([l]) => <th key={l} className="col-sip" style={{ textAlign: 'right' }}>{l}</th>)}
-                {/* Sortino starts left out of the PDF (the table is too wide with it); tick it to include it. */}
                 {FUND_RATIO.map(([l]) => <th key={l} className="col-ratio" style={{ textAlign: 'right' }}
                                               data-pdf-off={l === 'Sortino' ? '' : undefined}>{l}</th>)}
                 <th className="col-aum" style={{ textAlign: 'right' }}>AUM (₹ Cr)</th>
