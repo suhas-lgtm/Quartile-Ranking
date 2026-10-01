@@ -1508,6 +1508,14 @@ h1, h2, h3, h4, h5, h6 {
 }
 @media (prefers-reduced-motion: reduce) { .ecg-run, .ecg-dot, .ecg-tick { animation: none !important; } }
 
+/* ── click-to-sort on every table (utils/autoSort.ts) ── */
+th[data-autosort] { cursor: pointer; user-select: none; }
+th[data-autosort]:hover { color: var(--accent-a); }
+th[data-sort-dir] { color: var(--accent-a); }
+th[data-sort-dir="desc"]::after { content: ' ▼'; font-size: 0.85em; }
+th[data-sort-dir="asc"]::after { content: ' ▲'; font-size: 0.85em; }
+.pdf-picking th[data-sort-dir]::after { content: none; }
+
 /* ── PDF download (components/PdfSections.tsx) ── */
 /* Rows / columns left out of the PDF: dimmed on screen, dropped in print. */
 .pdf-row-off, .pdf-cell-off { opacity: 0.32; }
