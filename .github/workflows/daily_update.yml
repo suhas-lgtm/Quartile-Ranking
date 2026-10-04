@@ -52,6 +52,8 @@ concurrency:
 # Neon holds the NAV history, the published dashboard files and the 8 Market
 # Pulse index files. One secret: the Neon connection string.
 env:
+  # 'true' = the daily Auto Mailing (Brevo) email is paused; 'false' sends it again.
+  ALERTS_PAUSED: 'true'
   DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
 jobs:
@@ -191,8 +193,10 @@ jobs:
       # after the 08:00 IST run, which is the one that adds the previous day's
       # NAVs. Nothing is sent when no fund breaches a threshold. Mail trouble
       # must never fail the data run, hence continue-on-error.
+      # PAUSED on request (Oct 2026): the daily email is not sent. To resume,
+      # set ALERTS_PAUSED to 'false' in the env block at the top of this file.
       - name: Send Auto Mailing email (Brevo)
-        if: github.event.schedule == '30 2 * * 1-6' || github.event.inputs.send_alerts == 'true'
+        if: env.ALERTS_PAUSED != 'true' && (github.event.schedule == '30 2 * * 1-6' || github.event.inputs.send_alerts == 'true')
         continue-on-error: true
         run: python scripts/send_alerts.py
         env:
