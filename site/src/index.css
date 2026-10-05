@@ -187,6 +187,12 @@ h1, h2, h3, h4, h5, h6 {
 
 .tab-btn:hover { color: var(--text-hi); background: rgba(255,255,255,0.05); }
 .tab-btn.active { color: #fff; }
+/* Light theme: white text would vanish on the light cards, so a plain active button
+   (the dialog's Download / Create link, Upload files…) gets dark text on a soft teal. */
+:root[data-theme="light"] .tab-btn.active:not(.equity):not(.hybrid):not(.debt):not(.other):not(.accent) {
+  color: #0B5563; background: rgba(34, 211, 238, 0.18); border-color: rgba(8, 145, 178, 0.45);
+}
+:root[data-theme="light"] .tab-btn.active:not(.equity):not(.hybrid):not(.debt):not(.other):not(.accent):hover { background: rgba(34, 211, 238, 0.28); }
 .tab-btn.active.equity  { background: rgba(59,130,246,0.2); color: var(--equity); }
 .tab-btn.active.hybrid  { background: rgba(139,92,246,0.2); color: var(--hybrid); }
 .tab-btn.active.debt    { background: rgba(20,184,166,0.2); color: var(--debt); }
