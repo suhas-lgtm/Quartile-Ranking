@@ -1514,6 +1514,16 @@ h1, h2, h3, h4, h5, h6 {
 }
 @media (prefers-reduced-motion: reduce) { .ecg-run, .ecg-dot, .ecg-tick { animation: none !important; } }
 
+/* ── per-section "In PDF & link" switch (components/PdfSections.tsx) ── */
+.pdf-toggle { display: flex; justify-content: flex-end; margin: 0 0 3px; }
+.pdf-toggle button { font-size: 10.5px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line);
+                     background: transparent; color: var(--text-low); cursor: pointer; line-height: 1.6; }
+.pdf-toggle button:hover { color: var(--accent-a); border-color: var(--accent-a); }
+.pdf-off > .pdf-toggle button { color: #F59E0B; border-color: rgba(245, 158, 11, 0.55); background: rgba(245, 158, 11, 0.08); }
+/* Left out: greyed on screen (and dropped from the PDF by the print rules). */
+.pdf-off > :not(.pdf-toggle) { opacity: 0.38; }
+.pdf-empty-note { font-size: 10.5px; padding: 1px 8px; border-radius: 999px; border: 1px dashed var(--line); color: var(--text-low); line-height: 1.6; }
+
 /* ── click-to-sort on every table (utils/autoSort.ts) ── */
 th[data-autosort] { cursor: pointer; user-select: none; }
 th[data-autosort]:hover { color: var(--accent-a); }
@@ -1570,7 +1580,9 @@ th[data-sort-dir="asc"]::after { content: ' ▲'; font-size: 0.85em; }
   /* Darker greys than the screen theme, so small print stays readable. */
   .pdf-doc { --text-hi: #15172A; --text-mid: #3A3F55; --text-low: #5E6378; }
   main { padding-top: 0 !important; }
-  .pdf-off, .pdf-row-off, .pdf-cell-off { display: none !important; }
+  .pdf-off, .pdf-row-off, .pdf-cell-off, .pdf-empty, .pdf-print-skip { display: none !important; }
+  /* A two-column block whose second box is left out prints full width. */
+  .pdf-doc .grid.pdf-one-col { grid-template-columns: minmax(0, 1fr) !important; }
   .pdf-hide-ret .col-ret, .pdf-hide-sip .col-sip, .pdf-hide-ratio .col-ratio, .pdf-hide-aum .col-aum { display: none !important; }
 
   /* Page content: full width, scaled up for the big sheet. */

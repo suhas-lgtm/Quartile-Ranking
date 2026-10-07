@@ -255,7 +255,8 @@ function DetailsTab() {
               ))}
             </div>
             {p.objective && <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-mid)' }}><b>Objective.</b> {p.objective}</p>}
-            {p.exit_load && <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-mid)' }}><b>Exit load.</b> {p.exit_load}</p>}
+            {p.exit_load && <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-mid)' }}><b>Exit load.</b> {p.exit_load}
+              {p.exit_load_note && <span style={{ color: 'var(--text-low)' }}> ({p.exit_load_note})</span>}</p>}
             <div className="flex gap-3 text-[11px] mt-auto" style={{ color: 'var(--text-low)' }}>
               {p.min_amount && <span>{p.min_amount}</span>}
               {p.website && <a href={p.website} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-a)' }}>Website ↗</a>}
@@ -484,6 +485,7 @@ function NfoTab() {
               ))}
             </div>
             {o.objective && <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-mid)' }}>{o.objective}</p>}
+            {o.exit_load && <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-mid)' }}><b>Exit load.</b> {o.exit_load.replace(/^exit load\s*:?-?\s*/i, '')}</p>}
             <div className="flex gap-3 text-[11px]">
               {o.document && <a href={o.document} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-a)' }}>📄 Offer document</a>}
               {o.website && <a href={o.website} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-a)' }}>Website ↗</a>}

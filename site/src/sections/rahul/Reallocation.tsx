@@ -135,10 +135,15 @@ export default function Reallocation() {
   const sipKeys = [...new Set([...existingSip.keys(), ...Object.keys(cur.sipPlan ?? {})])]
   const sipAfterOf = (c: string) => (cur.sipPlan && c in cur.sipPlan ? cur.sipPlan[c] ?? 0 : existingSip.get(c) ?? 0)
   const sipChanged = sipKeys.some(c => Math.round(sipAfterOf(c)) !== Math.round(existingSip.get(c) ?? 0))
-  const sipItems = sipKeys.map(c => {
-    const was = existingSip.get(c) ?? 0, now = sipAfterOf(c)
-    return { code: c, amount: now, was, status: !sipChanged || now === was ? undefined : !was ? 'new' as const : now > was ? 'up' as const : 'down' as const }
-  })
+  const sifSips = cur.sif.filter(l => (l.sip ?? 0) > 0)
+  const sipItems = [
+    ...sipKeys.map(c => {
+      const was = existingSip.get(c) ?? 0, now = sipAfterOf(c)
+      return { code: c, amount: now, was, status: !sipChanged || now === was ? undefined : !was ? 'new' as const : now > was ? 'up' as const : 'down' as const }
+    }),
+    // SIPs in the suggested SIFs are all new.
+    ...sifSips.map(l => ({ name: sifName(l.id), amount: l.sip ?? 0, was: 0, status: 'new' as const })),
+  ]
   // The portfolio the pictures show: the suggested one, or today's while nothing is suggested.
   const view: { label: string; colour: string; items: OrbitItem[]; note?: string; current: boolean } = (() => {
     const prBy = new Map(cur.proposed.filter(l => (l.lump ?? 0) > 0).map(l => [l.code, l.lump ?? 0]))
@@ -164,6 +169,7 @@ export default function Reallocation() {
   const sipNow = [...existingSip.values()].reduce((t, v) => t + v, 0)
   const sipAfter = [...new Set([...existingSip.keys(), ...Object.keys(cur.sipPlan ?? {})])]
     .reduce((t, c) => t + (cur.sipPlan && c in cur.sipPlan ? cur.sipPlan[c] ?? 0 : existingSip.get(c) ?? 0), 0)
+    + cur.sif.reduce((t, l) => t + (l.sip ?? 0), 0)
   const gainTotal = switches.every(x => x.gain != null || x.sold === 0) ? switches.reduce((s, x) => s + (x.gain ?? 0), 0) : null
   const boughtTotal = switches.reduce((s, x) => s + x.bought, 0)
   const sellCount = switches.filter(x => x.sold > 0).length
@@ -395,21 +401,25 @@ export default function Reallocation() {
       )}
 
       {/* ── suggested portfolio ── */}
-      <PdfSection id="suggested" page label="Suggested portfolio — mutual funds (changes)" kicker="What we recommend" title="Suggested Portfolio — Mutual Funds">
+      <PdfSection id="suggested" page label="Suggested portfolio — mutual funds (changes)" kicker="What we recommend" title="Suggested Portfolio — Mutual Funds"
+                  empty={!cur.proposed.some(l => (l.lump ?? 0) > 0 || (l.sip ?? 0) > 0) && !Object.keys(cur.sipPlan ?? {}).length}>
       <div className="card p-4 mb-4">
         <SuggestedEditor existing={[...existing.entries()].map(([code, x]) => ({ code, amount: Math.round(x.value) }))}
                          lines={cur.proposed.map(l => ({ code: l.code, amount: l.lump }))}
                          onChange={ls => update({ proposed: ls.map(l => ({ code: l.code, lump: l.amount, sip: null })) })}
-                         inputStyle={inputStyle} colour={PR_COLOUR} title="Suggested portfolio — mutual funds" />
+                         inputStyle={inputStyle} colour={PR_COLOUR} title="Suggested portfolio — mutual funds"
+                         sip={{ now: c => existingSip.get(c) ?? 0, next: sipAfterOf,
+                                set: (c, v) => update({ sipPlan: { ...(cur.sipPlan ?? {}), [c]: v ?? 0 } }) }} />
       </div>
       </PdfSection>
-      <PdfSection id="suggested-sif" label="Suggested portfolio — SIF" kicker="What we recommend" title="Suggested Portfolio — SIF">
+      <PdfSection id="suggested-sif" label="Suggested portfolio — SIF" kicker="What we recommend" title="Suggested Portfolio — SIF"
+                  empty={!cur.sif.some(l => (l.lump ?? 0) > 0 || (l.sip ?? 0) > 0)}>
       <div className="card p-4 mb-4">
         <div className="flex items-center justify-between mb-2">
           <div className="font-display font-bold text-sm" style={{ color: SIF_COLOUR }}>Suggested portfolio — SIF</div>
           <span className="text-xs" style={{ color: 'var(--text-mid)' }}>Total <b style={{ color: 'var(--text-hi)' }}>{inr(prSif)}</b></span>
         </div>
-        <SifEditor lines={cur.sif} onChange={sif => update({ sif })} inputStyle={inputStyle} weightOf={l => l.lump ?? 0} showSip={false} />
+        <SifEditor lines={cur.sif} onChange={sif => update({ sif })} inputStyle={inputStyle} weightOf={l => l.lump ?? 0} />
       </div>
       </PdfSection>
 
@@ -544,11 +554,13 @@ export default function Reallocation() {
           {/* The SIPs as they will be after the changes above, as a heartbeat. */}
           {(sipNow > 0 || sipAfter > 0) && (
             <PdfSection id="pulse" label="SIP heartbeat (the new SIP allocation)" kicker="Every month" title="The New SIP Allocation">
-              <SipPulse label={sipChanged ? 'SIPs after the changes' : 'SIPs'} items={sipItems} before={sipChanged ? sipNow : undefined} />
+              <SipPulse label={sipChanged || sifSips.length ? 'SIPs after the changes' : 'SIPs'} items={sipItems}
+                        before={sipChanged || sifSips.length ? sipNow : undefined} />
             </PdfSection>
           )}
           {(['switch', 'stp'] as const).map(kind => (
             <PdfSection key={kind} id={`moves-${kind}`} label={kind === 'switch' ? 'Action plan — switches' : 'Action plan — STPs'}
+                        empty={!(cur.moves ?? []).some(m => m.type === kind)}
                         kicker="What to do" title={kind === 'switch' ? 'Switches' : 'STPs — Systematic Transfer Plans'}>
               <div className={`card p-4 mb-4 ${kind === 'stp' && !(cur.moves ?? []).some(m => m.type === 'stp') ? 'print:hidden' : ''}`}>
                 <SwitchPlan kind={kind} rows={cur.moves ?? []} onChange={moves => update({ moves })} changes={fundChanges} inputStyle={inputStyle}

@@ -1,0 +1,7 @@
+{
+  "_about": "Corrections to AMFI's SIF details, by strategy (the name without plan/option, lower case, as scripts/sif_data.py _key makes it). A field here replaces AMFI's for every plan of that strategy; *_note says where the correct value came from. Remove an entry once AMFI shows the same.",
+  "altiva hybrid long short fund": {
+    "exit_load": "0.50% of the applicable NAV if redeemed / switched out on or before 30 days from the date of allotment; Nil after 30 days.",
+    "exit_load_note": "As on the fund house's (Altiva SIF / Edelweiss) website, checked 7 Oct 2026. AMFI still lists 180 days."
+  }
+}

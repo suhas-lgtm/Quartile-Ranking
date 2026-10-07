@@ -261,7 +261,7 @@ export function SifAnalysis({ lines, colour = '#A78BFA' }: { lines: { id: string
                   <td className="ret-cell text-xs">{r.risk.vol == null ? '—' : pct1(r.risk.vol)}</td>
                   <td className="ret-cell text-xs">{r.risk.dd == null ? '—' : pct1(r.risk.dd)}</td>
                   <td className="ret-cell text-xs">{r.p.days_live ?? '—'}</td>
-                  <td className="text-[10px]" style={{ color: 'var(--text-mid)', maxWidth: 220 }} title={r.p.exit_load ?? ''}>
+                  <td className="text-[10px]" style={{ color: 'var(--text-mid)', maxWidth: 220 }} title={[r.p.exit_load, r.p.exit_load_note].filter(Boolean).join(' — ')}>
                     <div className="truncate">{r.p.exit_load ?? '—'}</div>
                   </td>
                 </tr>

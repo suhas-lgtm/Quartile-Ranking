@@ -112,7 +112,7 @@ export async function buildReportHtml(box: HTMLElement, doc: PdfDoc | undefined,
 
     // What the PDF leaves out, the link leaves out — removed, not just hidden.
     const hiddenCols = COL_CLASSES.filter(c => box.classList.contains(`pdf-hide-${c}`)).map(c => `.col-${c}`)
-    const drop = ['.pdf-off', '.pdf-row-off', '.pdf-cell-off', '[class*="print:hidden"]', '.no-print', 'button', 'select',
+    const drop = ['.pdf-off', '.pdf-empty', '.pdf-print-skip', '.pdf-row-off', '.pdf-cell-off', '[class*="print:hidden"]', '.no-print', 'button', 'select',
                   'input[type=checkbox]', 'input[type=file]', 'script', 'noscript', 'iframe', ...hiddenCols]
     clone.querySelectorAll(drop.join(',')).forEach(e => e.remove())
     clone.querySelectorAll('input').forEach(e => { if (!e.getAttribute('value')) e.remove(); else e.setAttribute('readonly', '') })

@@ -32,6 +32,8 @@ interface Ctx {
   register: (id: string, label: string) => void
   unregister: (id: string) => void
   off: Set<string>
+  /** Leave a whole section out of the PDF and link, or put it back. */
+  toggle: (id: string) => void
 }
 /** What the printed report is: its cover page and the footer on every page. */
 export interface PdfDoc {
@@ -112,7 +114,8 @@ export function PdfProvider({ pageKey, doc, children }: { pageKey: string; doc?:
   useEffect(() => { try { localStorage.setItem(`pdf_off:${pageKey}`, JSON.stringify([...off])) } catch { /* optional */ } }, [off, pageKey])
   const register = useCallback((id: string, label: string) => setSections(m => (m.get(id) === label ? m : new Map(m).set(id, label))), [])
   const unregister = useCallback((id: string) => setSections(m => { if (!m.has(id)) return m; const n = new Map(m); n.delete(id); return n }), [])
-  const ctx = useMemo(() => ({ register, unregister, off }), [register, unregister, off])
+  const toggle = useCallback((id: string) => setOff(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n }), [])
+  const ctx = useMemo(() => ({ register, unregister, off, toggle }), [register, unregister, off, toggle])
 
   // Keep the marks on as the tables re-render (data loading, edits): re-apply after any DOM change.
   useEffect(() => {
@@ -179,8 +182,10 @@ export function PdfProvider({ pageKey, doc, children }: { pageKey: string; doc?:
 }
 
 /** One choosable block of the PDF. Outside a PdfProvider it simply renders its children. */
-export function PdfSection({ id, label, kicker, title, page, children }: {
+export function PdfSection({ id, label, kicker, title, page, empty, children }: {
   id: string; label: string
+  /** Nothing filled in yet (e.g. no suggested portfolio): shown on screen, left out of the PDF and link. */
+  empty?: boolean
   /** Start a new page here. Without it the section follows the previous one on the same page. */
   page?: boolean
   /** Printed above the section, like a slide: a small kicker line and a big title (default: the label). */
@@ -193,8 +198,23 @@ export function PdfSection({ id, label, kicker, title, page, children }: {
     return () => ctx?.unregister(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, label])
+  const isOff = !!ctx?.off.has(id)
   return (
-    <div data-pdf={id} className={[ctx?.off.has(id) ? 'pdf-off' : '', page ? 'pdf-newpage' : ''].filter(Boolean).join(' ') || undefined}>
+    <div data-pdf={id} className={[isOff ? 'pdf-off' : '', empty ? 'pdf-empty' : '', page ? 'pdf-newpage' : ''].filter(Boolean).join(' ') || undefined}>
+      {/* On screen only: leave this whole section out of the PDF and web link, or put it back. */}
+      {ctx && empty && (
+        <div className="pdf-toggle print:hidden">
+          <span className="pdf-empty-note" title="Nothing entered here yet, so it is left out of the PDF and web link">Empty — not in the PDF &amp; link</span>
+        </div>
+      )}
+      {ctx && !empty && (
+        <div className="pdf-toggle print:hidden">
+          <button type="button" onClick={() => ctx.toggle(id)} aria-pressed={!isOff}
+                  title={isOff ? `“${label}” is left out of the PDF and web link — click to put it back` : `Click to leave “${label}” out of the PDF and web link`}>
+            {isOff ? '☐ Left out of the PDF & link — click to include' : '☑ In PDF & link'}
+          </button>
+        </div>
+      )}
       <div className={`pdf-slide-head ${page ? '' : 'sub'}`} aria-hidden>
         {kicker && <div className="pdf-kicker">{kicker}</div>}
         <div className="pdf-title">{title ?? label}</div>

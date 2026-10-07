@@ -5,6 +5,7 @@
 // amount, so the edit reads as a list of changes: Removed (struck through, can
 // be restored), Added, Increased, Reduced or Same. Removing a fund here only sets
 // its suggested amount to nothing — the existing side is never touched.
+// With `sip`, each fund also shows its SIP now and the suggested SIP (₹ a month).
 
 import { useMemo, useState } from 'react'
 import { useJson } from '../hooks/useData'
@@ -14,7 +15,10 @@ import { categoryColor } from '../config/categoryColors'
 import { inr } from './PortfolioReview'
 import type { FundsIndex } from '../types'
 
-export interface AmountLine { code: string; amount: number | null }
+export interface AmountLine { code: string; amount: number | null; sip?: number | null }
+
+/** SIPs beside the amounts: today's SIP per fund, the suggested one, and how to change it. */
+export interface SipColumns { now: (code: string) => number; next: (code: string) => number; set: (code: string, v: number | null) => void }
 
 export const STATUS_COLOUR: Record<string, string> = {
   Removed: '#F87171', Reduced: '#F59E0B', Same: 'var(--text-low)', Increased: '#34D399', Added: '#22D3EE',
@@ -24,7 +28,8 @@ export function statusOf(ex: number, sg: number) {
   return ex > 0 && sg <= 0 ? 'Removed' : ex <= 0 && sg > 0 ? 'Added' : sg > ex + 0.5 ? 'Increased' : sg < ex - 0.5 ? 'Reduced' : 'Same'
 }
 
-export default function SuggestedEditor({ existing, lines, onChange, inputStyle, colour = '#22D3EE', title = 'Suggested portfolio' }: {
+export default function SuggestedEditor({ existing, lines, onChange, inputStyle, colour = '#22D3EE', title = 'Suggested portfolio', sip }: {
+  sip?: SipColumns
   existing: AmountLine[]
   lines: AmountLine[]
   onChange: (l: AmountLine[]) => void
@@ -65,7 +70,7 @@ export default function SuggestedEditor({ existing, lines, onChange, inputStyle,
           {existing.length > 0 && (
             <button className="tab-btn" title="Copy the existing funds and amounts, then change them"
                     onClick={() => { if (!lines.length || window.confirm('Replace the suggested portfolio with a fresh copy of the existing one?'))
-                      onChange(existing.filter(l => (l.amount ?? 0) > 0).map(l => ({ code: l.code, amount: l.amount }))) }}>
+                      onChange(existing.filter(l => (l.amount ?? 0) > 0 || (l.sip ?? 0) > 0).map(l => ({ code: l.code, amount: l.amount, ...(l.sip != null ? { sip: l.sip } : {}) }))) }}>
               {lines.length ? '↺ Duplicate existing again' : '⧉ Duplicate existing'}
             </button>
           )}
@@ -87,6 +92,7 @@ export default function SuggestedEditor({ existing, lines, onChange, inputStyle,
               <th style={{ textAlign: 'right' }}>Existing ₹</th>
               <th style={{ textAlign: 'right' }}>Suggested ₹</th>
               <th style={{ textAlign: 'right' }}>Change</th>
+              {sip && <><th style={{ textAlign: 'right' }}>SIP now ₹/mo</th><th style={{ textAlign: 'right' }}>Suggested SIP ₹/mo</th></>}
               <th className="text-left">Status</th><th />
             </tr></thead>
             <tbody>
@@ -114,6 +120,17 @@ export default function SuggestedEditor({ existing, lines, onChange, inputStyle,
                     <td className="ret-cell text-xs font-semibold" style={{ color: c }}>
                       {sg - ex === 0 ? '—' : `${sg > ex ? '+' : '−'}${inr(Math.abs(sg - ex))}`}
                     </td>
+                    {sip && (
+                      <>
+                        <td className="ret-cell text-xs" style={{ color: 'var(--text-mid)' }}>{sip.now(code) ? inr(sip.now(code)) : '—'}</td>
+                        <td style={{ width: 120, textAlign: 'right' }}>
+                          <span className="hidden print:inline text-xs font-semibold">{sip.next(code) ? inr(sip.next(code)) : '—'}</span>
+                          <input type="number" min={0} step={1000} value={sip.next(code) || ''} placeholder="SIP"
+                                 onChange={e => sip.set(code, e.target.value === '' ? null : Math.max(0, +e.target.value))}
+                                 className="px-2 py-1 rounded text-xs w-full text-right print:hidden" style={inputStyle} />
+                        </td>
+                      </>
+                    )}
                     <td className="text-[11px] font-semibold" style={{ color: c }}>{st}</td>
                     <td style={{ width: 28 }}>
                       {removed ? (
@@ -132,6 +149,12 @@ export default function SuggestedEditor({ existing, lines, onChange, inputStyle,
                 <td className="ret-cell text-xs font-semibold">{inr(exTotal)}</td>
                 <td className="ret-cell text-xs font-semibold" style={{ paddingRight: 12 }}>{inr(sgTotal)}</td>
                 <td className="ret-cell text-xs font-semibold">{sgTotal - exTotal === 0 ? '—' : `${sgTotal > exTotal ? '+' : '−'}${inr(Math.abs(sgTotal - exTotal))}`}</td>
+                {sip && (
+                  <>
+                    <td className="ret-cell text-xs font-semibold">{inr(codes.reduce((t, c) => t + sip.now(c), 0))}</td>
+                    <td className="ret-cell text-xs font-semibold" style={{ paddingRight: 12 }}>{inr(codes.reduce((t, c) => t + sip.next(c), 0))}</td>
+                  </>
+                )}
                 <td colSpan={2} className="text-[10px]" style={{ color: 'var(--text-low)' }}>
                   {sgTotal > exTotal + 0.5 ? 'fresh money' : sgTotal < exTotal - 0.5 ? 'not reinvested' : ''}
                 </td>

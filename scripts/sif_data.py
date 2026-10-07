@@ -80,6 +80,12 @@ def _key(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", n).strip()
 
 
+def _clean(text) -> str | None:
+    """AMFI free text, tidied: one space between words, broken dashes (U+FFFD) shown as dashes."""
+    t = re.sub(r"\s+", " ", str(text or "")).replace("\ufffd", "–").strip()
+    return t or None
+
+
 def fetch_details(sif_ids: set[str]) -> dict[str, dict]:
     """{strategy key: launch date, objective, exit load, minimum, website} per SIF house."""
     out = {}
@@ -93,9 +99,9 @@ def fetch_details(sif_ids: set[str]) -> dict[str, dict]:
         for d in rows:
             out[_key(d.get("Scheme_Name"))] = {
                 "launch_date": _day(d.get("Launch_Date")),
-                "objective": re.sub(r"\s+", " ", d.get("Scheme_Objective") or "").strip() or None,
-                "exit_load": re.sub(r"\s+", " ", d.get("scheme_load") or "").strip() or None,
-                "min_amount": re.sub(r"\s+", " ", d.get("Scheme_min_amt") or "").strip() or None,
+                "objective": _clean(d.get("Scheme_Objective")),
+                "exit_load": _clean(d.get("scheme_load")),
+                "min_amount": _clean(d.get("Scheme_min_amt")),
                 "website": d.get("AMC_Website") or None,
             }
     log.info("SIF details: %d strategies", len(out))
@@ -124,19 +130,21 @@ def fetch_nfo() -> list[dict] | None:
             except Exception:
                 pass
             m = {**it, **det}
+            pick = lambda *keys: next((m[k] for k in keys if m.get(k) not in (None, "")), None)
             out.append({
                 "id": str(sid),
-                "house": m.get("MutualFund") or m.get("SIFName"),
-                "name": m.get("SchemeName") or m.get("NavName"),
-                "category": m.get("SchemeCategory") or m.get("category"),
-                "type": m.get("SchemeType"),
-                "objective": m.get("ObjectiveofScheme"),
-                "opens": _day(m.get("NewFundLaunchDate")),
-                "closes": _day(m.get("NewFundOfferClosureDate")),
-                "min_amount": m.get("MinimumSubscriptionAmount"),
-                "price": m.get("OfferPriceRs"),
-                "website": m.get("ForFurtherDetailsPleaseVisitWebsite"),
-                "document": m.get("infoDocumentUrl"),
+                "house": pick("Specialized_Investment_Fund", "MutualFund", "SIFName") or g.get("MutualFund"),
+                "name": pick("Investment_Strategy", "SchemeName", "NavName"),
+                "category": pick("Category", "SchemeCategory", "category"),
+                "type": pick("Type", "SchemeType"),
+                "objective": _clean(pick("Objective_of_Investment_Strategy", "ObjectiveofScheme")),
+                "opens": _day(pick("New_Fund_Launch_Date", "NewFundLaunchDate")),
+                "closes": _day(pick("New_Fund_Offer_Closure_Date", "NewFundOfferClosureDate")),
+                "min_amount": _clean(pick("Minimum_Subscription_Amount", "MinimumSubscriptionAmount")),
+                "price": pick("Offer_Price_Rs", "OfferPriceRs"),
+                "exit_load": _clean(pick("Indicate_Load_Separately", "IndicateLoadSeparately")),
+                "website": pick("For_Further_Details_Please_Visit_Website", "ForFurtherDetailsPleaseVisitWebsite"),
+                "document": pick("infoDocumentUrl"),
             })
     log.info("SIF NFO: %d offers", len(out))
     return out

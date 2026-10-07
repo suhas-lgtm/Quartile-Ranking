@@ -27,6 +27,8 @@ export interface SifPlan {
   days_live?: number | null
   objective?: string | null
   exit_load?: string | null
+  /** Set when the exit load is corrected from AMFI's (data/sif_overrides.json): where it came from. */
+  exit_load_note?: string | null
   min_amount?: string | null
   website?: string | null
   /** {'YYYY-MM': month's return} from the collected history. */
@@ -58,6 +60,7 @@ export interface SifNfoData {
     closes: string | null
     min_amount: string | null
     price: string | null
+    exit_load?: string | null
     website: string | null
     document: string | null
   }[]
