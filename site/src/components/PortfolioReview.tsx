@@ -184,11 +184,6 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
   const fundsOf = (s: ReviewSide) => priced(s).filter(l => !isDebt(l.code)).map(l => ({ code: l.code, name: name(l.code) }))
   const focusFunds = fx ? fundsOf(fx.s) : []
   const debtLeftOut = fx ? priced(fx.s).filter(l => isDebt(l.code)).length : 0
-  // Overlap has its own switch, so the two tables can show different sides.
-  const [ovPick, setOvPick] = useState<number | null>(null)
-  const ov = shown.find(x => x.i === ovPick) ?? focus
-  const ovFunds = ov ? fundsOf(ov.s) : []
-  const ovDebt = ov ? priced(ov.s).filter(l => isDebt(l.code)).length : 0
 
   if (!shown.length) {
     return (
@@ -503,22 +498,46 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
         </p>
       )}
 
-      <SideSwitch title="Portfolio overlap between funds" sides={shown} pick={ov?.i} onPick={setOvPick} count={x => fundsOf(x.s).length} two={two} />
-      {ovDebt > 0 && (
-        <p className="text-[11px] mb-2" style={{ color: 'var(--text-low)' }}>
-          {ovDebt} fund{ovDebt === 1 ? '' : 's'} left out of the overlap table (debt, hybrid, index and international funds).
-        </p>
-      )}
-      {ovFunds.length > 1 ? (
-        <div key={`o${ov?.i}`}>
-          <PdfSection id="overlap" label="Portfolio overlap between funds" kicker="Diversification"
-                      title={`Portfolio Overlap Between Funds${two ? ` — ${ov?.s.label} Portfolio` : ''}`}><OverlapMatrix funds={ovFunds} /></PdfSection>
-        </div>
-      ) : (
-        <p className="text-xs mb-4" style={{ color: 'var(--text-mid)' }}>
-          The {ov?.s.label.toLowerCase()} portfolio has fewer than two equity funds (debt, hybrid, index and international funds are left out), so there is no overlap to show.
-        </p>
-      )}
+      {/* Overlap for each portfolio on its own — the existing one first, as the reason for exiting funds. */}
+      {shown.map(x => {
+        const funds = fundsOf(x.s)
+        const leftOut = priced(x.s).filter(l => isDebt(l.code)).length
+        const isExisting = two && x.i === 0
+        const exited = isExisting ? priced(x.s).filter(l => !priced(shown[1].s).some(m => m.code === l.code)).map(l => name(l.code)) : []
+        const heading = `Portfolio Overlap${two ? ` — ${x.s.label} Portfolio` : ''}`
+        return (
+          <div key={`ov${x.i}`}>
+            <div className="card px-4 py-3 mb-2 mt-2 flex items-center gap-2 flex-wrap text-xs print:hidden" style={{ borderLeft: `3px solid ${x.s.colour}` }}>
+              <span className="font-display font-bold text-sm" style={{ color: 'var(--text-hi)' }}>{heading}</span>
+              <span style={{ color: 'var(--text-low)' }}>{funds.length} equity funds · updates as you change the funds</span>
+            </div>
+            {funds.length > 1 ? (
+              <PdfSection id={isExisting ? 'overlap-existing' : 'overlap'} page={isExisting || !two}
+                          label={two ? `Portfolio overlap — ${x.s.label.toLowerCase()} portfolio` : 'Portfolio overlap between funds'}
+                          kicker="Diversification" title={heading}>
+                {isExisting && (
+                  <div className="card p-3 mb-2 text-[12px] leading-relaxed" style={{ color: 'var(--text-mid)', borderLeft: '3px solid #F59E0B' }}>
+                    <b style={{ color: 'var(--text-hi)' }}>Why this matters:</b> two funds that hold many of the same stocks give the client
+                    little extra spread — it is paying two fund managers for largely the same shares. High overlap in the existing portfolio
+                    is one of the reasons for the changes we suggest.
+                    {exited.length > 0 && <> Funds we suggest exiting: <b style={{ color: 'var(--text-hi)' }}>{exited.join(', ')}</b>.</>}
+                  </div>
+                )}
+                <OverlapMatrix funds={funds} />
+                {leftOut > 0 && (
+                  <p className="text-[11px] mt-1 mb-2" style={{ color: 'var(--text-low)' }}>
+                    {leftOut} fund{leftOut === 1 ? '' : 's'} left out of this table (debt, hybrid, index and international funds).
+                  </p>
+                )}
+              </PdfSection>
+            ) : (
+              <p className="text-xs mb-4" style={{ color: 'var(--text-mid)' }}>
+                The {x.s.label.toLowerCase()} portfolio has fewer than two equity funds (debt, hybrid, index and international funds are left out), so there is no overlap to show.
+              </p>
+            )}
+          </div>
+        )
+      })}
 
       <p className="text-[11px] mb-4" style={{ color: 'var(--text-low)' }}>
         Allocations look through each fund to its latest monthly portfolio, weighted by the amount in that fund. Market cap uses
