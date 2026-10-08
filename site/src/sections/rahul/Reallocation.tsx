@@ -21,6 +21,7 @@ import { SifAnalysis, SifEditor, useSifPlans, type SifLine } from '../../compone
 import PortfolioOrbit, { type OrbitItem } from '../../components/PortfolioOrbit'
 import SipPulse from '../../components/SipPulse'
 import { readHoldingsFiles, type UploadInfo, type UploadedRow } from '../../utils/holdingsUpload'
+import { matchSif } from '../../utils/sifMatch'
 import { fmtPct, retColor } from '../../utils/format'
 import { ADVISOR, inputStyle, type MfLine } from './ClientPlan'
 import SuggestedEditor from '../../components/SuggestedEditor'
@@ -42,6 +43,10 @@ interface Realloc {
   sipPlan?: Record<string, number | null>
   /** Switches and STPs that carry out the reallocation. */
   moves?: SwitchRow[]
+  /** SIFs the client holds today (value in `lump`), from the upload or typed in. */
+  sifExisting?: SifLine[]
+  /** How many statement rows were recognised as SIFs. */
+  sifFound?: number
 }
 const STORE = 'rahul_realloc_v1'
 const EMPTY: Realloc = { client: '', file: null, rows: [], proposed: [], sif: [] }
@@ -78,7 +83,19 @@ export default function Reallocation() {
       const { rows, info } = await readHoldingsFiles(files, funds, sipColumn)
       lastFiles.current = files
       const name = files.length === 1 ? files[0].name : `${files.length} files`
-      update({ file: name, rows, info })
+      // SIF holdings in the statement are not mutual funds: they go to Existing SIF, value and SIP added up per strategy.
+      const sifBy = new Map<string, SifLine>()
+      const mfRows = rows.filter(r => {
+        const p = matchSif(r.raw, sifPlans)
+        if (!p) return true
+        const x = sifBy.get(p.id) ?? { id: p.id, lump: 0, sip: null }
+        x.lump = (x.lump ?? 0) + r.value
+        if (r.sip) x.sip = (x.sip ?? 0) + r.sip
+        sifBy.set(p.id, x)
+        return false
+      })
+      const found = rows.length - mfRows.length
+      update({ file: name, rows: mfRows, info, ...(found ? { sifExisting: [...sifBy.values()], sifFound: found } : { sifFound: 0 }) })
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     } finally { setBusy(false) }
@@ -97,7 +114,16 @@ export default function Reallocation() {
     return m
   }, [cur.rows])
   const exTotal = [...existing.values()].reduce((s, x) => s + x.value, 0)
-  const { byId: sifById } = useSifPlans()
+  const { byId: sifById, plans: sifPlans } = useSifPlans()
+  // SIFs held today: their value counts in the existing portfolio.
+  const sifEx = cur.sifExisting ?? []
+  const exSif = sifEx.reduce((t, l) => t + (l.lump ?? 0), 0)
+  const exAll = exTotal + exSif
+  // What changes in SIF: bought where the suggestion is above today's, sold where below.
+  const sifIds = [...new Set([...sifEx, ...cur.sif].map(l => l.id))]
+  const sifAmt = (ls: SifLine[], id: string) => ls.filter(l => l.id === id).reduce((t, l) => t + (l.lump ?? 0), 0)
+  const sifBought = sifIds.reduce((t, id) => t + Math.max(0, sifAmt(cur.sif, id) - sifAmt(sifEx, id)), 0)
+  const sifSold = sifIds.reduce((t, id) => t + Math.max(0, sifAmt(sifEx, id) - sifAmt(cur.sif, id)), 0)
   const sifName = (id: string) => sifById.get(id)?.name.replace(/\s*-\s*Regular.*$/i, '') ?? id
   const exInvested = [...existing.values()].every(x => x.invested != null) ? [...existing.values()].reduce((s, x) => s + (x.invested ?? 0), 0) : null
   const prMf = cur.proposed.reduce((s, l) => s + (l.lump ?? 0), 0)
@@ -135,20 +161,28 @@ export default function Reallocation() {
   const sipKeys = [...new Set([...existingSip.keys(), ...Object.keys(cur.sipPlan ?? {})])]
   const sipAfterOf = (c: string) => (cur.sipPlan && c in cur.sipPlan ? cur.sipPlan[c] ?? 0 : existingSip.get(c) ?? 0)
   const sipChanged = sipKeys.some(c => Math.round(sipAfterOf(c)) !== Math.round(existingSip.get(c) ?? 0))
-  const sifSips = cur.sif.filter(l => (l.sip ?? 0) > 0)
+  const sifSips = [...new Set([...(cur.sifExisting ?? []), ...cur.sif].map(l => l.id))].map(id => ({
+    id,
+    was: (cur.sifExisting ?? []).filter(l => l.id === id).reduce((t, l) => t + (l.sip ?? 0), 0),
+    now: (cur.sif.length ? cur.sif : cur.sifExisting ?? []).filter(l => l.id === id).reduce((t, l) => t + (l.sip ?? 0), 0),
+  })).filter(x => x.was || x.now)
   const sipItems = [
     ...sipKeys.map(c => {
       const was = existingSip.get(c) ?? 0, now = sipAfterOf(c)
       return { code: c, amount: now, was, status: !sipChanged || now === was ? undefined : !was ? 'new' as const : now > was ? 'up' as const : 'down' as const }
     }),
-    // SIPs in the suggested SIFs are all new.
-    ...sifSips.map(l => ({ name: sifName(l.id), amount: l.sip ?? 0, was: 0, status: 'new' as const })),
+    // SIF SIPs: today's (existing SIF) against the suggested ones.
+    ...sifSips.map(x => ({ name: sifName(x.id), amount: x.now, was: x.was,
+                           status: x.now === x.was ? undefined : !x.was ? 'new' as const : x.now > x.was ? 'up' as const : 'down' as const })),
   ]
   // The portfolio the pictures show: the suggested one, or today's while nothing is suggested.
   const view: { label: string; colour: string; items: OrbitItem[]; note?: string; current: boolean } = (() => {
     const prBy = new Map(cur.proposed.filter(l => (l.lump ?? 0) > 0).map(l => [l.code, l.lump ?? 0]))
     if (!prBy.size && !cur.sif.some(l => (l.lump ?? 0) > 0)) {
-      return { label: 'Current portfolio', colour: EX_COLOUR, current: true, items: [...existing.entries()].map(([code, x]) => ({ code, amount: x.value })) }
+      return { label: 'Current portfolio', colour: EX_COLOUR, current: true, items: [
+        ...[...existing.entries()].map(([code, x]) => ({ code, amount: x.value })),
+        ...(cur.sifExisting ?? []).filter(l => (l.lump ?? 0) > 0).map(l => ({ name: sifName(l.id), amount: l.lump ?? 0, sif: true })),
+      ] }
     }
     const sold = [...existing.keys()].filter(c => !prBy.has(c)).length
     return {
@@ -160,13 +194,17 @@ export default function Reallocation() {
           return { code, amount: v, was: ex || undefined,
                    status: !ex ? 'new' as const : v > ex * 1.01 ? 'up' as const : v < ex * 0.99 ? 'down' as const : undefined }
         }),
-        ...cur.sif.filter(l => (l.lump ?? 0) > 0).map(l => ({ name: sifName(l.id), amount: l.lump ?? 0, sif: true, status: 'new' as const })),
+        ...cur.sif.filter(l => (l.lump ?? 0) > 0).map(l => {
+          const was = (cur.sifExisting ?? []).filter(x => x.id === l.id).reduce((t, x) => t + (x.lump ?? 0), 0), v = l.lump ?? 0
+          return { name: sifName(l.id), amount: v, sif: true, was: was || undefined,
+                   status: !was ? 'new' as const : v > was * 1.01 ? 'up' as const : v < was * 0.99 ? 'down' as const : undefined }
+        }),
       ],
     }
   })()
   const fundChanges = useMemo(() => new Map(switches.map(x => [x.code, x.pr - x.ex])), [switches])
   // SIPs a month: running now, and after the SIP changes (a fund not changed keeps its SIP).
-  const sipNow = [...existingSip.values()].reduce((t, v) => t + v, 0)
+  const sipNow = [...existingSip.values()].reduce((t, v) => t + v, 0) + (cur.sifExisting ?? []).reduce((t, l) => t + (l.sip ?? 0), 0)
   const sipAfter = [...new Set([...existingSip.keys(), ...Object.keys(cur.sipPlan ?? {})])]
     .reduce((t, c) => t + (cur.sipPlan && c in cur.sipPlan ? cur.sipPlan[c] ?? 0 : existingSip.get(c) ?? 0), 0)
     + cur.sif.reduce((t, l) => t + (l.sip ?? 0), 0)
@@ -201,12 +239,12 @@ export default function Reallocation() {
       kicker: 'Portfolio review', title: 'Portfolio Reallocation Proposal', client: cur.client || undefined,
       advisor: { name: cur.advisorName?.trim() || ADVISOR.name, mobile: cur.advisorPhone?.trim() || ADVISOR.mobile },
       stats: [
-        { label: 'Existing portfolio', value: inrShort(exTotal) },
+        { label: 'Existing portfolio', value: inrShort(exAll) },
         { label: 'Suggested portfolio', value: inrShort(prMf + prSif) },
         { label: 'Funds', value: `${existing.size} → ${cur.proposed.filter(l => (l.lump ?? 0) > 0).length + cur.sif.filter(l => (l.lump ?? 0) > 0).length}` },
-        prMf + prSif - exTotal >= 0
-          ? { label: 'Fresh money', value: inrShort(prMf + prSif - exTotal) }
-          : { label: 'Money left over', value: inrShort(exTotal - prMf - prSif) },
+        prMf + prSif - exAll >= 0
+          ? { label: 'Fresh money', value: inrShort(prMf + prSif - exAll) }
+          : { label: 'Money left over', value: inrShort(exAll - prMf - prSif) },
       ],
     }}>
     <section id="reallocation" className="px-4 sm:px-6 py-6 max-w-screen-2xl mx-auto">
@@ -400,6 +438,23 @@ export default function Reallocation() {
         </PdfSection>
       )}
 
+      {/* ── SIFs held today (read from the upload, or added here) ── */}
+      <PdfSection id="existing-sif" label="Existing SIF holdings" kicker="Where you stand today" title="Existing SIF Holdings" empty={!sifEx.length}>
+      <div className="card p-4 mb-4">
+        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <div className="font-display font-bold text-sm" style={{ color: EX_COLOUR }}>Existing SIF</div>
+          <span className="text-xs" style={{ color: 'var(--text-mid)' }}>
+            {cur.sifFound ? <>{cur.sifFound} SIF holding{cur.sifFound === 1 ? '' : 's'} read from the upload · </> : null}
+            Total <b style={{ color: 'var(--text-hi)' }}>{inr(exSif)}</b>
+          </span>
+        </div>
+        <SifEditor lines={sifEx} onChange={l => update({ sifExisting: l })} inputStyle={inputStyle} weightOf={l => l.lump ?? 0} />
+        <p className="text-[10px] mt-1 print:hidden" style={{ color: 'var(--text-low)' }}>
+          Lump sum = today&apos;s value of the SIF. SIFs in an uploaded statement are put here automatically.
+        </p>
+      </div>
+      </PdfSection>
+
       {/* ── suggested portfolio ── */}
       <PdfSection id="suggested" page label="Suggested portfolio — mutual funds (changes)" kicker="What we recommend" title="Suggested Portfolio — Mutual Funds"
                   empty={!cur.proposed.some(l => (l.lump ?? 0) > 0 || (l.sip ?? 0) > 0) && !Object.keys(cur.sipPlan ?? {}).length}>
@@ -417,28 +472,35 @@ export default function Reallocation() {
       <div className="card p-4 mb-4">
         <div className="flex items-center justify-between mb-2">
           <div className="font-display font-bold text-sm" style={{ color: SIF_COLOUR }}>Suggested portfolio — SIF</div>
-          <span className="text-xs" style={{ color: 'var(--text-mid)' }}>Total <b style={{ color: 'var(--text-hi)' }}>{inr(prSif)}</b></span>
+          <span className="flex items-center gap-2 text-xs">
+            {sifEx.length > 0 && (
+              <button className="tab-btn print:hidden" onClick={() => { if (!cur.sif.length || window.confirm('Replace the suggested SIF with a copy of the existing SIF?')) update({ sif: sifEx.map(l => ({ ...l })) }) }}>
+                {cur.sif.length ? '↺ Duplicate existing SIF again' : '⧉ Duplicate existing SIF'}
+              </button>
+            )}
+            <span style={{ color: 'var(--text-mid)' }}>Total <b style={{ color: 'var(--text-hi)' }}>{inr(prSif)}</b></span>
+          </span>
         </div>
         <SifEditor lines={cur.sif} onChange={sif => update({ sif })} inputStyle={inputStyle} weightOf={l => l.lump ?? 0} />
       </div>
       </PdfSection>
 
-      {(exTotal > 0 || prMf + prSif > 0) && (
+      {(exAll > 0 || prMf + prSif > 0) && (
         <PdfSection id="totals" page label="Totals (existing, suggested, amount to sell and buy, profit booked)" kicker="The switch in numbers" title="What Changes">
         <div className="grid gap-3 grid-cols-2 lg:grid-cols-7 mb-3">
-          <Card label="Existing portfolio value" value={inrShort(exTotal)} colour={EX_COLOUR} />
+          <Card label="Existing portfolio value" value={inrShort(exAll)} colour={EX_COLOUR} sub={exSif ? `incl. SIF ${inrShort(exSif)}` : undefined} />
           <Card label="Suggested — mutual funds" value={inrShort(prMf)} colour={PR_COLOUR} />
           <Card label="Suggested — SIF" value={inrShort(prSif)} colour={SIF_COLOUR} />
-          {prMf + prSif - exTotal >= 0
-            ? <Card label="Fresh money needed" value={inrShort(prMf + prSif - exTotal)} colour={prMf + prSif - exTotal > 1 ? '#F59E0B' : undefined}
+          {prMf + prSif - exAll >= 0
+            ? <Card label="Fresh money needed" value={inrShort(prMf + prSif - exAll)} colour={prMf + prSif - exAll > 1 ? '#F59E0B' : undefined}
                     sub="suggested total − existing value" />
-            : <Card label="Money left over (not reinvested)" value={inrShort(exTotal - prMf - prSif)} colour="#F59E0B"
+            : <Card label="Money left over (not reinvested)" value={inrShort(exAll - prMf - prSif)} colour="#F59E0B"
                     sub="existing value − suggested total" />}
           {(sipNow > 0 || sipAfter > 0) && (
             <Card label="SIPs a month" value={inr(sipAfter)} colour={PR_COLOUR}
                   sub={sipAfter === sipNow ? 'unchanged' : `now ${inr(sipNow)} (${sipAfter > sipNow ? '+' : '−'}${inr(Math.abs(sipAfter - sipNow))})`} />
           )}
-          {([['Existing', exTotal, EX_COLOUR], ['Suggested', prMf + prSif, PR_COLOUR]] as const).map(([l, v, c]) => {
+          {([['Existing', exAll, EX_COLOUR], ['Suggested', prMf + prSif, PR_COLOUR]] as const).map(([l, v, c]) => {
             const m = v > 0 ? nextMilestone(v) : null
             return m && (
               <Card key={l} label={`${l} — next milestone`} value={`${inrShort(m.more)} more`} colour={c}
@@ -469,8 +531,8 @@ export default function Reallocation() {
                     sub="the money put in, coming back" />
               <Card label="③ of which: profit booked" value={gainTotal == null ? '—' : inrShort(gainTotal)}
                     colour={gainTotal != null && gainTotal < 0 ? '#F87171' : '#34D399'} sub="capital gain — taxable on sale" />
-              <Card label="④ Amount to buy" value={inrShort(boughtTotal + prSif)} colour={PR_COLOUR}
-                    sub={`into ${buyCount} fund${buyCount === 1 ? '' : 's'}${prSif ? ' + SIF' : ''} (new and increased)`} />
+              <Card label="④ Amount to buy" value={inrShort(boughtTotal + sifBought)} colour={PR_COLOUR}
+                    sub={`into ${buyCount} fund${buyCount === 1 ? '' : 's'}${sifBought ? ' + SIF' : ''} (new and increased)`} />
             </div>
             <p className="text-[11px]" style={{ color: 'var(--text-mid)' }}>
               ① = ② + ③. Selling {inrShort(soldTotal)} gives back {gainTotal == null ? 'the money put in' : `${inrShort(soldTotal - gainTotal)} of the client's own money`} plus
@@ -554,8 +616,8 @@ export default function Reallocation() {
           {/* The SIPs as they will be after the changes above, as a heartbeat. */}
           {(sipNow > 0 || sipAfter > 0) && (
             <PdfSection id="pulse" label="SIP heartbeat (the new SIP allocation)" kicker="Every month" title="The New SIP Allocation">
-              <SipPulse label={sipChanged || sifSips.length ? 'SIPs after the changes' : 'SIPs'} items={sipItems}
-                        before={sipChanged || sifSips.length ? sipNow : undefined} />
+              <SipPulse label={sipChanged || sifSips.some(x => x.now !== x.was) ? 'SIPs after the changes' : 'SIPs'} items={sipItems}
+                        before={sipChanged || sifSips.some(x => x.now !== x.was) ? sipNow : undefined} />
             </PdfSection>
           )}
           {(['switch', 'stp'] as const).map(kind => (
@@ -576,6 +638,12 @@ export default function Reallocation() {
         { label: 'Suggested', colour: PR_COLOUR, lines: cur.proposed.map(l => ({ code: l.code, amount: l.lump })) },
       ].filter(s => s.lines.some(l => (l.amount ?? 0) > 0))} />
 
+      {sifEx.some(l => (l.lump ?? 0) > 0) && (
+        <>
+          <div className="section-header" style={{ marginTop: 8 }}><span>Existing SIF — analysis</span></div>
+          <SifAnalysis lines={sifEx.map(l => ({ id: l.id, amount: l.lump ?? 0 }))} colour={EX_COLOUR} />
+        </>
+      )}
       {cur.sif.length > 0 && (
         <>
           <div className="section-header" style={{ marginTop: 8 }}><span>Suggested SIF — analysis</span></div>

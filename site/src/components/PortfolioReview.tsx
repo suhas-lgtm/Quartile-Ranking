@@ -512,7 +512,7 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
               <span style={{ color: 'var(--text-low)' }}>{funds.length} equity funds · updates as you change the funds</span>
             </div>
             {funds.length > 1 ? (
-              <PdfSection id={isExisting ? 'overlap-existing' : 'overlap'} page={isExisting || !two}
+              <PdfSection id={isExisting ? 'overlap-existing' : 'overlap'} page
                           label={two ? `Portfolio overlap — ${x.s.label.toLowerCase()} portfolio` : 'Portfolio overlap between funds'}
                           kicker="Diversification" title={heading}>
                 {isExisting && (
