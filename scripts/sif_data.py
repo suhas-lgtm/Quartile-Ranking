@@ -13,7 +13,9 @@ Everything here is best-effort: a failure leaves the previous files in place.
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import re
 from datetime import date, datetime
 
@@ -40,6 +42,18 @@ def _day(s: str | None) -> str | None:
     return None
 
 
+def plan_option(name: str, plan: str | None, option: str | None) -> tuple[str, str | None]:
+    """
+    Plan and option of a SIF plan. AMFI normally sends both; some houses leave them
+    blank (iSIF, Oct 2026), and then they are read off the name — otherwise the
+    Growth-only views (Monthly, Point to Point, Leaderboard) drop those plans.
+    """
+    p = plan or ("Direct Plan" if re.search(r"\bdirect\b", name or "", re.I) else "Regular Plan")
+    o = option or ("IDCW" if re.search(r"\b(idcw|dividend|payout|reinvest)", name or "", re.I)
+                   else "Growth" if re.search(r"\bgrowth\b", name or "", re.I) else None)
+    return p, o
+
+
 def fetch_latest() -> list[dict]:
     """One dict per SIF plan/option with its latest NAV."""
     d = requests.get(f"{BASE}/sif-latest-nav", params={"type": ""}, headers=UA, timeout=60).json()
@@ -52,16 +66,17 @@ def fetch_latest() -> list[dict]:
                     if not s.get("Sd_Id") or not isinstance(nav, (int, float)) or nav <= 0:
                         continue
                     cat = s.get("category") or c.get("category") or ""
+                    name = re.sub(r"\s+", " ", s.get("NavName") or "").strip()
                     out.append({
                         "sif_id": str(s.get("sifId") or ""),
                         "id": s["Sd_Id"],
                         "house": s.get("SIFName") or g.get("SIFName"),
-                        "name": re.sub(r"\s+", " ", s.get("NavName") or "").strip(),
+                        "name": name,
                         "strategy": cat.split(" - ", 1)[-1].strip(),
                         "strategy_group": cat.split(" - ", 1)[0].strip(),
                         "type": s.get("type"),
-                        "plan": s.get("Plan"),
-                        "option": s.get("Option"),
+                        "plan": plan_option(name, s.get("Plan"), s.get("Option"))[0],
+                        "option": plan_option(name, s.get("Plan"), s.get("Option"))[1],
                         "isin": s.get("ISINPO") or None,
                         "nav": float(nav),
                         "date": _day(s.get("Date")),
@@ -108,6 +123,51 @@ def fetch_details(sif_ids: set[str]) -> dict[str, dict]:
     return out
 
 
+def nfo_record(sid: str, m: dict, group: dict | None = None) -> dict:
+    """
+    One SIF NFO from AMFI's list + detail records. AMFI renamed these fields in Oct 2026
+    (Investment_Strategy, Specialized_Investment_Fund, New_Fund_Launch_Date…); the new
+    and the old names are both read, so neither version leaves the offer blank.
+    """
+    pick = lambda *keys: next((m[k] for k in keys if m.get(k) not in (None, "")), None)  # noqa: E731
+    return {
+        "id": str(sid),
+        "house": pick("Specialized_Investment_Fund", "MutualFund", "SIFName") or (group or {}).get("MutualFund"),
+        "name": pick("Investment_Strategy", "SchemeName", "NavName"),
+        "category": pick("Category", "SchemeCategory", "category"),
+        "type": pick("Type", "SchemeType"),
+        "objective": _clean(pick("Objective_of_Investment_Strategy", "ObjectiveofScheme")),
+        "opens": _day(pick("New_Fund_Launch_Date", "NewFundLaunchDate")),
+        "closes": _day(pick("New_Fund_Offer_Closure_Date", "NewFundOfferClosureDate")),
+        "min_amount": _clean(pick("Minimum_Subscription_Amount", "MinimumSubscriptionAmount")),
+        "price": pick("Offer_Price_Rs", "OfferPriceRs"),
+        "exit_load": _clean(pick("Indicate_Load_Separately", "IndicateLoadSeparately")),
+        "website": pick("For_Further_Details_Please_Visit_Website", "ForFurtherDetailsPleaseVisitWebsite"),
+        "document": pick("infoDocumentUrl"),
+    }
+
+
+OVERRIDES_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "sif_overrides.json")
+
+
+def load_overrides(path: str = OVERRIDES_PATH) -> dict[str, dict]:
+    """data/sif_overrides.json without its _about notes; {} when missing or unreadable."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return {k: v for k, v in json.load(fh).items() if not k.startswith("_")}
+    except (OSError, ValueError) as exc:
+        log.warning("SIF overrides unreadable (%s)", exc)
+        return {}
+
+
+def apply_overrides(details: dict[str, dict], overrides: dict[str, dict]) -> dict[str, dict]:
+    """AMFI's details with the corrections laid over them (a correction wins, other fields stay)."""
+    out = dict(details)
+    for key, fix in overrides.items():
+        out[key] = {**out.get(key, {}), **fix}
+    return out
+
+
 def fetch_nfo() -> list[dict] | None:
     """SIF NFOs AMFI lists now (list call, then one detail call each)."""
     try:
@@ -129,23 +189,7 @@ def fetch_nfo() -> list[dict] | None:
                 det = ((lst[0].get("items") or [lst[0]])[0]) if lst else {}
             except Exception:
                 pass
-            m = {**it, **det}
-            pick = lambda *keys: next((m[k] for k in keys if m.get(k) not in (None, "")), None)
-            out.append({
-                "id": str(sid),
-                "house": pick("Specialized_Investment_Fund", "MutualFund", "SIFName") or g.get("MutualFund"),
-                "name": pick("Investment_Strategy", "SchemeName", "NavName"),
-                "category": pick("Category", "SchemeCategory", "category"),
-                "type": pick("Type", "SchemeType"),
-                "objective": _clean(pick("Objective_of_Investment_Strategy", "ObjectiveofScheme")),
-                "opens": _day(pick("New_Fund_Launch_Date", "NewFundLaunchDate")),
-                "closes": _day(pick("New_Fund_Offer_Closure_Date", "NewFundOfferClosureDate")),
-                "min_amount": _clean(pick("Minimum_Subscription_Amount", "MinimumSubscriptionAmount")),
-                "price": pick("Offer_Price_Rs", "OfferPriceRs"),
-                "exit_load": _clean(pick("Indicate_Load_Separately", "IndicateLoadSeparately")),
-                "website": pick("For_Further_Details_Please_Visit_Website", "ForFurtherDetailsPleaseVisitWebsite"),
-                "document": pick("infoDocumentUrl"),
-            })
+            out.append(nfo_record(sid, {**it, **det}, g))
     log.info("SIF NFO: %d offers", len(out))
     return out
 

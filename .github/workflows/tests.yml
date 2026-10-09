@@ -1,0 +1,45 @@
+# Tests on every push: the Python rules (tests/run_all.py) and the dashboard's
+# type check and unit tests (site: tsc, npm test). A red mark on a commit means
+# something the data or the dashboard relies on broke — fix before deploying.
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Python tests
+        run: python tests/run_all.py
+        env:
+          PYTHONIOENCODING: utf-8
+
+  site:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - run: npm ci
+      - name: Type check
+        run: npx tsc --noEmit -p .
+      - name: Dashboard tests
+        run: npm test

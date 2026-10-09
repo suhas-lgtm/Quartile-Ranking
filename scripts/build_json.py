@@ -1461,14 +1461,7 @@ def build_sif():
         log.warning("SIF details unavailable (%s)", exc)
         details = {}
     # Corrections where AMFI's details are out of date (data/sif_overrides.json).
-    try:
-        with open(os.path.join(ROOT_DIR, "data", "sif_overrides.json"), encoding="utf-8") as fh:
-            overrides = {k: v for k, v in json.load(fh).items() if not k.startswith("_")}
-    except (OSError, ValueError) as exc:
-        log.warning("SIF overrides unreadable (%s)", exc)
-        overrides = {}
-    for key, fix in overrides.items():
-        details[key] = {**details.get(key, {}), **fix}
+    details = sif_data.apply_overrides(details, sif_data.load_overrides())
     as_of_day = max((r["date"] for r in rows if r["date"]), default=date.today().isoformat())
 
     def monthly(series: dict[str, float]) -> dict[str, float]:

@@ -1175,9 +1175,10 @@ def risk_metrics(
                      if benchmark_index_id is not None else None)
 
     # R2 — Sharpe
+    # A swing this small is rounding, not risk: no ratio rather than an absurd one.
     sharpe = (
         ((fund_3y_cagr - Rf_annual) / std_annual)
-        if std_annual and fund_3y_cagr is not None
+        if std_annual and std_annual > 1e-6 and fund_3y_cagr is not None
         else None
     )
 
@@ -1187,7 +1188,7 @@ def risk_metrics(
     sigma_d   = math.sqrt(sum(d ** 2 for d in downside) / len(downside)) * math.sqrt(12)
     sortino   = (
         ((fund_3y_cagr - Rf_annual) / sigma_d)
-        if sigma_d and fund_3y_cagr is not None
+        if sigma_d and sigma_d > 1e-6 and fund_3y_cagr is not None
         else None
     )
 

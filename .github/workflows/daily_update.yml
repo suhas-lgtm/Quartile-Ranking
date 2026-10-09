@@ -78,12 +78,12 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # The quartile rule is pinned in tests/test_quartile.py. Run it before
-      # spending 10 minutes on a pipeline whose central calculation has drifted:
-      # 10 of the 14 pinned bracket sizes change if the remainder goes back to
-      # Q1, and every published quartile would move with it.
-      - name: Check the quartile rule has not drifted
-        run: python tests/test_quartile.py
+      # Every rule the data depends on is pinned in tests/ (quartile brackets, the
+      # SIF reader against AMFI's past format changes, the data health check,
+      # safe partial publishing). Run them all before spending 10 minutes on a
+      # pipeline: a broken rule stops here, before anything is published.
+      - name: Run the tests
+        run: python tests/run_all.py
         env:
           PYTHONIOENCODING: utf-8
 
@@ -244,5 +244,16 @@ jobs:
       # already stored. A failure below still turns the run red so it gets seen.
       - name: Publish Market Pulse indices to Neon
         run: python scripts/update_indices.py
+        env:
+          PYTHONIOENCODING: utf-8
+
+      # Is what the team sees up to date? Mutual fund and SIF NAVs must reach the
+      # last working day; last month's holdings must be in by the 12th. Writes
+      # health.json (the dashboard shows a banner when something is behind) and
+      # fails this run when data is stale, so GitHub emails the repository owner.
+      # Runs even when an earlier step failed — that is exactly when it matters.
+      - name: Check the data is up to date
+        if: always()
+        run: python scripts/data_health.py
         env:
           PYTHONIOENCODING: utf-8

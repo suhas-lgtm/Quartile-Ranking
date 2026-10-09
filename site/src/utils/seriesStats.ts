@@ -12,6 +12,9 @@ import { closeOnOrBefore, indexSip, isoMinus } from './navMath'
 
 export type PricePoint = [string, number]
 
+/** Below this yearly swing (0.0001%) Std Dev is rounding noise: Sharpe and Sortino are left blank. */
+const MIN_SWING = 1e-6
+
 export interface SeriesStats {
   returns: Record<string, number | null>
   sip: Record<string, number | null>
@@ -66,8 +69,9 @@ export function seriesStats(points: PricePoint[] | null | undefined, rf: number,
     const cagr = returns['3Y']
     const rfm = Math.pow(1 + rf, 1 / 12) - 1
     const down = Math.sqrt(monthly.reduce((s, x) => s + Math.min(x - rfm, 0) ** 2, 0) / monthly.length) * Math.sqrt(12)
-    if (cagr != null && std) sharpe = (cagr - rf) / std
-    if (cagr != null && down) sortino = (cagr - rf) / down
+    // A swing this small is rounding, not risk: no ratio rather than an absurd one.
+    if (cagr != null && std > MIN_SWING) sharpe = (cagr - rf) / std
+    if (cagr != null && down > MIN_SWING) sortino = (cagr - rf) / down
   }
 
   // Worst fall from a running peak.
@@ -137,7 +141,7 @@ export function portfolioRisk(holdings: { points: PricePoint[] | null | undefine
   const down = Math.sqrt(monthly.reduce((s, x) => s + Math.min(x - rfm, 0) ** 2, 0) / monthly.length) * Math.sqrt(12)
   out.std_annual = std
   out.ret_3y = ret
-  out.sharpe = std ? (ret - rf) / std : null
-  out.sortino = down ? (ret - rf) / down : null
+  out.sharpe = std > MIN_SWING ? (ret - rf) / std : null
+  out.sortino = down > MIN_SWING ? (ret - rf) / down : null
   return out
 }

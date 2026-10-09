@@ -54,7 +54,7 @@ function textOf(c: HTMLTableCellElement | undefined): string {
 const NUM = /^([+\-−]?)\s*(?:₹|rs\.?|inr)?\s*([+\-−]?)\s*(\d[\d,]*(?:\.\d+)?)\s*(%|cr|crore|l|lakh|k|x|pts?|days?|d|yrs?|y|months?|m)?\.?$/i
 
 /** What a cell holds: a number, a date, text, or nothing. */
-function valueOf(text: string): { kind: 'blank' } | { kind: 'num' | 'date'; v: number } | { kind: 'text'; v: string } {
+export function valueOf(text: string): { kind: 'blank' } | { kind: 'num' | 'date'; v: number } | { kind: 'text'; v: string } {
   const t = text.replace(/[▲▼↑↓▴▾]/g, '').trim()
   if (!t || /^[—–\-…·]+$/.test(t) || /^(n\/?a|nil|none|pending)$/i.test(t)) return { kind: 'blank' }
   const m = NUM.exec(t.replace(/\s+/g, ' '))

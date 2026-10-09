@@ -30,6 +30,7 @@ import type { SheetSpec } from '../utils/xlsx'
 import type { FundsIndex } from '../types'
 import FundLink from '../components/FundLink'
 import { leftOutOfMatrices } from '../utils/equityOnly'
+import QuartileTable from '../components/QuartileTable'
 
 const MAX_FUNDS = 15
 const MAX_BUYS = 3
@@ -533,6 +534,8 @@ function PortfolioEditor({ storeKey, label }: { storeKey: string; label: string 
       {/* Debt funds left out: correlation and stock overlap are for the equity-oriented funds. */}
       <CorrelationMatrix funds={pf.holdings.filter(h => !isDebt(h.code)).map(h => ({ code: h.code, name: fundByCode.get(h.code)?.n ?? h.code, series: series[h.code] }))} />
       <OverlapMatrix funds={pf.holdings.filter(h => !isDebt(h.code)).map(h => ({ code: h.code, name: fundByCode.get(h.code)?.n ?? h.code }))} />
+      <div className="section-header" style={{ marginTop: 8 }}><span>Quartile ranking — last 6 quarters &amp; months</span></div>
+      <QuartileTable codes={pf.holdings.map(h => h.code)} />
       <LookThrough funds={results.filter(r => r.value > 0).map(r => ({ code: r.h.code, name: r.name, value: r.value }))} />
       <PortfolioVsBenchmark flows={results.flatMap(r => r.flows.filter(f => f.amount < 0))} tot={tot} end={end} />
       <p className="text-[11px]" style={{ color: 'var(--text-low)' }}>
@@ -736,6 +739,19 @@ function PortfolioCompare() {
           </table>
         )}
       </div>
+
+      {/* Quartile ranking: Portfolio A's funds, then the funds only Portfolio B holds. */}
+      <div className="section-header" style={{ marginTop: 8 }}><span>Quartile ranking — Portfolio A funds</span></div>
+      <QuartileTable codes={a.holdings.map(h => h.code)}
+                     tags={Object.fromEntries(a.holdings.filter(h => !b.holdings.some(x => x.code === h.code)).map(h => [h.code, 'EXIT']))}
+                     note="EXIT = not held in Portfolio B." />
+      {b.holdings.some(h => !a.holdings.some(x => x.code === h.code)) && (
+        <>
+          <div className="section-header" style={{ marginTop: 8 }}><span>Quartile ranking — funds new in Portfolio B</span></div>
+          <QuartileTable codes={b.holdings.filter(h => !a.holdings.some(x => x.code === h.code)).map(h => h.code)}
+                         tags={Object.fromEntries(b.holdings.filter(h => !a.holdings.some(x => x.code === h.code)).map(h => [h.code, 'NEW']))} />
+        </>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <LookThrough funds={A.results.filter(r => r.value > 0).map(r => ({ code: r.h.code, name: r.name, value: r.value }))} title="Portfolio A — holdings" />

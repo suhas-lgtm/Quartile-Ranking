@@ -303,6 +303,14 @@ def write_local_tree(out_dir: str, only: str | None) -> int:
             shutil.copyfile(src, target)
         written[os.path.normcase(target)] = True
 
+    # A partial write (--only) touches those files and nothing else: the manifest and
+    # every other file stay as they are. (Rebuilding the manifest from a partial
+    # build once wrote it with 0 funds, and the stale sweep below deleted every
+    # other file in the folder.)
+    if only:
+        log.info("--only %r: wrote %d file(s); manifest and other files left as they are", only, len(written))
+        return 0
+
     # manifest.json is generated, not copied — the site cannot resolve a single
     # path without it.
     # Built by the SAME function the upload uses; see build_manifest for what
@@ -454,10 +462,19 @@ def main() -> int:
     log.info("-" * 62)
     log.info("uploaded %s of %s in %.0fs", format(ok, ","), format(len(items), ","),
              time.time() - t0)
+    if args.only:
+        # A partial upload never prunes and never rewrites the manifest: both would
+        # be judged against this subset and damage everything else that is live.
+        if failed:
+            log.error("%d failed, e.g. %s", len(failed), ", ".join(failed[:5]))
+            return 1
+        log.info("--only %r: manifest and the other live files left as they are", args.only)
+        return 0
     if not failed:
         # Only prune after a clean upload: pruning against a partial plan would
         # delete files that simply had not been re-uploaded yet.
-        keep = {dest for _, dest in items} | {"manifest.json"}
+        # health.json is written by scripts/data_health.py after each run, not by the build.
+        keep = {dest for _, dest in items} | {"manifest.json", "health.json"}
         prune_remote(sb, keep, apply=args.prune)
     else:
         log.warning("skipping the prune because %d upload(s) failed", len(failed))

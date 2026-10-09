@@ -25,6 +25,7 @@ import { portfolioRisk, seriesStats, type PortfolioRisk } from '../utils/seriesS
 import { categoryColor } from '../config/categoryColors'
 import { fmtPct, retColor } from '../utils/format'
 import type { FundsIndex, RiskData, RiskFundRow } from '../types'
+import QuartileTable from './QuartileTable'
 
 export interface ReviewLine { code: string; amount: number | null }
 export interface ReviewSide { label: string; colour: string; lines: ReviewLine[] }
@@ -480,6 +481,36 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
         </div>
       ))}
       </PdfSection>
+
+      {/* ── quartile ranking: the last 6 quarters and 6 months; newly added funds in their own table ── */}
+      {(() => {
+        const first = priced(shown[0].s).map(l => l.code)
+        if (!two) {
+          return (
+            <PdfSection id="quartile" page label="Quartile ranking (last 6 quarters & months)" kicker="Consistency" title="Quartile Ranking">
+              <QuartileTable codes={first} />
+            </PdfSection>
+          )
+        }
+        const second = priced(shown[1].s).map(l => l.code)
+        const added = second.filter(c => !first.includes(c))
+        const exits = Object.fromEntries(first.filter(c => !second.includes(c)).map(c => [c, 'EXIT']))
+        return (
+          <>
+            <PdfSection id="quartile" page label={`Quartile ranking — ${shown[0].s.label.toLowerCase()} funds`} kicker="Consistency"
+                        title={`Quartile Ranking — ${shown[0].s.label} Funds`}>
+              <QuartileTable codes={first} tags={exits}
+                             note={Object.keys(exits).length ? 'EXIT = sold in full in the suggested portfolio.' : undefined} />
+            </PdfSection>
+            {added.length > 0 && (
+              <PdfSection id="quartile-new" label="Quartile ranking — newly added funds" kicker="Consistency" title="Quartile Ranking — Newly Added Funds">
+                <QuartileTable codes={added} tags={Object.fromEntries(added.map(c => [c, 'NEW']))}
+                               note="Funds in the suggested portfolio that the client does not hold today." />
+              </PdfSection>
+            )}
+          </>
+        )
+      })()}
 
       <SideSwitch title="Correlation between funds" sides={shown} pick={fx?.i} onPick={setFxPick} count={x => fundsOf(x.s).length} two={two} />
       {debtLeftOut > 0 && (
