@@ -3,7 +3,7 @@
 // Each fund's latest portfolio (/api/holdings) is weighted by that fund's share
 // of the portfolio's value and added up by security, so a stock held by three
 // funds shows once with its combined weight. Funds with no holdings loaded
-// (Balanced Advantage, Multi Asset) are listed and left out of the weights.
+// (a fund whose portfolio has not been published yet) are listed and left out of the weights.
 
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import SectorBars from './SectorBars'
@@ -144,7 +144,7 @@ export default function LookThrough({ funds, title = 'Portfolio holdings (look-t
         Each fund&apos;s latest monthly portfolio, weighted by its share of the portfolio&apos;s value today, added up per holding —
         a stock held by several funds shows once. Click “Via” to see which funds hold it.
         {lt.covered > 0 && lt.covered < 0.999 && <> Holdings cover {(lt.covered * 100).toFixed(0)}% of the portfolio.</>}
-        {lt.missing.length > 0 && <> No holdings for: {lt.missing.join(', ')} (Balanced Advantage / Multi Asset funds are not loaded).</>}
+        {lt.missing.length > 0 && <> No monthly portfolio yet for: {lt.missing.join(', ')}.</>}
       </p>
     </div>
   )

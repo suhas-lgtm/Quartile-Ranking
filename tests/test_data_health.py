@@ -14,7 +14,7 @@ from datetime import date, datetime, timezone
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 from scripts.data_health import (  # noqa: E402
-    check_holdings, check_indices, check_nav, evaluate, expected_holdings_month,
+    check_holdings, check_indices, check_names, check_nav, evaluate, expected_holdings_month,
     overall, previous_working_day, working_days_behind,
 )
 
@@ -98,6 +98,18 @@ def test_overall_takes_the_worst():
     assert overall([{'status': 'ok'}, {'status': 'ok'}]) == 'ok'
     assert overall([{'status': 'ok'}, {'status': 'warn'}]) == 'warn'
     assert overall([{'status': 'warn'}, {'status': 'fail'}]) == 'fail'
+
+
+def test_unmatched_holdings_names_are_listed_but_quiet():
+    rep = {'unmatched': [{'name': 'Zerodha Arbitrage Fund', 'closest': 'bandhan arbitrage', 'expected': False},
+                         {'name': 'SBI Long Term Advantage Fund - Series IV', 'closest': None, 'expected': True}]}
+    c = check_names(rep)
+    assert c['status'] == 'warn' and c.get('quiet') and 'Zerodha Arbitrage Fund' in c['message']
+    assert 'Series IV' not in c['message']                                   # expected ones are not listed
+    assert check_names({'unmatched': [rep['unmatched'][1]]})['status'] == 'ok'
+    assert check_names(None)['status'] == 'ok'
+    # quiet checks never raise the overall status: no banner, no failed run
+    assert overall([{'status': 'ok'}, c]) == 'ok'
 
 
 def test_evaluate_end_to_end():

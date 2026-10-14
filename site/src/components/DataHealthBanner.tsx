@@ -12,7 +12,7 @@ import { useJson } from '../hooks/useData'
 interface Health {
   checked_at: string
   status: 'ok' | 'warn' | 'fail'
-  checks: { name: string; status: 'ok' | 'warn' | 'fail'; message: string }[]
+  checks: { name: string; status: 'ok' | 'warn' | 'fail'; message: string; quiet?: boolean }[]
 }
 
 export default function DataHealthBanner() {
@@ -22,7 +22,9 @@ export default function DataHealthBanner() {
   let hidden = false
   try { hidden = !!key && sessionStorage.getItem(key) === '1' } catch { /* storage blocked: always shown */ }
   if (!data || data.status === 'ok' || hidden) return null
-  const bad = data.checks.filter(c => c.status !== 'ok')
+  // Quiet checks (e.g. unmatched fund names in the holdings feed) are for the run log, not the banner.
+  const bad = data.checks.filter(c => c.status !== 'ok' && !c.quiet)
+  if (!bad.length) return null
   const red = data.status === 'fail'
   const colour = red ? '#EF4444' : '#F59E0B'
   return (

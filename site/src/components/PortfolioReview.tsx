@@ -271,6 +271,12 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
             return [k, v, slug ? categoryColor(slug) : undefined] as [string, number[], string?]
           })} />
       </div>
+        <p className="text-[11px] mt-1 mb-2" style={{ color: 'var(--text-low)' }}>
+          Allocations look through each fund to its latest monthly portfolio, weighted by the amount in that fund. Market cap uses
+          SEBI&apos;s classification (AMFI{caps ? `, ${caps.period}` : ''}). Returns and ratios are each fund&apos;s own (Risk &amp; Returns
+          tab), averaged by amount. A fund without a monthly portfolio counts in returns but not in the market-cap and sector split.
+          {ltA.missing.length + ltB.missing.length > 0 && <> No holdings for: {[...new Set([...ltA.missing, ...ltB.missing])].join(', ')}.</>}
+        </p>
       </PdfSection>
 
       <PdfSection id="sector" page label="Sector allocation (with industries)" kicker="How the money is spread" title="Sector Allocation">
@@ -513,18 +519,20 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
       })()}
 
       <SideSwitch title="Correlation between funds" sides={shown} pick={fx?.i} onPick={setFxPick} count={x => fundsOf(x.s).length} two={two} />
-      {debtLeftOut > 0 && (
-        <p className="text-[11px] mb-2" style={{ color: 'var(--text-low)' }}>
-          {debtLeftOut} fund{debtLeftOut === 1 ? '' : 's'} left out of the correlation table (debt, hybrid, index and international funds).
-        </p>
-      )}
       {focusFunds.length > 1 ? (
         <div key={`c${fx?.i}`}>
           <PdfSection id="correlation" page label="Correlation between funds" kicker="Diversification"
-                      title={`Correlation Between Funds${two ? ` — ${fx?.s.label} Portfolio` : ''}`}><CorrelationMatrix funds={focusFunds.map(f => ({ ...f, series: series[f.code] }))} /></PdfSection>
+                      title={`Correlation Between Funds${two ? ` — ${fx?.s.label} Portfolio` : ''}`}>
+            {debtLeftOut > 0 && (
+              <p className="text-[11px] mb-2" style={{ color: 'var(--text-low)' }}>
+                {debtLeftOut} fund{debtLeftOut === 1 ? '' : 's'} left out of the correlation table (debt, hybrid, index and international funds).
+              </p>
+            )}
+            <CorrelationMatrix funds={focusFunds.map(f => ({ ...f, series: series[f.code] }))} />
+          </PdfSection>
         </div>
       ) : (
-        <p className="text-xs mb-4" style={{ color: 'var(--text-mid)' }}>
+        <p className="text-xs mb-4 print:hidden" style={{ color: 'var(--text-mid)' }}>
           The {fx?.s.label.toLowerCase()} portfolio has fewer than two equity funds (debt, hybrid, index and international funds are left out), so there is nothing to correlate.
         </p>
       )}
@@ -562,7 +570,7 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
                 )}
               </PdfSection>
             ) : (
-              <p className="text-xs mb-4" style={{ color: 'var(--text-mid)' }}>
+              <p className="text-xs mb-4 print:hidden" style={{ color: 'var(--text-mid)' }}>
                 The {x.s.label.toLowerCase()} portfolio has fewer than two equity funds (debt, hybrid, index and international funds are left out), so there is no overlap to show.
               </p>
             )}
@@ -570,13 +578,6 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
         )
       })}
 
-      <p className="text-[11px] mb-4" style={{ color: 'var(--text-low)' }}>
-        Allocations look through each fund to its latest monthly portfolio, weighted by the amount in that fund. Market cap uses
-        SEBI&apos;s classification (AMFI{caps ? `, ${caps.period}` : ''}). Returns and ratios are each fund&apos;s own (Risk &amp; Returns
-        tab), averaged by amount. Balanced Advantage and Multi Asset funds have no holdings loaded, so they count in returns but
-        not in the market-cap and sector split.
-        {ltA.missing.length + ltB.missing.length > 0 && <> No holdings for: {[...new Set([...ltA.missing, ...ltB.missing])].join(', ')}.</>}
-      </p>
     </div>
   )
 }

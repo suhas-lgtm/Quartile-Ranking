@@ -91,7 +91,7 @@ export default function OverlapMatrix({ funds }: { funds: { code: string; name: 
       </div>
       {missing.length > 0 && (
         <div className="text-[11px] mt-2" style={{ color: 'var(--text-low)' }}>
-          No holdings for: {missing.map(f => f.name).join(', ')} (Balanced Advantage and Multi Asset funds are not loaded).
+          No monthly portfolio yet for: {missing.map(f => f.name).join(', ')}.
         </div>
       )}
       <p className="text-[11px] mt-2 leading-relaxed" style={{ color: 'var(--text-low)' }}>

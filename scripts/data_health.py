@@ -10,6 +10,9 @@ It looks at what is actually PUBLISHED, i.e. what the team sees:
                                          the 12th (AMCs publish by about the 10th)
                                          for most funds
   Market Pulse       index files         refreshed within the last few days
+  Holdings names     Holdings/unmatched  fund names from the holdings feed that no fund in our list
+                                         matched (after auto-correction) — listed in the run log
+                                         and health.json; quiet: no banner, never fails the run
 
 Each check is ok, warn (worth a look: one working day late may be a market
 holiday) or fail (data is stale). The result is written to health.json in the
@@ -134,7 +137,22 @@ def check_indices(updated: datetime | None, now: datetime) -> dict:
     return {"name": name, "status": "ok", "message": "Market Pulse indices up to date."}
 
 
+def check_names(report: dict | None) -> dict:
+    """Holdings-feed names no fund was found for. Closed-ended series and segregated portfolios are expected."""
+    name = "Holdings fund names"
+    left = [u for u in (report or {}).get("unmatched", []) if not u.get("expected")]
+    if not left:
+        return {"name": name, "status": "ok", "quiet": True, "message": "Every fund name in the holdings feed matched a fund."}
+    shown = "; ".join(f"{u['name']} (closest: {u.get('closest') or '—'})" for u in left[:8])
+    return {"name": name, "status": "warn", "quiet": True,
+            "message": f"{len(left)} fund name{'s' if len(left) != 1 else ''} in the holdings feed matched no fund in our list, so "
+                       f"{'they have' if len(left) != 1 else 'it has'} no holdings here: {shown}"
+                       f"{' …' if len(left) > 8 else ''}. If one is a fund we track, add its spelling to AUTO_CORRECT in scripts/advisorkhoj.py."}
+
+
 def overall(checks: list[dict]) -> str:
+    # Quiet checks (log only) never raise the overall status, so they never show the banner or fail the run.
+    checks = [c for c in checks if not c.get("quiet")]
     st = {c["status"] for c in checks}
     return "fail" if "fail" in st else "warn" if "warn" in st else "ok"
 
@@ -159,11 +177,16 @@ def gather(conn, data_bucket: str) -> dict:
         SELECT to_char(MAX(month), 'YYYY-MM'), COUNT(*),
                COUNT(*) FILTER (WHERE month = (SELECT MAX(month) FROM latest)) FROM latest""").fetchone()
     idx = conn.execute("SELECT MAX(updated_at) FROM files WHERE bucket = 'Indicies Data'").fetchone()
+    try:
+        names = _body(conn, "Holdings", "unmatched.json")
+    except Exception:          # the report is optional
+        names = None
     return {
         "mf_as_of": meta.get("as_of"), "sif_as_of": sif.get("as_of"),
         "holdings_month": h[0] if h else None, "holdings_funds": int(h[1] or 0) if h else 0,
         "holdings_latest_funds": int(h[2] or 0) if h else 0,
         "indices_updated": idx[0] if idx else None,
+        "names_report": names,
     }
 
 
@@ -177,6 +200,7 @@ def evaluate(facts: dict, now: datetime) -> dict:
         check_nav("SIF NAVs", facts.get("sif_as_of"), today),
         check_holdings(facts.get("holdings_month"), coverage, funds, today),
         check_indices(upd if isinstance(upd, datetime) else None, now),
+        check_names(facts.get("names_report")),
     ]
     return {"checked_at": now.astimezone(IST).isoformat(timespec="minutes"), "status": overall(checks), "checks": checks}
 

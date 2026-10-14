@@ -1581,6 +1581,9 @@ th[data-sort-dir="asc"]::after { content: ' ▲'; font-size: 0.85em; }
   .pdf-doc { --text-hi: #15172A; --text-mid: #3A3F55; --text-low: #5E6378; }
   main { padding-top: 0 !important; }
   .pdf-off, .pdf-row-off, .pdf-cell-off, .pdf-empty, .pdf-print-skip { display: none !important; }
+  /* Only sections print: anything outside every section (a stray note, a heading beside a table)
+     is left out, so a table that is unticked never leaves text about itself behind. */
+  .pdf-doc :not([data-pdf]):not(.pdf-cover):not([data-pdf] *):not(.pdf-cover *):not(:has([data-pdf], .pdf-cover)) { display: none !important; }
   /* A two-column block whose second box is left out prints full width. */
   .pdf-doc .grid.pdf-one-col { grid-template-columns: minmax(0, 1fr) !important; }
   .pdf-hide-ret .col-ret, .pdf-hide-sip .col-sip, .pdf-hide-ratio .col-ratio, .pdf-hide-aum .col-aum { display: none !important; }
