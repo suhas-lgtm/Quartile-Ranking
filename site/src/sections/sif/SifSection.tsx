@@ -14,6 +14,7 @@ import { fuzzyMatcher } from '../../utils/fuzzy'
 import TableSearch from '../../components/TableSearch'
 import FundPicker, { type IndexFund } from '../../components/FundPicker'
 import type { SifData, SifNfoData, SifPeriod, SifPlan } from './types'
+import CrossCompare from './CrossCompare'
 
 const PERIODS: SifPeriod[] = ['1D', '1W', '1M', '3M', '6M', '1Y']
 const PALETTE = ['#22D3EE', '#F59E0B', '#A78BFA', '#34D399', '#F472B6']
@@ -508,7 +509,7 @@ function Empty() {
 const TITLES: Record<string, string> = {
   'sif-nav': 'SIF — NAV & Returns', 'sif-p2p': 'SIF — Point to Point',
   'sif-leaders': 'SIF — Leaderboard', 'sif-details': 'SIF — Strategy Details', 'sif-monthly': 'SIF — Monthly Returns',
-  'sif-compare': 'SIF — Compare', 'sif-nfo': 'SIF — New Fund Offers',
+  'sif-compare': 'SIF — Compare', 'sif-nfo': 'SIF — New Fund Offers', 'sif-cross': 'SIF vs Index vs Mutual Fund',
 }
 
 export default function SifSection({ tab }: { tab: string }) {
@@ -521,6 +522,7 @@ export default function SifSection({ tab }: { tab: string }) {
       {tab === 'sif-monthly' && <MonthlyTab />}
       {tab === 'sif-p2p' && <P2PTab />}
       {tab === 'sif-compare' && <CompareTab />}
+      {tab === 'sif-cross' && <CrossCompare />}
       {tab === 'sif-nfo' && <NfoTab />}
       <p className="text-[11px] mt-2" style={{ color: 'var(--text-low)' }}>
         Specialised Investment Funds (SEBI, 2025): long-short and asset-allocation strategies run by AMCs under a separate

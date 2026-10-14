@@ -16,6 +16,7 @@ export const SIF_TABS: TabDef[] = [
   { id: 'sif-monthly', label: 'Monthly Returns' },
   { id: 'sif-p2p',     label: 'Point to Point' },
   { id: 'sif-compare', label: 'Compare SIFs' },
+  { id: 'sif-cross',   label: 'SIF vs Index vs MF' },
   { id: 'sif-nfo',     label: 'SIF NFOs' },
 ]
 
