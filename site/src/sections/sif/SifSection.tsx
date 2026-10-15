@@ -81,7 +81,7 @@ function NavTab() {
         {[['SIF houses', String(new Set(data.plans.map(p => p.house)).size)],
           ['Strategies', String(new Set(data.plans.map(p => p.strategy)).size)],
           ['Plans listed', String(data.plans.length)],
-          ['NAV date', fmtDate(data.as_of)]].map(([l, v]) => (
+          ['As of close', fmtDate(data.as_of)]].map(([l, v]) => (
           <div key={l} className="card p-3">
             <div className="text-[11px]" style={{ color: 'var(--text-low)' }}>{l}</div>
             <div className="font-display font-bold text-lg" style={{ color: 'var(--text-hi)' }}>{v}</div>
@@ -92,14 +92,20 @@ function NavTab() {
       <Filters {...f} />
       <TableSearch value={f.query} onChange={f.setQuery} count={f.plans.length} total={data.plans.length} />
       <div className="card overflow-hidden mb-4">
+        <div className="px-4 pt-3 text-xs" style={{ color: 'var(--text-mid)' }}>
+          NAVs and returns <b style={{ color: 'var(--text-hi)' }}>as of close {fmtDate(data.as_of)}</b>
+          {data.plans.some(p => p.date && data.as_of && p.date < data.as_of) && (
+            <> · <span style={{ color: '#F59E0B' }}>an amber date</span> = that plan&apos;s latest NAV is from an earlier close</>
+          )}
+        </div>
         <div className="table-scroll">
           <table className="data-table">
             <thead>
               <tr>
                 <th className="sticky-col text-left" style={{ minWidth: 280 }}>SIF · strategy</th>
                 <th className="text-left">Plan</th>
-                <th style={{ textAlign: 'right' }}>NAV</th>
-                <th style={{ textAlign: 'right' }}>Date</th>
+                <th style={{ textAlign: 'right' }} title="NAV at the close shown in the next column">NAV</th>
+                <th style={{ textAlign: 'right' }} title="The close the NAV and returns are as of">As of close</th>
                 <th style={{ textAlign: 'right' }}>Launched</th>
                 <th style={{ textAlign: 'right' }} title="NAV against the launch price (₹10 or ₹1,000); blank for IDCW options or when the history does not reach the launch">Since launch</th>
                 {PERIODS.map(p => <th key={p} style={{ textAlign: 'right' }}>{p}</th>)}
@@ -116,7 +122,11 @@ function NavTab() {
                       </td>
                       <td className="text-xs" style={{ color: 'var(--text-mid)' }}>{(p.plan ?? '').replace(' Plan', '')} · {p.option}</td>
                       <td className="ret-cell font-semibold">{p.nav.toFixed(4)}</td>
-                      <td className="ret-cell text-[11px]" style={{ color: 'var(--text-low)' }}>{fmtDate(p.date)}</td>
+                      <td className="ret-cell text-[11px]"
+                          style={{ color: p.date && data.as_of && p.date < data.as_of ? '#F59E0B' : 'var(--text-low)' }}
+                          title={p.date && data.as_of && p.date < data.as_of ? `Latest NAV is from the close of ${fmtDate(p.date)} — not yet updated for ${fmtDate(data.as_of)}` : `As of close ${fmtDate(p.date)}`}>
+                        {fmtDate(p.date)}
+                      </td>
                       <td className="ret-cell text-[11px]" style={{ color: 'var(--text-low)' }}
                           title={p.days_live != null ? `${p.days_live} days ago` : undefined}>{fmtDate(p.launch_date ?? null)}</td>
                       <td className={`ret-cell font-semibold ${retColor(p.since_launch)}`}>{fmtPct(p.since_launch)}</td>
