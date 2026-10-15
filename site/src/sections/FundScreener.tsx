@@ -25,7 +25,7 @@ import { seriesStats } from '../utils/seriesStats'
 import { useSavedClients } from '../utils/savedClients'
 import { categoryColor } from '../config/categoryColors'
 import { currentDesk } from '../config/products'
-import { retColor } from '../utils/format'
+import { fmtDate, retColor } from '../utils/format'
 import type { SheetSpec } from '../utils/xlsx'
 import type { FundsIndex, RiskData, RiskFundRow } from '../types'
 
@@ -196,7 +196,7 @@ export default function FundScreener() {
     }
     return {
       sheet: 'Fund Screener', title: `Fund Screener${store.current ? ` - ${store.current}` : ''}`,
-      meta: [['Desk', currentDesk().name], ['Funds', String(rows.length)], ['Data as of', asOf ?? '']],
+      meta: [['Desk', currentDesk().name], ['Funds', String(rows.length)], ['Data as of close', asOf ?? '']],
       columns: [{ key: 'fund', label: 'Fund Name', type: 'text', width: 46 }, { key: 'category', label: 'Category', type: 'text', width: 24 },
                 ...cols.map(c => ({ key: c.key, label: c.label, type: c.exportType }))],
       rows: out,
@@ -210,7 +210,7 @@ export default function FundScreener() {
     <PdfProvider pageKey="fund-screener" doc={{
       kicker: 'Fund research', title: 'Fund Screener', client: store.current || undefined,
       stats: [{ label: 'Funds', value: String(rows.length) }, { label: 'Categories', value: String(new Set(rows.map(x => x.f?.s)).size) },
-              { label: 'Data as of', value: asOf ?? '—' }],
+              { label: 'As of close', value: asOf ? fmtDate(asOf) : '—' }],
     }}>
     <section id="fund-screener" className="px-4 sm:px-6 py-6 max-w-screen-2xl mx-auto">
       <div className="section-header">
@@ -398,7 +398,7 @@ export default function FundScreener() {
           </div>
           <p className="text-[11px] mb-6" style={{ color: 'var(--text-low)' }}>
             Returns up to 1Y absolute, beyond that annualised. Ratios over the last 3 years. Green / red = top / bottom quarter of the fund&apos;s
-            own category. Click a column to sort; hover a heading for what it means.{asOf ? ` Data as of ${asOf}.` : ''}
+            own category. Click a column to sort; hover a heading for what it means.{asOf ? ` Data as of close ${fmtDate(asOf)}.` : ''}
           </p>
           </PdfSection>
 

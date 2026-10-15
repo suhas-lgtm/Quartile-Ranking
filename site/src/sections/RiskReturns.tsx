@@ -11,7 +11,7 @@ import ComingFunds from '../components/ComingFunds'
 import DownloadButton from '../components/DownloadButton'
 import { currentDesk } from '../config/products'
 import { categoryColor } from '../config/categoryColors'
-import { fmtPct, retColor } from '../utils/format'
+import { fmtDate, fmtPct, retColor } from '../utils/format'
 import type { SheetSpec } from '../utils/xlsx'
 import type { RiskFundRow, RiskPeriod, RiskRatios, RollingWindow, SipPeriod } from '../types'
 import FundLink from '../components/FundLink'
@@ -262,7 +262,7 @@ export default function RiskReturns() {
       meta: [
         ['Desk', desk.name],
         ['Category', catName],
-        ['Data as of', data.as_of],
+        ['Data as of close', data.as_of],
         ['Funds', String(funds.length)],
         ['Ratios', `${data.window}; risk-free rate ${(data.risk_free_rate * 100).toFixed(1)}% p.a.`],
         ['Returns', view === 'sip' ? 'Monthly SIP valued at the latest NAV: 1W-6M absolute, 1Y+ XIRR'
@@ -354,7 +354,7 @@ export default function RiskReturns() {
         {data && (
           <span className="text-xs" style={{ color: 'var(--text-low)' }}>
             {funds.length} of {data.funds.length} funds{isAll ? ` across ${new Set(data.funds.map(slugOf)).size} categories` : ''}
-            {' '}· click a column to sort · as of {data.as_of}
+            {' '}· click a column to sort · as of close {fmtDate(data.as_of)}
           </span>
         )}
       </div>

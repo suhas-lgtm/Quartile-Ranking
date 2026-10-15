@@ -65,7 +65,7 @@ function StatusPage() {
         </div>
         <div className="space-y-2 text-sm">
           <div className="flex justify-between">
-            <span style={{ color: 'var(--text-mid)' }}>Data as of:</span>
+            <span style={{ color: 'var(--text-mid)' }}>Data as of close:</span>
             <span>{meta?.as_of ?? '—'}</span>
           </div>
           <div className="flex justify-between">

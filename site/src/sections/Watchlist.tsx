@@ -13,7 +13,7 @@ import DownloadButton from '../components/DownloadButton'
 import { currentDesk } from '../config/products'
 import type { SheetSpec } from '../utils/xlsx'
 import { useJson } from '../hooks/useData'
-import { fmtPct, shortFundName } from '../utils/format'
+import { fmtDate, fmtPct, shortFundName } from '../utils/format'
 import { ALL_SECTORS, SECTORAL_THEMATIC_SLUG, sectorOf, sectorOptions } from '../utils/sectors'
 import FundLink from '../components/FundLink'
 
@@ -233,7 +233,7 @@ export default function Watchlist() {
       meta: [
         ['Desk', desk.name],
         ['Mode', mode],
-        ['Data as of', data.as_of],
+        ['Data as of close', data.as_of],
         ['Periods examined', `${data.period_labels.length} ${mode === 'annual' ? 'years'
                               : mode === 'monthly' ? 'months' : 'quarters'}`],
         ['Minimum history', `${data.min_history} ranked periods`],
@@ -443,7 +443,7 @@ export default function Watchlist() {
 
           {data && (
             <div className="text-xs ml-auto" style={{ color: 'var(--text-low)' }}>
-              {data.funds.length} funds · {data.period_labels.length} {periodWord}s · as of {data.as_of}
+              {data.funds.length} funds · {data.period_labels.length} {periodWord}s · as of close {fmtDate(data.as_of)}
               {tooNew > 0 && (
                 <span title={`Need ${data.min_history}+ ranked ${periodWord}s to qualify`}>
                   {' '}· {tooNew} too new

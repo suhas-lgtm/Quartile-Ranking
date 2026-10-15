@@ -319,7 +319,7 @@ export default function WhitelistScreener() {
       sheet: 'Whitelist Screener',
       title: `Whitelist Screener - ${data.category_name}`,
       meta: [
-        ['Desk', desk.name], ['Category', data.category_name], ['Data as of', data.as_of],
+        ['Desk', desk.name], ['Category', data.category_name], ['Data as of close', data.as_of],
         ['Weights', PARAMS.map(p => `${p.label} ${w[p.key] ?? 0}%`).join(', ')],
         ['Scores', '0-100 within the category per parameter; Score = weighted average of available parameters'],
       ],
@@ -519,7 +519,7 @@ export default function WhitelistScreener() {
           {data && (
             <div className="flex items-center justify-between text-[11px] mb-4 flex-wrap gap-2" style={{ color: 'var(--text-low)' }}>
               <span>
-                {ranked.length} ranked · as of {fmtDate(data.as_of)} ·
+                {ranked.length} ranked · as of close {fmtDate(data.as_of)} ·
                 {' '}<span style={{ color: '#34D399' }}>■</span> 1–2
                 {' '}<span style={{ color: '#F59E0B' }}>■</span> 3–5
                 {' '}<span style={{ color: '#FB923C' }}>■</span> 6–8

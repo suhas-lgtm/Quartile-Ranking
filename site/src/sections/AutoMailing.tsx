@@ -48,7 +48,7 @@ export default function AutoMailing() {
     })
     return {
       sheet: 'Auto Mailing', title: 'Funds below category average',
-      meta: [['Desk', desk.name], ['Data as of', data.as_of],
+      meta: [['Desk', desk.name], ['Data as of close', data.as_of],
              ['Thresholds (pts below average)', periods.map(p => `${PERIOD_NAMES[p] ?? p} ${data.thresholds[p]}`).join(', ')]],
       columns: [
         { key: 'fund', label: 'Fund Name', type: 'text', width: 46 },

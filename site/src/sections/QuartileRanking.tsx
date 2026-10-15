@@ -274,7 +274,7 @@ export default function QuartileRanking() {
         ['Desk', desk.name],
         ['Category', data.category_name],
         ['Mode', mode],
-        ['Data as of', data.as_of],
+        ['Data as of close', data.as_of],
         ['Funds', String(funds.length)],
         ...(isSectoral && activeSector !== ALL_SECTORS
           ? [['Sector filter', activeSector] as [string, string]] : []),

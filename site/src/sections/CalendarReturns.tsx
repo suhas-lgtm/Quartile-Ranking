@@ -68,7 +68,7 @@ export default function CalendarReturns() {
     const row = (name: string, r: Record<string, number | null>) => ({ fund: name, ...Object.fromEntries(years.map(y => [y, r[y] ?? null])) })
     return {
       sheet: 'Calendar Returns', title: `Calendar Year Returns - ${data.category_name}`,
-      meta: [['Desk', desk.name], ['Category', data.category_name], ['Data as of', data.as_of],
+      meta: [['Desk', desk.name], ['Category', data.category_name], ['Data as of close', data.as_of],
              ['Returns', `31 Dec to 31 Dec; ${data.ytd_year} is year to date`]],
       columns: [{ key: 'fund', label: 'Fund', type: 'text', width: 46 },
                 ...years.map(y => ({ key: y, label: label(y), type: 'percent' as const }))],

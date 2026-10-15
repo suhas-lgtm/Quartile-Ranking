@@ -94,9 +94,10 @@ export default function HeroHeader({
             <div
               className="text-[10px] sm:text-xs flex items-center gap-1 px-2 py-1 rounded-full text-white"
               style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' }}
+              title={`NAVs and returns are as of the market close on ${fmtDate(asOf)}`}
             >
               <span className="text-cyan-400">●</span>
-              <span className="hidden sm:inline">As of </span>{fmtDate(asOf)}
+              <span className="hidden sm:inline">As of close: </span>{fmtDate(asOf)}
             </div>
           )}
 

@@ -165,7 +165,7 @@ export default function Blacklist() {
     }
     return {
       sheet: 'Blacklist', title: 'Blacklist',
-      meta: [['Desk', desk.name], ['Data as of', data.as_of],
+      meta: [['Desk', desk.name], ['Data as of close', data.as_of],
              ['Blacklist Score', `Share of rule weight failed; listed at ${cutoff}% or more`],
              ['Weights', RULES.map(r => `${r.label} ${w[r.id] ?? 0}%`).join(', ')]],
       columns: [
@@ -190,7 +190,7 @@ export default function Blacklist() {
       </div>
       <p className="text-xs mb-4" style={{ color: 'var(--text-mid)' }}>
         Funds to avoid: those the team has flagged by hand, and funds whose Blacklist Score (the weighted share
-        of the team’s blacklist rules they fail) is at or above the minimum. {data &&<>Data as of <b style={{ color: 'var(--text-hi)' }}>{fmtDate(data.as_of)}</b>.</>}
+        of the team’s blacklist rules they fail) is at or above the minimum. {data &&<>Data as of close <b style={{ color: 'var(--text-hi)' }}>{fmtDate(data.as_of)}</b>.</>}
       </p>
 
       {loading ? (
