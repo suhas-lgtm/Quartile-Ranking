@@ -171,7 +171,7 @@ export default function PortfolioOrbit({ label, colour, items, note }: {
             <g className="orbit-planet" data-tap="" data-p={p.i} tabIndex={0}>
               <circle r={p.pr * 2.2} fill={p.tone} opacity={0.1} />
               {p.it.status === 'new' && (
-                <ellipse rx={p.pr * 1.9} ry={p.pr * 0.55} fill="none" stroke="#F4E3B5" strokeOpacity={0.85} strokeWidth={1.4} transform="rotate(-18)" />
+                <ellipse rx={p.pr * 1.9} ry={p.pr * 0.55} fill="none" stroke="#F4E3B5" strokeOpacity={0.85} strokeWidth={1.4} />
               )}
               <circle r={p.pr} fill={`url(#${gid(p.tone)})`} />
               <text className="orbit-label" x={p.pr + 7} y={4} fontSize="13" fill="#D7DDF3">

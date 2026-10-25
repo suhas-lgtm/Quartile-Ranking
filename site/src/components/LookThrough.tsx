@@ -58,7 +58,7 @@ export function useLookThrough(funds: { code: string; name: string; value: numbe
     const loading = funds.some(f => !ports[f.code])
     return { rows: list, covered, missing, loading, months: [...months].sort() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ports, key, funds.map(f => f.value).join(',')])
+  }, [ports, key, funds.map(f => `${f.value}|${f.name}`).join(',')])
 }
 
 export default function LookThrough({ funds, title = 'Portfolio holdings (look-through)' }: {

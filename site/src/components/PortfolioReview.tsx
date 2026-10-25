@@ -23,7 +23,7 @@ import { closeAt, indexTrailing, useIndexSeries } from '../utils/benchmark'
 import { isoMinus } from '../utils/navMath'
 import { portfolioRisk, seriesStats, type PortfolioRisk } from '../utils/seriesStats'
 import { categoryColor } from '../config/categoryColors'
-import { fmtPct, retColor } from '../utils/format'
+import { fmtDate, fmtPct, retColor } from '../utils/format'
 import type { FundsIndex, RiskData, RiskFundRow } from '../types'
 import QuartileTable from './QuartileTable'
 
@@ -229,6 +229,42 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
       <div className="section-header" style={{ marginTop: 8 }}>
         <span>{title}</span>
       </div>
+
+      {/* ── caution: which dates the numbers are from ── */}
+      {(() => {
+        const months = [...new Set([...ltA.months, ...ltB.months])].sort()
+        const monthName = (m: string) => new Date(`${m}-01T00:00:00`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
+        const latestM = months[months.length - 1]
+        const older = months.filter(m => m !== latestM)
+        // Debt funds hold no stocks; the line below covers them, so only equity/hybrid funds are named here.
+        const debtNames = new Set([...A.lines, ...B.lines].map(l => l.code)
+          .filter(c => meta?.categories.find(k => k.slug === fundByCode.get(c)?.s)?.asset_class === 'Debt').map(name))
+        const noPortfolio = [...new Set([...ltA.missing, ...ltB.missing])].filter(n => !debtNames.has(n))
+        return (
+          <PdfSection id="data-dates" label="Caution — data dates (holdings month, NAV close)" kicker="Please note" title="Data Dates">
+            <div className="card p-4 mb-4 text-[12px] leading-relaxed" style={{ borderLeft: '3px solid #F59E0B', color: 'var(--text-mid)' }}>
+              <div className="font-semibold mb-1" style={{ color: '#F59E0B' }}>⚠ Please note — the dates behind these numbers</div>
+              <ul className="list-disc pl-5 space-y-0.5">
+                <li>
+                  <b style={{ color: 'var(--text-hi)' }}>Stocks, sectors, market cap and overlap</b> use each fund&apos;s
+                  {latestM ? <> <b style={{ color: 'var(--text-hi)' }}>{monthName(latestM)}</b> month-end portfolio</> : ' latest month-end portfolio'}
+                  {' '}(the fund house&apos;s disclosure as of the last day of that month), not daily holdings.
+                  {older.length > 0 && <> A few funds still use <b style={{ color: 'var(--text-hi)' }}>{older.map(monthName).join(', ')}</b>, where the newer month has not been published.</>}
+                </li>
+                <li>
+                  <b style={{ color: 'var(--text-hi)' }}>NAVs, returns and ratios</b> are as of close
+                  {asOf ? <> <b style={{ color: 'var(--text-hi)' }}>{fmtDate(asOf)}</b></> : ' of the latest day'}.
+                </li>
+                {noPortfolio.length > 0 && (
+                  <li>No monthly portfolio for <b style={{ color: 'var(--text-hi)' }}>{noPortfolio.join(', ')}</b> — counted in returns, not in the stock and sector split.</li>
+                )}
+                <li>Debt and liquid funds hold no stocks, so they count in returns but not in the stock and sector figures.</li>
+                <li>Portfolios change once a month (the next one is published around the 10th). A saved PDF or web link keeps the numbers of the day it was made.</li>
+              </ul>
+            </div>
+          </PdfSection>
+        )
+      })()}
 
       {/* ── summary ── */}
       <PdfSection id="summary" page label="Summary (incl. stocks going out / coming in)" kicker="At a glance" title="Portfolio Summary">
