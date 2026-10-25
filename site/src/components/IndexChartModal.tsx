@@ -205,10 +205,17 @@ export default function IndexChartModal({ initial, allIndices, onClose }: Props)
     }
   }
 
+  const shortSpan = xDates.length > 1 && (+new Date(xDates[xDates.length - 1]) - +new Date(xDates[0])) / 864e5 <= 190
+
   const option = {
     backgroundColor: 'transparent',
     animation: true,
-    grid: { top: 40, right: 20, bottom: 50, left: isComparing ? 65 : 75 },
+    grid: { top: 40, right: 20, bottom: 78, left: isComparing ? 65 : 75 },
+    dataZoom: [
+      { type: 'inside', filterMode: 'filter' },
+      { type: 'slider', filterMode: 'filter', height: 18, bottom: 12, borderColor: gridColor, textStyle: { color: axisColor, fontSize: 10 },
+        labelFormatter: (_: number, v: string) => v },
+    ],
     xAxis: {
       type: 'category', data: xDates,
       axisLine: { lineStyle: { color: gridColor } },
@@ -217,18 +224,22 @@ export default function IndexChartModal({ initial, allIndices, onClose }: Props)
         interval: Math.max(0, Math.floor(xDates.length / 10) - 1),
         formatter: (v: string) => {
           const d = new Date(v)
-          return `${d.toLocaleString('en', { month: 'short' })} '${String(d.getFullYear()).slice(2)}`
+          // Up to ~6 months shown: day and month (else every label reads the same month).
+          return shortSpan ? `${d.getDate()} ${d.toLocaleString('en', { month: 'short' })}`
+            : `${d.toLocaleString('en', { month: 'short' })} '${String(d.getFullYear()).slice(2)}`
         },
       },
       splitLine: { show: false },
     },
+    // The axis fits the values in view (not from 0), so the real ups and downs show;
+    // zooming in (drag the bar, or scroll on the chart) refits it to the stretch in view.
     yAxis: {
-      type: 'value', axisLine: { show: false },
+      type: 'value', axisLine: { show: false }, scale: true,
       axisLabel: {
         color: axisColor, fontSize: 11,
         formatter: isComparing
           ? (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(0)}%`
-          : (v: number) => v >= 1000 ? `${(v / 1000).toFixed(1)}K` : `${v.toFixed(0)}`,
+          : (v: number) => v.toLocaleString('en-IN', { maximumFractionDigits: v >= 100 ? 0 : 2 }),
       },
       splitLine: { lineStyle: { color: gridColor, type: 'dashed' } },
     },
@@ -442,6 +453,7 @@ export default function IndexChartModal({ initial, allIndices, onClose }: Props)
             {isComparing
               ? `Normalized to 0% at ${isCustom ? customFrom : 'period start'} for fair comparison.`
               : 'Select another index badge above to compare (max 5). Chart switches to normalized % mode automatically.'}
+            {' '}The scale fits the values shown; drag the bar under the chart (or scroll on it) to zoom into a stretch.
           </div>
         </div>
       </div>
