@@ -13,6 +13,7 @@ interface Health {
   checked_at: string
   status: 'ok' | 'warn' | 'fail'
   checks: { name: string; status: 'ok' | 'warn' | 'fail'; message: string; quiet?: boolean }[]
+  holdings?: object
 }
 
 export default function DataHealthBanner() {
@@ -23,7 +24,8 @@ export default function DataHealthBanner() {
   try { hidden = !!key && sessionStorage.getItem(key) === '1' } catch { /* storage blocked: always shown */ }
   if (!data || data.status === 'ok' || hidden) return null
   // Quiet checks (e.g. unmatched fund names in the holdings feed) are for the run log, not the banner.
-  const bad = data.checks.filter(c => c.status !== 'ok' && !c.quiet)
+  // Monthly holdings have their own strip (HoldingsNotice) when health.json carries the counts.
+  const bad = data.checks.filter(c => c.status !== 'ok' && !c.quiet && !(c.name === 'Monthly holdings' && data.holdings))
   if (!bad.length) return null
   const red = data.status === 'fail'
   const colour = red ? '#EF4444' : '#F59E0B'

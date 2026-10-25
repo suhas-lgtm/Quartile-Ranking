@@ -176,6 +176,10 @@ def gather(conn, data_bucket: str) -> dict:
         WITH latest AS (SELECT scheme_code, MAX(month) AS month FROM portfolio_holdings GROUP BY scheme_code)
         SELECT to_char(MAX(month), 'YYYY-MM'), COUNT(*),
                COUNT(*) FILTER (WHERE month = (SELECT MAX(month) FROM latest)) FROM latest""").fetchone()
+    # How many funds have each month as their newest portfolio (the site's top strip shows it).
+    by_month = conn.execute("""
+        WITH latest AS (SELECT scheme_code, MAX(month) AS month FROM portfolio_holdings GROUP BY scheme_code)
+        SELECT to_char(month, 'YYYY-MM'), COUNT(*) FROM latest GROUP BY 1 ORDER BY 1 DESC""").fetchall()
     idx = conn.execute("SELECT MAX(updated_at) FROM files WHERE bucket = 'Indicies Data'").fetchone()
     try:
         names = _body(conn, "Holdings", "unmatched.json")
@@ -185,6 +189,7 @@ def gather(conn, data_bucket: str) -> dict:
         "mf_as_of": meta.get("as_of"), "sif_as_of": sif.get("as_of"),
         "holdings_month": h[0] if h else None, "holdings_funds": int(h[1] or 0) if h else 0,
         "holdings_latest_funds": int(h[2] or 0) if h else 0,
+        "holdings_by_month": {m: int(n) for m, n in by_month if m},
         "indices_updated": idx[0] if idx else None,
         "names_report": names,
     }
@@ -202,7 +207,19 @@ def evaluate(facts: dict, now: datetime) -> dict:
         check_indices(upd if isinstance(upd, datetime) else None, now),
         check_names(facts.get("names_report")),
     ]
-    return {"checked_at": now.astimezone(IST).isoformat(timespec="minutes"), "status": overall(checks), "checks": checks}
+    return {"checked_at": now.astimezone(IST).isoformat(timespec="minutes"), "status": overall(checks), "checks": checks,
+            "holdings": holdings_summary(facts, today)}
+
+
+def holdings_summary(facts: dict, today: date) -> dict:
+    """Which month's portfolios the stock and sector figures use, for the strip at the top of the site."""
+    return {
+        "month": facts.get("holdings_month"),                     # newest month loaded
+        "expected": expected_holdings_month(today),               # the month that should be out by now
+        "funds": facts.get("holdings_funds") or 0,                # funds with any portfolio
+        "updated": facts.get("holdings_latest_funds") or 0,       # of those, on the newest month
+        "by_month": facts.get("holdings_by_month") or {},         # newest month per fund -> how many funds
+    }
 
 
 def main() -> int:

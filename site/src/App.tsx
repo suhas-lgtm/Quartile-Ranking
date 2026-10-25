@@ -9,6 +9,7 @@ import { useState, useEffect } from 'react'
 import HeroHeader      from './components/HeroHeader'
 import MarketPulseBar  from './components/MarketPulseBar'
 import DataHealthBanner from './components/DataHealthBanner'
+import HoldingsNotice from './components/HoldingsNotice'
 import MarketPulse     from './sections/MarketPulse'
 import QuartileRanking from './sections/QuartileRanking'
 import Watchlist       from './sections/Watchlist'
@@ -167,6 +168,8 @@ export default function App() {
       <main key={`${space}:${activeTab}`} className="pb-12 view-enter" style={{ paddingTop: 'calc(var(--header-h, 118px) + 10px)' }}>
         {/* NAVs or monthly holdings behind (scripts/data_health.py): a banner for everyone. */}
         <DataHealthBanner />
+        {/* Which month's portfolios the stock and sector figures use, and for how many funds. */}
+        <HoldingsNotice />
         {activeTab === 'market-pulse' && <MarketPulse />}
 
         {/* Live Market first on the other two, so the day's context is read

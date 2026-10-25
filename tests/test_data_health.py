@@ -14,7 +14,7 @@ from datetime import date, datetime, timezone
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 from scripts.data_health import (  # noqa: E402
-    check_holdings, check_indices, check_names, check_nav, evaluate, expected_holdings_month,
+    check_holdings, check_indices, check_names, check_nav, evaluate, expected_holdings_month, holdings_summary,
     overall, previous_working_day, working_days_behind,
 )
 
@@ -138,3 +138,12 @@ if __name__ == '__main__':
     print()
     print('data health checks hold' if not fails else f'{fails} test(s) FAILED')
     sys.exit(1 if fails else 0)
+
+
+def test_holdings_summary_for_the_top_strip():
+    facts = {"holdings_month": "2026-09", "holdings_funds": 842, "holdings_latest_funds": 775,
+             "holdings_by_month": {"2026-09": 775, "2026-08": 60, "2026-07": 7}}
+    h = holdings_summary(facts, date(2026, 10, 25))
+    assert h == {"month": "2026-09", "expected": "2026-09", "funds": 842, "updated": 775,
+                 "by_month": {"2026-09": 775, "2026-08": 60, "2026-07": 7}}
+    assert holdings_summary({}, date(2026, 10, 5))["expected"] == "2026-08"   # September not due before the 12th
