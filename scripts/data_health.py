@@ -172,14 +172,23 @@ def _body(conn, bucket: str, path: str) -> dict | None:
 def gather(conn, data_bucket: str) -> dict:
     meta = _body(conn, data_bucket, "meta.json") or {}
     sif = _body(conn, data_bucket, "sif.json") or {}
-    h = conn.execute("""
-        WITH latest AS (SELECT scheme_code, MAX(month) AS month FROM portfolio_holdings GROUP BY scheme_code)
-        SELECT to_char(MAX(month), 'YYYY-MM'), COUNT(*),
-               COUNT(*) FILTER (WHERE month = (SELECT MAX(month) FROM latest)) FROM latest""").fetchone()
-    # How many funds have each month as their newest portfolio (the site's top strip shows it).
-    by_month = conn.execute("""
-        WITH latest AS (SELECT scheme_code, MAX(month) AS month FROM portfolio_holdings GROUP BY scheme_code)
-        SELECT to_char(month, 'YYYY-MM'), COUNT(*) FROM latest GROUP BY 1 ORDER BY 1 DESC""").fetchall()
+    # Each fund's newest portfolio month — only funds in our fund list (funds_index.json): the
+    # holdings table also keeps old scheme codes no page shows, which must not count as "behind".
+    kind = {str(f.get("c")): f.get("k") or "Other" for f in (_body(conn, data_bucket, "funds_index.json") or {}).get("funds", [])}
+    listed = set(kind)
+    latest = [(c, m) for c, m in conn.execute(
+        "SELECT scheme_code, to_char(MAX(month), 'YYYY-MM') FROM portfolio_holdings GROUP BY scheme_code").fetchall()
+        if not listed or str(c) in listed]
+    by_month: dict[str, int] = {}
+    for _, m in latest:
+        by_month[m] = by_month.get(m, 0) + 1
+    newest = max(by_month) if by_month else None
+    h = (newest, len(latest), by_month.get(newest, 0)) if newest else None
+    # The kinds of fund still on an older month (e.g. 38 ETFs, 30 index funds), for the strip.
+    behind: dict[str, int] = {}
+    for c, m in latest:
+        if m != newest:
+            behind[kind.get(str(c), "Other")] = behind.get(kind.get(str(c), "Other"), 0) + 1
     idx = conn.execute("SELECT MAX(updated_at) FROM files WHERE bucket = 'Indicies Data'").fetchone()
     try:
         names = _body(conn, "Holdings", "unmatched.json")
@@ -189,7 +198,8 @@ def gather(conn, data_bucket: str) -> dict:
         "mf_as_of": meta.get("as_of"), "sif_as_of": sif.get("as_of"),
         "holdings_month": h[0] if h else None, "holdings_funds": int(h[1] or 0) if h else 0,
         "holdings_latest_funds": int(h[2] or 0) if h else 0,
-        "holdings_by_month": {m: int(n) for m, n in by_month if m},
+        "holdings_by_month": dict(sorted(by_month.items(), reverse=True)),
+        "holdings_behind_kinds": dict(sorted(behind.items(), key=lambda kv: -kv[1])),
         "indices_updated": idx[0] if idx else None,
         "names_report": names,
     }
@@ -216,9 +226,10 @@ def holdings_summary(facts: dict, today: date) -> dict:
     return {
         "month": facts.get("holdings_month"),                     # newest month loaded
         "expected": expected_holdings_month(today),               # the month that should be out by now
-        "funds": facts.get("holdings_funds") or 0,                # funds with any portfolio
+        "funds": facts.get("holdings_funds") or 0,                # funds in our list with any portfolio
         "updated": facts.get("holdings_latest_funds") or 0,       # of those, on the newest month
         "by_month": facts.get("holdings_by_month") or {},         # newest month per fund -> how many funds
+        "behind_kinds": facts.get("holdings_behind_kinds") or {}, # category -> funds not on the newest month
     }
 
 

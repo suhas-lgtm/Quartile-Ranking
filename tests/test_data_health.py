@@ -145,5 +145,5 @@ def test_holdings_summary_for_the_top_strip():
              "holdings_by_month": {"2026-09": 775, "2026-08": 60, "2026-07": 7}}
     h = holdings_summary(facts, date(2026, 10, 25))
     assert h == {"month": "2026-09", "expected": "2026-09", "funds": 842, "updated": 775,
-                 "by_month": {"2026-09": 775, "2026-08": 60, "2026-07": 7}}
+                 "by_month": {"2026-09": 775, "2026-08": 60, "2026-07": 7}, "behind_kinds": {}}
     assert holdings_summary({}, date(2026, 10, 5))["expected"] == "2026-08"   # September not due before the 12th

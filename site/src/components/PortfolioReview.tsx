@@ -249,8 +249,15 @@ export default function PortfolioReview({ sides, title = 'Mutual fund analysis' 
                   <b style={{ color: 'var(--text-hi)' }}>Stocks, sectors, market cap and overlap</b> use each fund&apos;s
                   {latestM ? <> <b style={{ color: 'var(--text-hi)' }}>{monthName(latestM)}</b> month-end portfolio</> : ' latest month-end portfolio'}
                   {' '}(the fund house&apos;s disclosure as of the last day of that month), not daily holdings.
-                  {older.length > 0 && <> A few funds still use <b style={{ color: 'var(--text-hi)' }}>{older.map(monthName).join(', ')}</b>, where the newer month has not been published.</>}
                 </li>
+                {older.length > 0 && (
+                  <li>
+                    <b style={{ color: '#F59E0B' }}>Still on an older month</b> (their {latestM && monthName(latestM)} portfolio has not been received yet):{' '}
+                    {Object.entries({ ...ltA.monthOf, ...ltB.monthOf }).filter(([, m]) => m !== latestM).sort(([, x], [, y]) => x.localeCompare(y))
+                      .map(([f, m]) => `${f} (${monthName(m)})`).join(', ')}.
+                    {' '}Their stocks and sectors are from that month.
+                  </li>
+                )}
                 <li>
                   <b style={{ color: 'var(--text-hi)' }}>NAVs, returns and ratios</b> are as of close
                   {asOf ? <> <b style={{ color: 'var(--text-hi)' }}>{fmtDate(asOf)}</b></> : ' of the latest day'}.

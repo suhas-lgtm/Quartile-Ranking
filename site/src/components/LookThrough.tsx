@@ -38,11 +38,12 @@ export function useLookThrough(funds: { code: string; name: string; value: numbe
     const missing: string[] = []
     let covered = 0
     const months = new Set<string>()
+    const monthOf: Record<string, string> = {}            // fund name -> its portfolio month
     for (const f of funds) {
       const p = ports[f.code]
       if (!p) continue
       if (!p.holdings.length) { missing.push(f.name); continue }
-      if (p.month) months.add(p.month)
+      if (p.month) { months.add(p.month); monthOf[f.name] = p.month }
       const fw = total ? f.value / total : 0
       covered += fw
       for (const h of p.holdings) {
@@ -56,7 +57,7 @@ export function useLookThrough(funds: { code: string; name: string; value: numbe
     }
     const list = [...rows.values()].sort((a, b) => b.weight - a.weight)
     const loading = funds.some(f => !ports[f.code])
-    return { rows: list, covered, missing, loading, months: [...months].sort() }
+    return { rows: list, covered, missing, loading, months: [...months].sort(), monthOf }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ports, key, funds.map(f => `${f.value}|${f.name}`).join(',')])
 }

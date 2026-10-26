@@ -12,7 +12,7 @@ import { useJson } from '../hooks/useData'
 
 interface Health {
   checked_at: string
-  holdings?: { month: string | null; expected: string; funds: number; updated: number; by_month: Record<string, number> }
+  holdings?: { month: string | null; expected: string; funds: number; updated: number; by_month: Record<string, number>; behind_kinds?: Record<string, number> }
 }
 
 const monthName = (m: string) => new Date(`${m}-01T00:00:00`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
@@ -34,6 +34,10 @@ export default function HoldingsNotice() {
   const complete = !notOut && rest <= 0
   const colour = complete ? 'var(--accent-a)' : '#F59E0B'
   const n = (v: number) => v.toLocaleString('en-IN')
+  // e.g. "38 ETFs, 30 index funds, 2 retirement funds, 1 sectoral/thematic fund"
+  const kindName = (k: string, c: number) => k === 'ETF' ? (c === 1 ? 'ETF' : 'ETFs')
+    : `${k.toLowerCase().replace(/ fund$/, '')} fund${c === 1 ? '' : 's'}`
+  const kinds = Object.entries(h.behind_kinds ?? {}).map(([k, c]) => `${n(c)} ${kindName(k, c)}`).join(', ')
 
   return (
     <div className="px-4 sm:px-6 max-w-screen-2xl mx-auto print:hidden" role="status">
@@ -50,8 +54,9 @@ export default function HoldingsNotice() {
             <>Stocks, sectors, market cap and overlap use the <b>{latest}</b> month-end portfolios of all {n(h.funds)} funds.</>
           ) : (
             <>
-              <b>{latest}</b> portfolios are updated for <b>{n(h.updated)} of {n(h.funds)} funds</b> so far.
-              {' '}The other <b>{n(rest)}</b> still show{' '}
+              Stocks and sectors are from <b>{latest}</b> for <b>{n(h.updated)} of {n(h.funds)} funds</b>.
+              {' '}The other <b>{n(rest)} funds</b>
+              {kinds && <> ({kinds})</>} still show{' '}
               {older.length === 1
                 ? <b>{monthName(older[0][0])}</b>
                 : <>an earlier month ({older.map(([m, c]) => `${monthName(m)}: ${n(c)}`).join(', ')})</>}
