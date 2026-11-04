@@ -4,7 +4,7 @@
 // (funds_index.json) and every index the pipeline holds (meta.json benchmarks);
 // up to 20 picks. All are measured from the same start — the first day every
 // pick has a value (SIFs are young, so usually a SIF's first NAV) — or a shorter
-// window chosen above the chart: growth of ₹10,000, returns over 1W to 1Y and
+// window chosen above the chart (1M-1Y, or custom From/To dates): growth of ₹10,000, returns over 1W to 1Y and
 // over the whole window, and the risk taken in that same window (annualised
 // volatility of daily moves, the worst fall from a peak). Picks are remembered
 // in this browser.
@@ -29,7 +29,8 @@ const STORE = 'sifx_v1'
 const PALETTE = ['#22D3EE', '#F59E0B', '#A78BFA', '#34D399', '#F472B6', '#60A5FA', '#FB7185', '#FACC15', '#2DD4BF', '#E879F9',
                  '#F97316', '#84CC16', '#38BDF8', '#C084FC', '#4ADE80', '#FCA5A5', '#FDE047', '#818CF8', '#5EEAD4', '#FDBA74']
 const KIND_LABEL: Record<Kind, string> = { sif: 'SIF', mf: 'Mutual fund', idx: 'Index' }
-const WINDOWS = [['all', 'Since the common start'], ['1M', '1M'], ['3M', '3M'], ['6M', '6M'], ['1Y', '1Y']] as const
+const WINDOWS = [['all', 'Since the common start'], ['1M', '1M'], ['3M', '3M'], ['6M', '6M'], ['1Y', '1Y'], ['custom', '📅 Custom']] as const
+const DATES = 'sifx_dates_v1'
 type Win = typeof WINDOWS[number][0]
 const PERIODS: [string, number][] = [['1W', 7], ['1M', 30], ['3M', 91], ['6M', 182], ['1Y', 365]]
 
@@ -42,6 +43,10 @@ function at(p: Pts, d: string): number | null {
   return (Date.parse(d) - Date.parse(p[ans][0])) / 86400000 <= 10 ? p[ans][1] : null
 }
 
+function loadDates(): { from: string; to: string } {
+  try { const v = JSON.parse(localStorage.getItem(DATES) ?? 'null'); if (v?.from && v?.to) return v } catch { /* none saved */ }
+  return { from: '', to: '' }
+}
 function load(): string[] { try { const v = JSON.parse(localStorage.getItem(STORE) ?? '[]'); return Array.isArray(v) ? v : [] } catch { return [] } }
 
 export default function CrossCompare() {
@@ -50,7 +55,9 @@ export default function CrossCompare() {
   const { data: index } = useJson<FundsIndex>('funds_index.json')
   const [keys, setKeys] = useState<string[]>(load)
   const [pick, setPick] = useState('')
-  const [win, setWin] = useState<Win>('all')
+  const [win, setWin] = useState<Win>(() => (loadDates().from ? 'custom' : 'all'))
+  const [dates, setDates] = useState(loadDates)
+  useEffect(() => { try { localStorage.setItem(DATES, JSON.stringify(win === 'custom' ? dates : null)) } catch { /* optional */ } }, [dates, win])
   const [series, setSeries] = useState<Record<string, Pts | null>>({})
   useEffect(() => { try { localStorage.setItem(STORE, JSON.stringify(keys)) } catch { /* optional */ } }, [keys])
 
@@ -87,12 +94,18 @@ export default function CrossCompare() {
 
   const ready = keys.filter(k => series[k]?.length)
   const common = ready.length ? ready.map(k => series[k]![0][0]).sort().slice(-1)[0] : ''
-  const end = ready.length ? ready.map(k => series[k]![series[k]!.length - 1][0]).sort()[0] : ''
-  const winStart = win === 'all' ? common : (() => {
+  const latest = ready.length ? ready.map(k => series[k]![series[k]!.length - 1][0]).sort()[0] : ''
+  // Custom dates are kept inside what every pick has: from the common start to the last common close.
+  const custom = win === 'custom'
+  const clamp = (d: string, lo: string, hi: string) => (!d ? '' : d < lo ? lo : d > hi ? hi : d)
+  const end = custom && dates.to ? clamp(dates.to, common, latest) : latest
+  const winStart = win === 'all' ? common : custom ? (clamp(dates.from, common, end) || common) : (() => {
     const d = minusDays(end, PERIODS.find(([l]) => l === win)![1])
     return d < common ? common : d
   })()
-  const short = win !== 'all' && winStart === common && common > minusDays(end, PERIODS.find(([l]) => l === win)![1])
+  const short = !custom && win !== 'all' && winStart === common && common > minusDays(end, PERIODS.find(([l]) => l === win)![1])
+  const fromMoved = custom && !!dates.from && dates.from < common
+  const toMoved = custom && !!dates.to && dates.to > latest
 
   const stats = ready.map(k => {
     const pts = series[k]!
@@ -134,7 +147,7 @@ export default function CrossCompare() {
 
   const buildExport = (): SheetSpec | null => stats.length ? {
     sheet: 'SIF vs Index vs MF', title: 'SIF vs Index vs Mutual Fund',
-    meta: [['Window', `${fmtDate(winStart)} to ${fmtDate(end)}`]],
+    meta: [['Window', `${fmtDate(winStart)} to ${fmtDate(end)}${custom ? ' (custom dates)' : ''}`], ['1W-1Y returns', `to ${fmtDate(end)}`]],
     columns: [{ key: 'name', label: 'Name', type: 'text', width: 46 }, { key: 'kind', label: 'Type', type: 'text', width: 12 },
               { key: 'cat', label: 'Category', type: 'text', width: 24 },
               ...PERIODS.map(([l]) => ({ key: l, label: l, type: 'percent' as const })),
@@ -181,9 +194,33 @@ export default function CrossCompare() {
             <div className="flex items-center gap-2 flex-wrap mb-1">
               <span className="text-sm font-semibold" style={{ color: 'var(--text-hi)' }}>Growth of ₹10,000 · {fmtDate(winStart)} to {fmtDate(end)}</span>
               <span className="ml-auto tab-bar flex gap-1">
-                {WINDOWS.map(([w, l]) => <button key={w} className={`tab-btn${win === w ? ' active accent' : ''}`} onClick={() => setWin(w)}>{l}</button>)}
+                {WINDOWS.map(([w, l]) => (
+                  <button key={w} className={`tab-btn${win === w ? ' active accent' : ''}`}
+                          onClick={() => { setWin(w); if (w === 'custom' && !dates.from) setDates({ from: winStart, to: end }) }}>{l}</button>
+                ))}
               </span>
             </div>
+            {custom && (
+              <div className="flex items-center gap-2 flex-wrap text-xs mb-2" style={{ color: 'var(--text-mid)' }}>
+                <label className="flex items-center gap-1.5">From
+                  <input type="date" value={winStart} min={common} max={end} style={{ ...inputStyle, colorScheme: isLight ? 'light' : 'dark' }}
+                         className="rounded px-2 py-1" onChange={e => e.target.value && setDates(d => ({ ...d, from: e.target.value }))} />
+                </label>
+                <label className="flex items-center gap-1.5">To
+                  <input type="date" value={end} min={winStart} max={latest} style={{ ...inputStyle, colorScheme: isLight ? 'light' : 'dark' }}
+                         className="rounded px-2 py-1" onChange={e => e.target.value && setDates(d => ({ ...d, to: e.target.value }))} />
+                </label>
+                <span className="text-[11px]" style={{ color: 'var(--text-low)' }}>
+                  Any dates from {fmtDate(common)} (the first day all picks have a value) to {fmtDate(latest)} (the last close).
+                </span>
+              </div>
+            )}
+            {(fromMoved || toMoved) && (
+              <div className="text-[11px] mb-1" style={{ color: '#F59E0B' }}>
+                {fromMoved && <>From moved to {fmtDate(common)}: not every pick has a value before that. </>}
+                {toMoved && <>To moved to {fmtDate(latest)}: the last close all picks have.</>}
+              </div>
+            )}
             {short && <div className="text-[11px] mb-1" style={{ color: '#F59E0B' }}>Not every pick has that much history — shown from {fmtDate(common)}, the first day all have a value.</div>}
             {option && <ReactECharts option={option} style={{ height: 320 }} notMerge />}
             <div className="text-[11px]" style={{ color: 'var(--text-low)' }}>Indices are drawn dashed. Fund and SIF NAVs are after expenses; an index has none.</div>
