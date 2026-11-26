@@ -8,6 +8,11 @@
 // new), the gain being realised on what is sold, and the full analysis of
 // existing vs suggested: allocation, holdings, returns, SIP returns and ratios,
 // then the SIF part. Kept in this browser, one per client.
+//
+// Right under the suggested portfolio come the Switches and STPs. Everything
+// after them uses the portfolio once those are done (ActionPlan.applyMoves):
+// ₹10 L put in a debt fund and moved by STP into a large cap is ₹10 L of large
+// cap in the analysis, listed with where it came from.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSavedClients } from '../../utils/savedClients'
@@ -25,7 +30,7 @@ import { matchSif } from '../../utils/sifMatch'
 import { fmtPct, retColor } from '../../utils/format'
 import { ADVISOR, inputStyle, type MfLine } from './ClientPlan'
 import SuggestedEditor from '../../components/SuggestedEditor'
-import { SipChanges, SwitchPlan, type SwitchRow } from '../../components/ActionPlan'
+import { SipChanges, SwitchPlan, applyMoves, type SwitchRow } from '../../components/ActionPlan'
 import type { FundsIndex } from '../../types'
 
 interface Realloc {
@@ -126,17 +131,26 @@ export default function Reallocation() {
   const sifSold = sifIds.reduce((t, id) => t + Math.max(0, sifAmt(sifEx, id) - sifAmt(cur.sif, id)), 0)
   const sifName = (id: string) => sifById.get(id)?.name.replace(/\s*-\s*Regular.*$/i, '') ?? id
   const exInvested = [...existing.values()].every(x => x.invested != null) ? [...existing.values()].reduce((s, x) => s + (x.invested ?? 0), 0) : null
-  const prMf = cur.proposed.reduce((s, l) => s + (l.lump ?? 0), 0)
+  // The suggested portfolio as typed, then on day one (with switches) and once the STPs are done.
+  const exValue = useMemo(() => new Map([...existing].map(([c, x]) => [c, x.value])), [existing])
+  const prValue = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const l of cur.proposed) m.set(l.code, (m.get(l.code) ?? 0) + (l.lump ?? 0))
+    return m
+  }, [cur.proposed])
+  const moved = useMemo(() => applyMoves(exValue, prValue, cur.moves ?? []), [exValue, prValue, cur.moves])
+  const finalLines = [...moved.final].filter(([, v]) => v > 0.5)
+  const prMf = finalLines.reduce((s, [, v]) => s + v, 0)
   const prSif = cur.sif.reduce((s, l) => s + (l.lump ?? 0), 0)
   const unmatched = cur.rows.filter(r => !r.skip && !r.code).length
   const unsure = cur.rows.filter(r => !r.skip && r.code && !r.sure).length
 
   // Switches: every fund on either side, with what changes.
   const switches = useMemo(() => {
-    const codes = [...new Set([...existing.keys(), ...cur.proposed.map(l => l.code)])]
+    const codes = [...new Set([...existing.keys(), ...finalLines.map(([c]) => c)])]
     return codes.map(code => {
       const ex = existing.get(code)?.value ?? 0
-      const pr = cur.proposed.find(l => l.code === code)?.lump ?? 0
+      const pr = moved.final.get(code) ?? 0
       const inv = existing.get(code)?.invested ?? null
       const action = ex === 0 ? 'New' : pr === 0 ? 'Exit' : pr < ex - 1 ? 'Reduce' : pr > ex + 1 ? 'Add' : 'Keep'
       // Selling part of a fund books profit in proportion to that fund's overall gain:
@@ -147,7 +161,8 @@ export default function Reallocation() {
       const cost = gain != null ? sold - gain : null
       return { code, ex, pr, action, sold, bought, gain, cost, inv }
     }).sort((a, b) => ['Exit', 'Reduce', 'Keep', 'Add', 'New'].indexOf(a.action) - ['Exit', 'Reduce', 'Keep', 'Add', 'New'].indexOf(b.action) || b.ex - a.ex)
-  }, [existing, cur.proposed])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existing, moved])
   const soldTotal = switches.reduce((s, x) => s + x.sold, 0)
   // Existing SIPs by fund (from the upload, or typed in), and how much each fund moves in the suggestion.
   const existingSip = useMemo(() => {
@@ -177,7 +192,7 @@ export default function Reallocation() {
   ]
   // The portfolio the pictures show: the suggested one, or today's while nothing is suggested.
   const view: { label: string; colour: string; items: OrbitItem[]; note?: string; current: boolean } = (() => {
-    const prBy = new Map(cur.proposed.filter(l => (l.lump ?? 0) > 0).map(l => [l.code, l.lump ?? 0]))
+    const prBy = new Map(finalLines)
     if (!prBy.size && !cur.sif.some(l => (l.lump ?? 0) > 0)) {
       return { label: 'Current portfolio', colour: EX_COLOUR, current: true, items: [
         ...[...existing.entries()].map(([code, x]) => ({ code, amount: x.value })),
@@ -202,7 +217,9 @@ export default function Reallocation() {
       ],
     }
   })()
-  const fundChanges = useMemo(() => new Map(switches.map(x => [x.code, x.pr - x.ex])), [switches])
+  // What the suggested portfolio (as typed) changes in each fund: what Auto-fill builds switches from.
+  const fundChanges = useMemo(() => new Map([...new Set([...exValue.keys(), ...prValue.keys()])]
+    .map(c => [c, (prValue.get(c) ?? 0) - (exValue.get(c) ?? 0)])), [exValue, prValue])
   // SIPs a month: running now, and after the SIP changes (a fund not changed keeps its SIP).
   const sipNow = [...existingSip.values()].reduce((t, v) => t + v, 0) + (cur.sifExisting ?? []).reduce((t, l) => t + (l.sip ?? 0), 0)
   const sipAfter = [...new Set([...existingSip.keys(), ...Object.keys(cur.sipPlan ?? {})])]
@@ -235,13 +252,13 @@ export default function Reallocation() {
   const setRow = (i: number, patch: Partial<UploadedRow>) => update({ rows: cur.rows.map((r, j) => (j === i ? { ...r, ...patch } : r)) })
 
   return (
-    <PdfProvider pageKey="rahul-realloc" doc={{
+    <PdfProvider pageKey="rahul-realloc" resetAfterDownload doc={{
       kicker: 'Portfolio review', title: 'Portfolio Reallocation Proposal', client: cur.client || undefined,
       advisor: { name: cur.advisorName?.trim() || ADVISOR.name, mobile: cur.advisorPhone?.trim() || ADVISOR.mobile },
       stats: [
         { label: 'Existing portfolio', value: inrShort(exAll) },
         { label: 'Suggested portfolio', value: inrShort(prMf + prSif) },
-        { label: 'Funds', value: `${existing.size} → ${cur.proposed.filter(l => (l.lump ?? 0) > 0).length + cur.sif.filter(l => (l.lump ?? 0) > 0).length}` },
+        { label: 'Funds', value: `${existing.size} → ${finalLines.length + cur.sif.filter(l => (l.lump ?? 0) > 0).length}` },
         prMf + prSif - exAll >= 0
           ? { label: 'Fresh money', value: inrShort(prMf + prSif - exAll) }
           : { label: 'Money left over', value: inrShort(exAll - prMf - prSif) },
@@ -485,6 +502,80 @@ export default function Reallocation() {
       </div>
       </PdfSection>
 
+      {/* ── switches and STPs, then the portfolio once they are done ── */}
+      {(existing.size > 0 || cur.proposed.length > 0) && (['switch', 'stp'] as const).map(kind => (
+        <PdfSection key={kind} id={`moves-${kind}`} label={kind === 'switch' ? 'Action plan — switches' : 'Action plan — STPs'}
+                    empty={!(cur.moves ?? []).some(m => m.type === kind)}
+                    kicker="What to do" title={kind === 'switch' ? 'Switches' : 'STPs — Systematic Transfer Plans'}>
+          <div className="card p-4 mb-4">
+            <SwitchPlan kind={kind} rows={cur.moves ?? []} onChange={moves => update({ moves })} changes={fundChanges} inputStyle={inputStyle}
+                        values={{ ex: exValue, pr: prValue, dayOne: moved.dayOne }}
+                        fromFunds={[...new Set([...existing.keys(), ...cur.proposed.map(l => l.code)])]} />
+          </div>
+        </PdfSection>
+      ))}
+      {moved.via.size > 0 && (
+        <PdfSection id="after-moves" label="Suggested portfolio after switches & STPs" kicker="What the client ends up with" title="Suggested Portfolio — After Switches & STPs">
+          <div className="card overflow-hidden mb-4">
+            <div className="px-4 pt-3 flex items-center gap-3 flex-wrap">
+              <span className="font-display font-bold text-sm" style={{ color: PR_COLOUR }}>Suggested portfolio — after switches &amp; STPs</span>
+              <span className="text-[11px]" style={{ color: 'var(--text-mid)' }}>
+                {inrShort(prMf)} in {finalLines.length} funds · the analysis below uses this portfolio
+              </span>
+            </div>
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead><tr>
+                  <th className="text-left">Fund</th><th className="text-left">Category</th>
+                  <th style={{ textAlign: 'right' }}>Suggested</th><th style={{ textAlign: 'right' }}>Switch / STP</th>
+                  <th style={{ textAlign: 'right' }}>After switches &amp; STPs</th><th style={{ textAlign: 'right' }}>Weight</th>
+                </tr></thead>
+                <tbody>
+                  {[...new Set([...prValue.keys(), ...moved.final.keys()])]
+                    .filter(c => (prValue.get(c) ?? 0) > 0.5 || (moved.final.get(c) ?? 0) > 0.5 || moved.via.has(c))
+                    .sort((a, b) => (moved.final.get(b) ?? 0) - (moved.final.get(a) ?? 0))
+                    .map(c => {
+                      const pr = prValue.get(c) ?? 0, fin = moved.final.get(c) ?? 0, d = fin - pr
+                      // Where the money went, for a fund emptied by its moves.
+                      const outTo = [...moved.via].flatMap(([to, vs]) => vs.filter(v => v.from === c).map(v => ({ to, ...v })))
+                      return (
+                        <tr key={c} style={{ opacity: fin > 0.5 ? 1 : 0.55 }}>
+                          <td className="text-xs" style={{ maxWidth: 360 }}>
+                            <div className="truncate font-semibold"><FundLink code={c} name={fundByCode.get(c)?.n ?? c} /></div>
+                            {(moved.via.get(c) ?? []).map((v, i) => (
+                              <div key={i} className="text-[10px]" style={{ color: v.type === 'stp' ? '#F59E0B' : '#A78BFA' }}>
+                                ↳ {inr(v.amount)} by {v.type === 'stp' ? 'STP' : 'switch'} from {fundByCode.get(v.from)?.n ?? v.from}
+                                {v.type === 'stp' && v.weeks ? ` · ${v.perWeek ? `${inr(v.perWeek)} a week × ` : ''}${v.weeks} weeks` : ''}
+                              </div>
+                            ))}
+                            {outTo.some(v => v.type === 'stp') && (
+                              <div className="text-[10px]" style={{ color: 'var(--text-low)' }}>
+                                ↦ {inr(outTo.filter(v => v.type === 'stp').reduce((t, v) => t + v.amount, 0))} moved out by STP to {outTo.filter(v => v.type === 'stp').map(v => fundByCode.get(v.to)?.n ?? v.to).join(', ')}
+                              </div>
+                            )}
+                          </td>
+                          <td className="text-[11px]" style={{ color: 'var(--text-mid)' }}>{fundByCode.get(c)?.k ?? '—'}</td>
+                          <td className="ret-cell text-xs">{pr > 0.5 ? inr(pr) : '—'}</td>
+                          <td className="ret-cell text-xs font-semibold" style={{ color: Math.abs(d) < 0.5 ? 'var(--text-low)' : d > 0 ? '#34D399' : '#F87171' }}>
+                            {Math.abs(d) < 0.5 ? '—' : `${d > 0 ? '+' : '−'}${inr(Math.abs(d))}`}
+                          </td>
+                          <td className="ret-cell text-xs font-semibold">{fin > 0.5 ? inr(fin) : '—'}</td>
+                          <td className="ret-cell text-[11px]" style={{ color: 'var(--text-mid)' }}>{fin > 0.5 && prMf ? pct1(fin / prMf) : ''}</td>
+                        </tr>
+                      )
+                    })}
+                  <tr className="benchmark-row">
+                    <td className="text-xs font-semibold">Total</td><td />
+                    <td className="ret-cell text-xs font-semibold">{inr([...prValue.values()].reduce((t, v) => t + v, 0))}</td><td />
+                    <td className="ret-cell text-xs font-semibold">{inr(prMf)}</td><td />
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </PdfSection>
+      )}
+
       {(exAll > 0 || prMf + prSif > 0) && (
         <PdfSection id="totals" page label="Totals (existing, suggested, amount to sell and buy, profit booked)" kicker="The switch in numbers" title="What Changes">
         <div className="grid gap-3 grid-cols-2 lg:grid-cols-7 mb-3">
@@ -605,7 +696,7 @@ export default function Reallocation() {
         </PdfSection>
       )}
 
-      {/* ── action plan: SIP changes, switches and STPs ── */}
+      {/* ── action plan: SIP changes ── */}
       {(existing.size > 0 || cur.proposed.length > 0) && (
         <>
           <PdfSection id="actions" page label="Action plan — SIP changes" kicker="What to do" title="SIP Changes">
@@ -620,22 +711,12 @@ export default function Reallocation() {
                         before={sipChanged || sifSips.some(x => x.now !== x.was) ? sipNow : undefined} />
             </PdfSection>
           )}
-          {(['switch', 'stp'] as const).map(kind => (
-            <PdfSection key={kind} id={`moves-${kind}`} label={kind === 'switch' ? 'Action plan — switches' : 'Action plan — STPs'}
-                        empty={!(cur.moves ?? []).some(m => m.type === kind)}
-                        kicker="What to do" title={kind === 'switch' ? 'Switches' : 'STPs — Systematic Transfer Plans'}>
-              <div className={`card p-4 mb-4 ${kind === 'stp' && !(cur.moves ?? []).some(m => m.type === 'stp') ? 'print:hidden' : ''}`}>
-                <SwitchPlan kind={kind} rows={cur.moves ?? []} onChange={moves => update({ moves })} changes={fundChanges} inputStyle={inputStyle}
-                            fromFunds={[...new Set([...existing.keys(), ...cur.proposed.map(l => l.code)])]} />
-              </div>
-            </PdfSection>
-          ))}
         </>
       )}
 
       <PortfolioReview title="Mutual funds — existing vs suggested" sides={[
         { label: 'Existing', colour: EX_COLOUR, lines: [...existing.entries()].map(([code, x]) => ({ code, amount: x.value })) },
-        { label: 'Suggested', colour: PR_COLOUR, lines: cur.proposed.map(l => ({ code: l.code, amount: l.lump })) },
+        { label: 'Suggested', colour: PR_COLOUR, lines: finalLines.map(([code, amount]) => ({ code, amount })) },
       ].filter(s => s.lines.some(l => (l.amount ?? 0) > 0))} />
 
       {sifEx.some(l => (l.lump ?? 0) > 0) && (

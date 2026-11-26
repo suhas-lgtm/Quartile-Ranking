@@ -9,6 +9,13 @@
 // "Auto-fill" pairs the suggested
 // portfolio's sells with its buys, largest first, so the switches add up to the
 // changes; every row can then be edited, turned into an STP, or removed.
+// Picking the fund a move comes out of fills its amount (what is left to sell
+// for a switch, what is left in the fund for an STP); the amount stays editable.
+//
+// applyMoves() gives the portfolio the analysis uses: the suggested portfolio,
+// plus any switch it does not already show, then every STP carried out — e.g.
+// ₹10 L parked in a debt fund and moved by STP into a large cap counts as
+// ₹10 L of large cap.
 
 import { useMemo, useState } from 'react'
 import { useJson, useMeta } from '../hooks/useData'
@@ -23,6 +30,8 @@ export interface SwitchRow {
   amount: number | null
   /** STP: number of weekly instalments. */
   weeks?: number | null
+  /** STP: the whole amount to move (the weekly amount is this ÷ weeks). Older saves have only the weekly amount. */
+  total?: number | null
   /** Older saves counted STPs in months. */
   months?: number | null
   /** STP set up to bring a switch back: the switch's id. */
@@ -30,6 +39,44 @@ export interface SwitchRow {
 }
 
 const newId = () => Math.random().toString(36).slice(2, 9)
+export const weeksOf = (r: SwitchRow) => r.weeks ?? (r.months ? r.months * 4 : null)
+/** The whole amount a move takes out of its fund. */
+export const moveTotal = (r: SwitchRow) => r.type === 'stp' ? (r.total ?? (r.amount ?? 0) * (weeksOf(r) ?? 0)) : (r.amount ?? 0)
+
+/** How money reached a fund in the final portfolio. */
+export interface Via { from: string; type: 'switch' | 'stp'; amount: number; weeks?: number | null; perWeek?: number | null }
+
+/**
+ * The portfolio after the moves. Day one is the suggested portfolio plus the part
+ * of each switch it does not already show (a fund sold and the money not put
+ * anywhere yet, or a fund bought and not typed in). Then each STP moves its total
+ * out of its fund — never more than the fund holds — into the target.
+ */
+export function applyMoves(existing: Map<string, number>, suggested: Map<string, number>, rows: SwitchRow[]) {
+  const out = new Map(suggested)
+  const add = (c: string, v: number) => out.set(c, Math.max(0, (out.get(c) ?? 0) + v))
+  const via = new Map<string, Via[]>()
+  const note = (to: string, v: Via) => via.set(to, [...(via.get(to) ?? []), v])
+  const flow = new Map<string, number>()
+  for (const r of rows) if (r.type === 'switch' && r.from && r.to && moveTotal(r) > 0) {
+    flow.set(r.from, (flow.get(r.from) ?? 0) - moveTotal(r))
+    flow.set(r.to, (flow.get(r.to) ?? 0) + moveTotal(r))
+    note(r.to, { from: r.from, type: 'switch', amount: moveTotal(r) })
+  }
+  for (const [c, f] of flow) {
+    const d = (suggested.get(c) ?? 0) - (existing.get(c) ?? 0)
+    const extra = f > 0 ? Math.max(0, f - Math.max(0, d)) : -Math.max(0, -f - Math.max(0, -d))
+    if (Math.abs(extra) > 0.5) add(c, extra)
+  }
+  const dayOne = new Map(out)
+  for (const r of rows) if (r.type === 'stp' && r.from && r.to && moveTotal(r) > 0) {
+    const moved = Math.min(moveTotal(r), out.get(r.from) ?? 0)
+    if (moved <= 0) continue
+    add(r.from, -moved); add(r.to, moved)
+    note(r.to, { from: r.from, type: 'stp', amount: moved, weeks: weeksOf(r), perWeek: r.amount })
+  }
+  return { dayOne, final: out, via }
+}
 const SIP_COLOUR: Record<string, string> = { Start: '#22D3EE', Increase: '#34D399', Reduce: '#F59E0B', Stop: '#F87171', Same: 'var(--text-low)' }
 const sipStatus = (ex: number, sg: number) => ex <= 0 && sg > 0 ? 'Start' : ex > 0 && sg <= 0 ? 'Stop' : sg > ex ? 'Increase' : sg < ex ? 'Reduce' : 'Same'
 
@@ -123,7 +170,7 @@ export function SipChanges({ existing, suggested, onChange, inputStyle }: {
  * be followed by an STP back: from the fund the switch moved into, back into
  * equity, week by week, for the whole switched amount.
  */
-export function SwitchPlan({ kind, rows, onChange, fromFunds, changes, inputStyle }: {
+export function SwitchPlan({ kind, rows, onChange, fromFunds, changes, values, inputStyle }: {
   kind: 'switch' | 'stp'
   /** All moves, switches and STPs. */
   rows: SwitchRow[]
@@ -132,6 +179,8 @@ export function SwitchPlan({ kind, rows, onChange, fromFunds, changes, inputStyl
   fromFunds: string[]
   /** Amount each fund goes down (negative) or up (positive) in the suggested portfolio. */
   changes: Map<string, number>
+  /** Each fund's value: existing, suggested, and on day one (suggested + switches), to fill amounts in. */
+  values: { ex: Map<string, number>; pr: Map<string, number>; dayOne: Map<string, number> }
   inputStyle: React.CSSProperties
 }) {
   const { funds, byCode, assetOf } = useFunds()
@@ -141,28 +190,38 @@ export function SwitchPlan({ kind, rows, onChange, fromFunds, changes, inputStyl
   const mine = rows.filter(r => r.type === kind)
   const stp = kind === 'stp'
   const set = (id: string, patch: Partial<SwitchRow>) => onChange(rows.map(r => (r.id === id ? { ...r, ...patch } : r)))
-  const weeksOf = (r: SwitchRow) => r.weeks ?? (r.months ? r.months * 4 : null)
-  const total = (r: SwitchRow) => (r.amount ?? 0) * (r.type === 'stp' ? (weeksOf(r) ?? 0) : 1)
+  const total = moveTotal
+  // The amount a move out of `from` starts with: for a switch, what the suggested portfolio sells of
+  // the fund (or, when it sells nothing, what the fund holds), less other switches out of it; for an
+  // STP, what the fund holds on day one less other STPs out of it.
+  const fill = (r: SwitchRow, from: string): Partial<SwitchRow> => {
+    const others = rows.filter(x => x.id !== r.id && x.type === r.type && x.from === from).reduce((t, x) => t + total(x), 0)
+    if (r.type === 'switch') {
+      const ex = values.ex.get(from) ?? 0, pr = values.pr.get(from) ?? 0
+      const sell = Math.max(0, ex - pr)
+      return { from, amount: Math.round(Math.max(0, (sell > 0.5 ? sell : ex || pr) - others)) || null }
+    }
+    const left = Math.round(Math.max(0, (values.dayOne.get(from) ?? 0) - others))
+    const weeks = weeksOf(r) ?? 12
+    return { from, weeks, months: null, total: left || null, amount: left ? Math.round(left / weeks) : null }
+  }
+  const pickFrom = (r: SwitchRow, from: string) => set(r.id, from ? fill(r, from) : { from })
   // After a switch (say equity → debt when markets correct), an STP that brings the money back:
   // from where the switch landed, into the fund it left (changeable), week by week for 12 weeks.
   const stpBack = (r: SwitchRow) => {
     const weeks = 12
     onChange([...rows, {
-      id: newId(), type: 'stp', from: r.to, to: r.from, weeks, after: r.id,
+      id: newId(), type: 'stp', from: r.to, to: r.from, weeks, after: r.id, total: r.amount,
       amount: r.amount == null ? null : Math.round(r.amount / weeks),
     }])
   }
   // STPs usually start where a switch landed: those funds come first in the From list.
   const switchedInto = [...new Set(rows.filter(r => r.type === 'switch' && r.to).map(r => r.to))]
 
-  // Switches built from the suggested portfolio: each sell goes into the buys, largest first,
-  // after whatever the STPs already move. STP rows are kept as they are.
+  // Switches built from the suggested portfolio: each sell goes into the buys, largest first.
+  // STPs come after (out of what the switches put in place) and are kept as they are.
   const autoFill = () => {
     const left = new Map(changes)
-    for (const r of rows) if (r.type === 'stp') {
-      left.set(r.from, (left.get(r.from) ?? 0) + total(r))
-      left.set(r.to, (left.get(r.to) ?? 0) - total(r))
-    }
     const sells = [...left].filter(([, d]) => d < -0.5).map(([c, d]) => ({ c, left: -d })).sort((a, b) => b.left - a.left)
     const buys = [...left].filter(([, d]) => d > 0.5).map(([c, d]) => ({ c, left: d })).sort((a, b) => b.left - a.left)
     const made: SwitchRow[] = []
@@ -225,14 +284,14 @@ export function SwitchPlan({ kind, rows, onChange, fromFunds, changes, inputStyl
                       {fromPick[r.id] != null ? (
                         <div className="print:hidden">
                           <FundPicker funds={funds} value={fromPick[r.id]} onChange={v => setFromPick(x => ({ ...x, [r.id]: v }))} autoFocus
-                                      onPick={f => { set(r.id, { from: f.c }); setFromPick(x => { const y = { ...x }; delete y[r.id]; return y }) }}
+                                      onPick={f => { pickFrom(r, f.c); setFromPick(x => { const y = { ...x }; delete y[r.id]; return y }) }}
                                       placeholder={stp ? 'Transfer out of… type any fund' : 'Switch out of… type any fund'} style={inputStyle} />
                         </div>
                       ) : (
                         <select value={r.from} className="px-2 py-1 rounded text-xs w-full print:hidden" style={inputStyle}
                                 onChange={e => e.target.value === '__any'
                                   ? setFromPick(x => ({ ...x, [r.id]: '' }))
-                                  : set(r.id, { from: e.target.value })}>
+                                  : pickFrom(r, e.target.value)}>
                           <option value="">— pick a fund —</option>
                           {r.from && !fromFunds.includes(r.from) && !(stp && switchedInto.includes(r.from)) &&
                             <option value={r.from}>{byCode.get(r.from)?.n ?? r.from}</option>}
@@ -269,17 +328,37 @@ export function SwitchPlan({ kind, rows, onChange, fromFunds, changes, inputStyl
                     <td style={{ width: 150, textAlign: 'right' }}>
                       <span className="hidden print:inline text-xs font-semibold">{r.amount ? inr(r.amount) : '—'}</span>
                       <input type="number" min={0} step={stp ? 5000 : 10000} value={r.amount ?? ''} placeholder={stp ? '₹ / week' : '₹'}
-                             onChange={e => set(r.id, { amount: e.target.value === '' ? null : Math.max(0, +e.target.value) })}
+                             onChange={e => {
+                               const v = e.target.value === '' ? null : Math.max(0, +e.target.value)
+                               set(r.id, stp ? { amount: v, total: v == null ? null : v * (weeksOf(r) ?? 0) } : { amount: v })
+                             }}
                              className="px-2 py-1 rounded text-xs w-full text-right print:hidden" style={inputStyle} />
                     </td>
                     {stp && (
                       <td style={{ width: 80, textAlign: 'right' }}>
                         <span className="hidden print:inline text-xs">{weeksOf(r) ?? '—'}</span>
-                        <input type="number" min={1} max={260} value={weeksOf(r) ?? ''} onChange={e => set(r.id, { weeks: e.target.value === '' ? null : Math.max(1, Math.min(260, +e.target.value)), months: null })}
+                        <input type="number" min={1} max={260} value={weeksOf(r) ?? ''} onChange={e => {
+                                 const w = e.target.value === '' ? null : Math.max(1, Math.min(260, +e.target.value))
+                                 // The total stays; the weekly amount follows the weeks.
+                                 const t = total(r)
+                                 set(r.id, { weeks: w, months: null, total: t || null, amount: w && t ? Math.round(t / w) : r.amount })
+                               }}
                                className="px-2 py-1 rounded text-xs w-full text-right print:hidden" style={inputStyle} />
                       </td>
                     )}
-                    {stp && <td className="ret-cell text-xs font-semibold">{total(r) ? inr(total(r)) : '—'}</td>}
+                    {stp && (
+                      <td style={{ width: 150, textAlign: 'right' }}>
+                        <span className="hidden print:inline text-xs font-semibold">{total(r) ? inr(total(r)) : '—'}</span>
+                        <input type="number" min={0} step={50000} value={total(r) || ''} placeholder="₹ total"
+                               title="The whole amount to move; the weekly amount is this ÷ weeks"
+                               onChange={e => {
+                                 const t = e.target.value === '' ? null : Math.max(0, +e.target.value)
+                                 const w = weeksOf(r) ?? 12
+                                 set(r.id, { total: t, weeks: w, months: null, amount: t ? Math.round(t / w) : null })
+                               }}
+                               className="px-2 py-1 rounded text-xs w-full text-right font-semibold print:hidden" style={inputStyle} />
+                      </td>
+                    )}
                     <td className="print:hidden" style={{ width: 70 }}>
                       {!stp && r.to && (
                         <button className="text-[10px] whitespace-nowrap" onClick={() => stpBack(r)}
@@ -311,16 +390,17 @@ export function SwitchPlan({ kind, rows, onChange, fromFunds, changes, inputStyl
           </table>
         </div>
       )}
-      {!stp && rows.length > 0 && (() => {
-        // Do the switches and STPs together move each fund as much as the suggested portfolio says?
+      {!stp && mine.length > 0 && (() => {
+        // Do the switches move each fund as much as day one (the suggested portfolio + switches) says?
         const out = new Map<string, number>(), into = new Map<string, number>()
-        for (const r of rows) { out.set(r.from, (out.get(r.from) ?? 0) + total(r)); into.set(r.to, (into.get(r.to) ?? 0) + total(r)) }
-        const off = [...changes].map(([c, d]) => ({ c, d, moved: (into.get(c) ?? 0) - (out.get(c) ?? 0) }))
+        for (const r of mine) { out.set(r.from, (out.get(r.from) ?? 0) + total(r)); into.set(r.to, (into.get(r.to) ?? 0) + total(r)) }
+        const codes = [...new Set([...values.ex.keys(), ...values.dayOne.keys()])]
+        const off = codes.map(c => ({ c, d: (values.dayOne.get(c) ?? 0) - (values.ex.get(c) ?? 0), moved: (into.get(c) ?? 0) - (out.get(c) ?? 0) }))
           // Rounding (an STP split into equal weeks) is not a mismatch: allow ₹100 or 1%.
           .filter(x => Math.abs(x.moved - x.d) > Math.max(100, Math.abs(x.d) * 0.01) && (x.d !== 0 || x.moved !== 0))
         return off.length > 0 && (
           <p className="text-[11px] mt-2 print:hidden" style={{ color: '#F59E0B' }}>
-            Switches + STPs not matching the suggested portfolio yet: {off.slice(0, 6).map(x => `${byCode.get(x.c)?.n ?? x.c} (needs ${x.d >= 0 ? '+' : '−'}${inrShort(Math.abs(x.d))}, moves give ${x.moved >= 0 ? '+' : '−'}${inrShort(Math.abs(x.moved))})`).join(' · ')}
+            Switches not matching the suggested portfolio yet: {off.slice(0, 6).map(x => `${byCode.get(x.c)?.n ?? x.c} (needs ${x.d >= 0 ? '+' : '−'}${inrShort(Math.abs(x.d))}, moves give ${x.moved >= 0 ? '+' : '−'}${inrShort(Math.abs(x.moved))})`).join(' · ')}
             {off.length > 6 ? ` · +${off.length - 6} more` : ''}. The rest can come from fresh money or be left in cash.
           </p>
         )

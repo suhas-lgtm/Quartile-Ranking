@@ -11,6 +11,8 @@
 // Rows and columns are remembered by their text (the row's first cell, the
 // column's heading) within their section and table, so a choice survives
 // re-renders and reloads, and a new fund added later is included by default.
+// A page with `resetAfterDownload` goes back to everything ticked once its PDF
+// or link is made, so the next client's report starts complete.
 // A column heading marked data-pdf-off starts left out; ticking it puts it in.
 
 /** Is this column heading left out? `off` has the ones switched off; a heading that
@@ -61,6 +63,8 @@ interface ListState {
   setDialog: (b: boolean) => void
   pageKey: string
   box: React.RefObject<HTMLDivElement | null>
+  /** Put every section, row and column back in (after a download, on pages that ask for it). */
+  afterDownload?: () => void
 }
 const PdfCtx = createContext<Ctx | null>(null)
 const ListCtx = createContext<ListState | null>(null)
@@ -105,7 +109,12 @@ function applyMarks(root: HTMLElement, off: Set<string>) {
   })
 }
 
-export function PdfProvider({ pageKey, doc, children }: { pageKey: string; doc?: PdfDoc; children: React.ReactNode }) {
+export function PdfProvider({ pageKey, doc, resetAfterDownload, children }: {
+  pageKey: string; doc?: PdfDoc
+  /** Once the PDF or link is made, put everything back in for the next report. */
+  resetAfterDownload?: boolean
+  children: React.ReactNode
+}) {
   const [sections, setSections] = useState<Map<string, string>>(new Map())
   const [off, setOff] = useState<Set<string>>(() => loadOff(pageKey))
   const [picking, setPicking] = useState(false)
@@ -116,6 +125,7 @@ export function PdfProvider({ pageKey, doc, children }: { pageKey: string; doc?:
   const unregister = useCallback((id: string) => setSections(m => { if (!m.has(id)) return m; const n = new Map(m); n.delete(id); return n }), [])
   const toggle = useCallback((id: string) => setOff(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n }), [])
   const ctx = useMemo(() => ({ register, unregister, off, toggle }), [register, unregister, off, toggle])
+  const afterDownload = useMemo(() => resetAfterDownload ? () => setOff(new Set()) : undefined, [resetAfterDownload])
 
   // Keep the marks on as the tables re-render (data loading, edits): re-apply after any DOM change.
   useEffect(() => {
@@ -155,7 +165,7 @@ export function PdfProvider({ pageKey, doc, children }: { pageKey: string; doc?:
   const cellsOff = [...off].filter(k => k.startsWith('r|') || k.startsWith('c|'))
   return (
     <PdfCtx.Provider value={ctx}>
-      <ListCtx.Provider value={{ doc, sections, off, setOff, picking, setPicking, dialog, setDialog, pageKey, box }}>
+      <ListCtx.Provider value={{ doc, sections, off, setOff, picking, setPicking, dialog, setDialog, pageKey, box, afterDownload }}>
         <div ref={box} className={`pdf-doc ${colClasses} ${picking ? 'pdf-picking' : ''}`}>
           {doc && <PdfCover doc={doc} />}
           {children}
@@ -285,7 +295,7 @@ if (typeof window !== 'undefined') {
   })
 }
 
-function printLight(doc?: PdfDoc) {
+function printLight(doc?: PdfDoc, onDone?: () => void) {
   const root = document.documentElement
   const before = root.getAttribute('data-theme')
   root.setAttribute('data-theme', 'light')
@@ -303,6 +313,7 @@ function printLight(doc?: PdfDoc) {
     root.classList.remove('pdf-printing')
     foot.remove()
     window.removeEventListener('afterprint', restore)
+    onDone?.()
   }
   window.addEventListener('afterprint', restore)
   // Let the theme repaint before the print dialog snapshots the page.
@@ -365,10 +376,11 @@ export function PdfButton({ title }: { title?: string }) {
         return
       }
       setBusy(false)
+      if (!out.pdf) list.afterDownload?.()
     }
     if (out.pdf) {
       if (!out.link) setOpen(false)
-      printLight(list.doc)
+      printLight(list.doc, list.afterDownload)
     }
   }
   const copy = (url: string) => {
